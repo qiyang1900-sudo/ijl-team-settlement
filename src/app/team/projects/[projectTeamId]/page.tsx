@@ -47,8 +47,11 @@ async function saveSubmission(formData: FormData) {
   const reportAmount = Number(formData.get("report_amount") || 0);
   const linkUrl = String(formData.get("link_url") || "");
   const implementationDate = String(formData.get("implementation_date") || "");
-  const publishChannel = String(formData.get("publish_channel") || "");
   const reportNote = String(formData.get("report_note") || "");
+
+  const evidenceMethod = String(formData.get("evidence_method") || "upload");
+  const evidenceDriveUrl = String(formData.get("evidence_drive_url") || "");
+  const evidenceNote = String(formData.get("evidence_note") || "");
 
   await supabase.from("submission_company_info").upsert(
     {
@@ -125,9 +128,25 @@ async function saveSubmission(formData: FormData) {
     amount: reportAmount,
     link_url: linkUrl,
     implementation_date: implementationDate || null,
-    publish_channel: publishChannel,
+    publish_channel: "",
     note: reportNote,
   });
+
+  await supabase
+    .from("submission_files")
+    .delete()
+    .eq("project_team_id", projectTeamId)
+    .eq("file_category", "google_drive");
+
+  if (evidenceDriveUrl || evidenceNote) {
+    await supabase.from("submission_files").insert({
+      project_team_id: projectTeamId,
+      file_category: "google_drive",
+      submit_method: evidenceMethod === "drive" ? "link" : "upload",
+      external_url: evidenceDriveUrl || null,
+      note: evidenceNote || null,
+    });
+  }
 
   await supabase
     .from("project_teams")
@@ -245,6 +264,13 @@ export default async function TeamSubmissionPage({
     .limit(1)
     .maybeSingle();
 
+  const { data: evidenceFile } = await supabase
+    .from("submission_files")
+    .select("*")
+    .eq("project_team_id", projectTeamId)
+    .eq("file_category", "google_drive")
+    .maybeSingle();
+
   const defaultCompanyName =
     companyInfo?.company_name || profile?.company_name || "";
   const defaultBankName = companyInfo?.bank_name || profile?.bank_name || "";
@@ -283,30 +309,10 @@ export default async function TeamSubmissionPage({
             </p>
 
             <div className="mt-6 grid gap-5 md:grid-cols-2">
-              <Field
-                label="契約会社名"
-                name="company_name"
-                defaultValue={defaultCompanyName}
-                placeholder="例：株式会社Fennel"
-              />
-              <Field
-                label="銀行名"
-                name="bank_name"
-                defaultValue={defaultBankName}
-                placeholder="例：RAKUTEN BANK, LTD"
-              />
-              <Field
-                label="口座番号"
-                name="bank_account_number"
-                defaultValue={defaultBankAccountNumber}
-                placeholder="例：1234567"
-              />
-              <Field
-                label="Swift code"
-                name="swift_code"
-                defaultValue={defaultSwiftCode}
-                placeholder="例：RAKTJPJT"
-              />
+              <Field label="契約会社名" name="company_name" defaultValue={defaultCompanyName} />
+              <Field label="銀行名" name="bank_name" defaultValue={defaultBankName} />
+              <Field label="口座番号" name="bank_account_number" defaultValue={defaultBankAccountNumber} />
+              <Field label="Swift code" name="swift_code" defaultValue={defaultSwiftCode} />
             </div>
 
             <label className="mt-5 flex items-center gap-3 text-sm text-slate-300">
@@ -333,8 +339,8 @@ export default async function TeamSubmissionPage({
               <Field
                 label="契約上の納品期日"
                 name="delivery_due_date"
-                type="date"
                 defaultValue={summaryRow?.delivery_due_date || ""}
+                placeholder="例：2025-12-31"
               />
               <Field
                 label="契約支払基準"
@@ -370,7 +376,6 @@ export default async function TeamSubmissionPage({
                 label="サービス / 内容項目"
                 name="service_item"
                 defaultValue={detailRow?.service_item || ""}
-                placeholder="例：2025年秋季リーグ補助金（9-12月）"
               />
               <Field
                 label="数量"
@@ -399,11 +404,7 @@ export default async function TeamSubmissionPage({
                 </select>
               </div>
 
-              <Field
-                label="備考"
-                name="detail_note"
-                defaultValue={detailRow?.note || ""}
-              />
+              <Field label="備考" name="detail_note" defaultValue={detailRow?.note || ""} />
             </div>
           </section>
 
@@ -411,12 +412,8 @@ export default async function TeamSubmissionPage({
             <h2 className="text-2xl font-bold">④ 結案報告</h2>
 
             <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-slate-300">
-              <p>
-                ※出演費関連の場合は、必ず出演当日の配信リンク・投稿リンクをご記入ください。
-              </p>
-              <p className="mt-2">
-                ※スクリーンショットには、対象選手の顔または出演状況が確認できる画面を含めてください。
-              </p>
+              ※出演費関連の場合は、必ず出演当日の配信リンク・投稿リンクをご記入ください。
+              出演費ではない場合、リンク欄は空欄でも問題ありません。
             </div>
 
             <div className="mt-6 grid gap-5 md:grid-cols-2">
@@ -424,13 +421,11 @@ export default async function TeamSubmissionPage({
                 label="項目内容"
                 name="item_content"
                 defaultValue={reportRow?.item_content || ""}
-                placeholder="例：2025年秋季リーグ補助金（9-12月）"
               />
               <Field
                 label="種別"
                 name="category_type"
                 defaultValue={reportRow?.category_type || ""}
-                placeholder="例：1"
               />
               <Field
                 label="金額"
@@ -442,19 +437,13 @@ export default async function TeamSubmissionPage({
                 label="リンク"
                 name="link_url"
                 defaultValue={reportRow?.link_url || ""}
-                placeholder="https://..."
+                placeholder="出演費関連の場合のみ、出演当日のリンクを記入"
               />
               <Field
                 label="実施日"
                 name="implementation_date"
-                type="date"
                 defaultValue={reportRow?.implementation_date || ""}
-              />
-              <Field
-                label="掲載チャネル"
-                name="publish_channel"
-                defaultValue={reportRow?.publish_channel || ""}
-                placeholder="YouTube / X / TikTok / その他"
+                placeholder="例：2025-12-31"
               />
               <Field
                 label="備考"
@@ -466,8 +455,53 @@ export default async function TeamSubmissionPage({
 
           <section className="rounded-2xl border border-slate-700 bg-slate-900 p-6">
             <h2 className="text-2xl font-bold">⑤ 証憑・資料提出</h2>
-            <p className="mt-4 text-slate-400">
-              ファイルアップロード、Google Driveリンク、フォルダ内截图证明は次のステップで追加します。
+
+            <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-slate-300">
+              <p>
+                ※スクリーンショットには、対象選手の顔または出演状況が確認できる画面を含めてください。
+              </p>
+              <p className="mt-2">
+                ※交通費などスクリーンショットが多い場合は、Google Driveリンクを記入し、リンク先フォルダ内の資料が確認できるスクリーンショットをアップロードしてください。
+              </p>
+              <p className="mt-2">
+                ※Google Driveリンクの閲覧権限が「リンクを知っている全員が閲覧可能」になっているか確認してください。
+              </p>
+            </div>
+
+            <div className="mt-6 grid gap-5 md:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium text-slate-300">
+                  提出方法
+                </label>
+                <select
+                  name="evidence_method"
+                  defaultValue={
+                    evidenceFile?.submit_method === "link" ? "drive" : "upload"
+                  }
+                  className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
+                >
+                  <option value="upload">直接アップロード</option>
+                  <option value="drive">Google Driveリンク</option>
+                </select>
+              </div>
+
+              <Field
+                label="Google Driveリンク"
+                name="evidence_drive_url"
+                defaultValue={evidenceFile?.external_url || ""}
+                placeholder="截图较多时填写"
+              />
+
+              <Field
+                label="提出資料に関する備考"
+                name="evidence_note"
+                defaultValue={evidenceFile?.note || ""}
+                placeholder="例：交通費領収書はGoogle Driveに格納済み"
+              />
+            </div>
+
+            <p className="mt-4 text-sm text-slate-500">
+              文件上传按钮会在下一步追加。截图少的情况，可直接上传截图；截图多的情况，可填写Google Drive链接。
             </p>
           </section>
 
