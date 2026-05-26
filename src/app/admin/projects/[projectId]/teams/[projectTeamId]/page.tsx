@@ -80,7 +80,7 @@ export default async function AdminSubmissionDetailPage({
 }: {
   params: Promise<{ projectId: string; projectTeamId: string }>;
 }) {
-  const { projectId, projectTeamId } = await params;
+  const { projectTeamId } = await params;
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -199,7 +199,7 @@ export default async function AdminSubmissionDetailPage({
 
   return (
     <main className="min-h-screen bg-slate-950 p-10 text-white">
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-7xl">
         <div className="mb-8">
           <a
             href="/admin/reviews"
@@ -209,6 +209,7 @@ export default async function AdminSubmissionDetailPage({
           </a>
 
           <h1 className="mt-4 text-3xl font-bold">提交详情</h1>
+
           <p className="mt-2 text-slate-400">
             {project?.title || "-"} / {team?.name || "-"}
           </p>
@@ -338,6 +339,7 @@ export default async function AdminSubmissionDetailPage({
                     <th className="px-4 py-3">備考</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {summaryRows.map((row: any) => (
                     <tr key={row.id} className="border-t border-slate-700">
@@ -368,8 +370,8 @@ export default async function AdminSubmissionDetailPage({
           {!detailRows || detailRows.length === 0 ? (
             <p className="mt-4 text-slate-400">暂无提交资料。</p>
           ) : (
-            <div className="mt-4 overflow-hidden rounded-xl border border-slate-700">
-              <table className="w-full text-left text-sm">
+            <div className="mt-4 overflow-x-auto rounded-xl border border-slate-700">
+              <table className="min-w-[900px] w-full text-left text-sm">
                 <thead className="bg-slate-800 text-slate-300">
                   <tr>
                     <th className="px-4 py-3">No.</th>
@@ -381,6 +383,7 @@ export default async function AdminSubmissionDetailPage({
                     <th className="px-4 py-3">備考</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {detailRows.map((row: any) => (
                     <tr key={row.id} className="border-t border-slate-700">
@@ -410,7 +413,7 @@ export default async function AdminSubmissionDetailPage({
             <p className="mt-4 text-slate-400">暂无提交资料。</p>
           ) : (
             <div className="mt-4 overflow-x-auto rounded-xl border border-slate-700">
-              <table className="min-w-[1100px] w-full text-left text-sm">
+              <table className="min-w-[1200px] w-full text-left text-sm">
                 <thead className="bg-slate-800 text-slate-300">
                   <tr>
                     <th className="px-4 py-3">No.</th>
@@ -434,7 +437,9 @@ export default async function AdminSubmissionDetailPage({
                           {row.row_number || "-"}
                         </td>
 
-                        <td className="px-4 py-3">{row.item_content || "-"}</td>
+                        <td className="px-4 py-3">
+                          {row.item_content || "-"}
+                        </td>
 
                         <td className="px-4 py-3">
                           {row.category_type || "-"}
@@ -456,16 +461,16 @@ export default async function AdminSubmissionDetailPage({
                           )}
                         </td>
 
-               <td className="px-4 py-3">
-  {screenshot?.file_url ? (
-    <ImagePreview
-      imageUrl={screenshot.file_url}
-      fileName={screenshot.file_name}
-    />
-  ) : (
-    "-"
-  )}
-</td>
+                        <td className="px-4 py-3">
+                          {screenshot?.file_url ? (
+                            <ImagePreview
+                              imageUrl={screenshot.file_url}
+                              fileName={screenshot.file_name}
+                            />
+                          ) : (
+                            "-"
+                          )}
+                        </td>
 
                         <td className="px-4 py-3">
                           {row.implementation_date || "-"}
@@ -494,11 +499,13 @@ export default async function AdminSubmissionDetailPage({
                   className="rounded-xl border border-slate-700 bg-slate-950 p-4"
                 >
                   <p className="font-semibold">{log.action}</p>
+
                   <p className="mt-1 text-sm text-slate-400">
                     {log.created_at
                       ? new Date(log.created_at).toLocaleString("ja-JP")
                       : "-"}
                   </p>
+
                   {log.comment ? (
                     <p className="mt-2 whitespace-pre-wrap text-sm text-slate-300">
                       {log.comment}
