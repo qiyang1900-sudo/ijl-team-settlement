@@ -40,12 +40,14 @@ export default async function AdminReviewsPage() {
     )
     .order("created_at", { ascending: false });
 
-  const waiting =
-    rows?.filter((row) => row.status === "submitted" || row.status === "resubmitted") || [];
-  const returned = rows?.filter((row) => row.status === "returned") || [];
-  const approved = rows?.filter((row) => row.status === "approved") || [];
-  const notSubmitted =
-    rows?.filter((row) => row.status === "not_submitted" || row.status === "draft") || [];
+  const allRows = rows || [];
+
+  const submitted = allRows.filter((row) => row.status === "submitted");
+  const resubmitted = allRows.filter((row) => row.status === "resubmitted");
+  const returned = allRows.filter((row) => row.status === "returned");
+  const approved = allRows.filter((row) => row.status === "approved");
+  const notSubmitted = allRows.filter((row) => row.status === "not_submitted");
+  const draft = allRows.filter((row) => row.status === "draft");
 
   return (
     <main className="min-h-screen bg-slate-950 p-10 text-white">
@@ -70,15 +72,54 @@ export default async function AdminReviewsPage() {
             <p className="mt-2 text-sm text-red-200">{error.message}</p>
           </div>
         ) : (
-          <div className="space-y-8">
-            <ReviewSection title="待审核" rows={waiting} color="yellow" />
-            <ReviewSection title="退回修改" rows={returned} color="red" />
-            <ReviewSection title="审核通过" rows={approved} color="green" />
-            <ReviewSection title="未提交 / 草稿" rows={notSubmitted} color="slate" />
-          </div>
+          <>
+            <div className="mb-8 grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+              <StatCard label="待审核" count={submitted.length} color="yellow" />
+              <StatCard label="重新提交" count={resubmitted.length} color="orange" />
+              <StatCard label="退回修改" count={returned.length} color="red" />
+              <StatCard label="审核通过" count={approved.length} color="green" />
+              <StatCard label="未提交" count={notSubmitted.length} color="slate" />
+              <StatCard label="草稿" count={draft.length} color="blue" />
+            </div>
+
+            <div className="space-y-8">
+              <ReviewSection title="待审核" rows={submitted} color="yellow" />
+              <ReviewSection title="重新提交" rows={resubmitted} color="orange" />
+              <ReviewSection title="退回修改" rows={returned} color="red" />
+              <ReviewSection title="审核通过" rows={approved} color="green" />
+              <ReviewSection title="未提交" rows={notSubmitted} color="slate" />
+              <ReviewSection title="草稿" rows={draft} color="blue" />
+            </div>
+          </>
         )}
       </div>
     </main>
+  );
+}
+
+function StatCard({
+  label,
+  count,
+  color,
+}: {
+  label: string;
+  count: number;
+  color: "yellow" | "orange" | "red" | "green" | "slate" | "blue";
+}) {
+  const colorClass = {
+    yellow: "border-yellow-500 bg-yellow-950 text-yellow-200",
+    orange: "border-orange-500 bg-orange-950 text-orange-200",
+    red: "border-red-500 bg-red-950 text-red-200",
+    green: "border-green-500 bg-green-950 text-green-200",
+    slate: "border-slate-700 bg-slate-900 text-slate-200",
+    blue: "border-blue-500 bg-blue-950 text-blue-200",
+  }[color];
+
+  return (
+    <div className={`rounded-xl border p-4 ${colorClass}`}>
+      <p className="text-sm opacity-80">{label}</p>
+      <p className="mt-2 text-3xl font-bold">{count}</p>
+    </div>
   );
 }
 
@@ -89,13 +130,15 @@ function ReviewSection({
 }: {
   title: string;
   rows: any[];
-  color: "yellow" | "red" | "green" | "slate";
+  color: "yellow" | "orange" | "red" | "green" | "slate" | "blue";
 }) {
   const colorClass = {
     yellow: "border-yellow-500 bg-yellow-950 text-yellow-200",
+    orange: "border-orange-500 bg-orange-950 text-orange-200",
     red: "border-red-500 bg-red-950 text-red-200",
     green: "border-green-500 bg-green-950 text-green-200",
     slate: "border-slate-700 bg-slate-900 text-slate-200",
+    blue: "border-blue-500 bg-blue-950 text-blue-200",
   }[color];
 
   return (
@@ -119,6 +162,7 @@ function ReviewSection({
                 <th className="px-4 py-3">项目</th>
                 <th className="px-4 py-3">状态</th>
                 <th className="px-4 py-3">提交时间</th>
+                <th className="px-4 py-3">截止时间</th>
                 <th className="px-4 py-3">退回理由</th>
                 <th className="px-4 py-3">操作</th>
               </tr>
@@ -155,6 +199,12 @@ function ReviewSection({
                         : "-"}
                     </td>
 
+                    <td className="px-4 py-3 text-slate-300">
+                      {project?.deadline_at
+                        ? new Date(project.deadline_at).toLocaleString("ja-JP")
+                        : "-"}
+                    </td>
+
                     <td className="max-w-xs px-4 py-3 text-slate-300">
                       <div className="line-clamp-2">
                         {row.return_reason || "-"}
@@ -162,12 +212,16 @@ function ReviewSection({
                     </td>
 
                     <td className="px-4 py-3">
-                      <a
-                        href={`/admin/projects/${project?.id}/teams/${row.id}`}
-                        className="text-slate-300 underline hover:text-white"
-                      >
-                        查看提交
-                      </a>
+                      {project?.id ? (
+                        <a
+                          href={`/admin/projects/${project.id}/teams/${row.id}`}
+                          className="text-slate-300 underline hover:text-white"
+                        >
+                          查看提交
+                        </a>
+                      ) : (
+                        "-"
+                      )}
                     </td>
                   </tr>
                 );
