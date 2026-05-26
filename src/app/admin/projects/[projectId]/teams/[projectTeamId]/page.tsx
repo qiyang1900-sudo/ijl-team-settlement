@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
+import ImagePreview from "./ImagePreview";
 
 async function approveSubmission(formData: FormData) {
   "use server";
@@ -455,19 +456,16 @@ export default async function AdminSubmissionDetailPage({
                           )}
                         </td>
 
-                        <td className="px-4 py-3">
-                          {screenshot?.file_url ? (
-                            <a
-                              href={screenshot.file_url}
-                              target="_blank"
-                              className="underline"
-                            >
-                              查看截图
-                            </a>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
+               <td className="px-4 py-3">
+  {screenshot?.file_url ? (
+    <ImagePreview
+      imageUrl={screenshot.file_url}
+      fileName={screenshot.file_name}
+    />
+  ) : (
+    "-"
+  )}
+</td>
 
                         <td className="px-4 py-3">
                           {row.implementation_date || "-"}
