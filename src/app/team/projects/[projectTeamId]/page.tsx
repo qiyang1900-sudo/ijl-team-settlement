@@ -166,8 +166,7 @@ async function saveSubmission(formData: FormData) {
     })
     .eq("id", projectTeamId);
 
-  const savedType = actionType === "submit" ? "submitted" : "draft";
-  redirect(`/team/projects/${projectTeamId}?saved=${savedType}`);
+  redirect(`/team/projects/${projectTeamId}?result=${actionType}`);
 }
 
 export default async function TeamSubmissionPage({
@@ -175,10 +174,10 @@ export default async function TeamSubmissionPage({
   searchParams,
 }: {
   params: Promise<{ projectTeamId: string }>;
-  searchParams: Promise<{ saved?: string; teamId?: string }>;
+  searchParams: Promise<{ result?: string; teamId?: string }>;
 }) {
   const { projectTeamId } = await params;
-  const { saved, teamId } = await searchParams;
+  const { result, teamId } = await searchParams;
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -240,27 +239,12 @@ export default async function TeamSubmissionPage({
     );
   }
 
-  if (teamId && teamId !== projectTeam.team_id) {
-    return (
-      <main className="min-h-screen bg-slate-950 p-10 text-white">
-        <div className="mx-auto max-w-4xl">
-          <h1 className="text-3xl font-bold">访问错误</h1>
-          <p className="mt-4 text-red-400">
-            该项目不属于当前选择的战队，请返回战队登录页重新选择。
-          </p>
-          <a
-            href="/team/login"
-            className="mt-6 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950"
-          >
-            返回战队登录
-          </a>
-        </div>
-      </main>
-    );
-  }
-
   const project: any = projectTeam.projects;
   const team: any = projectTeam.teams;
+
+  const backToProjectsUrl = teamId
+    ? `/team/projects?teamId=${teamId}`
+    : "/team/projects";
 
   const { data: profile } = await supabase
     .from("team_profiles")
@@ -312,15 +296,14 @@ export default async function TeamSubmissionPage({
     companyInfo?.bank_account_number || profile?.bank_account_number || "";
   const defaultSwiftCode = companyInfo?.swift_code || profile?.swift_code || "";
 
-  const backHref = teamId
-    ? `/team/projects?teamId=${teamId}`
-    : "/team/projects";
-
   return (
     <main className="min-h-screen bg-slate-950 p-10 text-white">
       <div className="mx-auto max-w-5xl">
         <div className="mb-8">
-          <a href={backHref} className="text-sm text-slate-400 hover:text-white">
+          <a
+            href={backToProjectsUrl}
+            className="text-sm text-slate-400 hover:text-white"
+          >
             ← 我的提交项目へ戻る
           </a>
 
@@ -330,13 +313,13 @@ export default async function TeamSubmissionPage({
             {team?.name || "-"} / 当前状态：{projectTeam.status}
           </p>
 
-          {saved === "draft" ? (
-            <div className="mt-5 rounded-xl border border-green-500 bg-green-950 p-4 text-green-200">
+          {result === "draft" ? (
+            <div className="mt-5 rounded-xl border border-blue-500 bg-blue-950 p-4 text-blue-200">
               草稿已保存。
             </div>
           ) : null}
 
-          {saved === "submitted" ? (
+          {result === "submit" ? (
             <div className="mt-5 rounded-xl border border-green-500 bg-green-950 p-4 text-green-200">
               已提交审核，请等待管理员确认。
             </div>
