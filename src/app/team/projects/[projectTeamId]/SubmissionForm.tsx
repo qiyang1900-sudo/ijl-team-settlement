@@ -28,8 +28,6 @@ export default function SubmissionForm({
   summaryRow,
   detailRows,
   reportRows,
-  evidenceFile,
-  backHref,
 }: {
   action: (formData: FormData) => void;
   projectTeamId: string;
@@ -40,8 +38,6 @@ export default function SubmissionForm({
   summaryRow: any;
   detailRows: any[];
   reportRows: any[];
-  evidenceFile: any;
-  backHref: string;
 }) {
   const defaultCompanyName =
     companyInfo?.company_name || profile?.company_name || "";
@@ -99,12 +95,12 @@ export default function SubmissionForm({
   }, [details]);
 
   function updateDetail(index: number, key: keyof DetailRow, value: any) {
-    const next = [...details];
-    next[index] = {
-      ...next[index],
+    const nextDetails = [...details];
+    nextDetails[index] = {
+      ...nextDetails[index],
       [key]: value,
     };
-    setDetails(next);
+    setDetails(nextDetails);
 
     if (!reports[index]) {
       const nextReports = [...reports];
@@ -119,12 +115,12 @@ export default function SubmissionForm({
   }
 
   function updateReport(index: number, key: keyof ReportRow, value: string) {
-    const next = [...reports];
-    next[index] = {
-      ...next[index],
+    const nextReports = [...reports];
+    nextReports[index] = {
+      ...nextReports[index],
       [key]: value,
     };
-    setReports(next);
+    setReports(nextReports);
   }
 
   function addRow() {
@@ -165,43 +161,47 @@ export default function SubmissionForm({
     setReports(reports.filter((_, i) => i !== index));
   }
 
-  function validateFiles(event: React.ChangeEvent<HTMLInputElement>) {
+  function validateSingleImage(event: React.ChangeEvent<HTMLInputElement>) {
     setFileError("");
 
     const files = Array.from(event.target.files || []);
 
-    if (files.length > 3) {
-      setFileError("画像は最大3枚までです。多い場合はGoogle Driveリンクをご利用ください。");
+    if (files.length === 0) {
+      return;
+    }
+
+    if (files.length > 1) {
+      setFileError(
+        "1項目につきアップロードできるスクリーンショットは1枚までです。複数ある場合はリンク欄にGoogle Driveリンクをご記入ください。"
+      );
       event.target.value = "";
       return;
     }
 
-    const maxEach = 300 * 1024;
-    const maxTotal = 900 * 1024;
-    const total = files.reduce((sum, file) => sum + file.size, 0);
+    const file = files[0];
 
-    for (const file of files) {
-      if (!file.type.startsWith("image/")) {
-        setFileError("アップロードできるのは画像のみです。PDF / ExcelはGoogle Driveリンクで提出してください。");
-        event.target.value = "";
-        return;
-      }
-
-      if (file.size > maxEach) {
-        setFileError("1枚あたり300KB以内にしてください。大きい場合はGoogle Driveリンクをご利用ください。");
-        event.target.value = "";
-        return;
-      }
+    if (!file.type.startsWith("image/")) {
+      setFileError(
+        "アップロードできるのは画像のみです。PDF / Excel / 複数ファイルはリンク欄にGoogle Driveリンクをご記入ください。"
+      );
+      event.target.value = "";
+      return;
     }
 
-    if (total > maxTotal) {
-      setFileError("画像の合計サイズは900KB以内にしてください。多い場合はGoogle Driveリンクをご利用ください。");
+    if (file.size > 300 * 1024) {
+      setFileError(
+        "画像は1枚300KB以内にしてください。大きい場合はリンク欄にGoogle Driveリンクをご記入ください。"
+      );
       event.target.value = "";
     }
   }
 
   return (
-    <form action={action} encType="multipart/form-data" className="space-y-5 text-sm">
+    <form
+      action={action}
+      encType="multipart/form-data"
+      className="space-y-5 text-sm"
+    >
       <input type="hidden" name="project_team_id" value={projectTeamId} />
       <input type="hidden" name="team_id" value={teamId} />
       <input type="hidden" name="current_status" value={currentStatus} />
@@ -214,10 +214,26 @@ export default function SubmissionForm({
         </p>
 
         <div className="mt-4 grid gap-3 md:grid-cols-4">
-          <Field label="契約会社名" name="company_name" defaultValue={defaultCompanyName} />
-          <Field label="銀行名" name="bank_name" defaultValue={defaultBankName} />
-          <Field label="口座番号" name="bank_account_number" defaultValue={defaultBankAccountNumber} />
-          <Field label="Swift code" name="swift_code" defaultValue={defaultSwiftCode} />
+          <Field
+            label="契約会社名"
+            name="company_name"
+            defaultValue={defaultCompanyName}
+          />
+          <Field
+            label="銀行名"
+            name="bank_name"
+            defaultValue={defaultBankName}
+          />
+          <Field
+            label="口座番号"
+            name="bank_account_number"
+            defaultValue={defaultBankAccountNumber}
+          />
+          <Field
+            label="Swift code"
+            name="swift_code"
+            defaultValue={defaultSwiftCode}
+          />
         </div>
 
         <label className="mt-3 flex items-center gap-2 text-xs text-slate-300">
@@ -292,14 +308,14 @@ export default function SubmissionForm({
           <table className="min-w-[1100px] w-full border-collapse text-left text-xs">
             <thead className="bg-slate-800 text-slate-300">
               <tr>
-                <th className="px-3 py-2 w-12">No.</th>
+                <th className="w-12 px-3 py-2">No.</th>
                 <th className="px-3 py-2">サービス / 内容項目</th>
-                <th className="px-3 py-2 w-24">数量</th>
-                <th className="px-3 py-2 w-32">単価</th>
-                <th className="px-3 py-2 w-32">小計</th>
-                <th className="px-3 py-2 w-32">金額一致</th>
+                <th className="w-24 px-3 py-2">数量</th>
+                <th className="w-32 px-3 py-2">単価</th>
+                <th className="w-32 px-3 py-2">小計</th>
+                <th className="w-32 px-3 py-2">金額一致</th>
                 <th className="px-3 py-2">備考</th>
-                <th className="px-3 py-2 w-20">削除</th>
+                <th className="w-20 px-3 py-2">削除</th>
               </tr>
             </thead>
 
@@ -337,7 +353,11 @@ export default function SubmissionForm({
                       type="number"
                       value={row.unit_price}
                       onChange={(e) =>
-                        updateDetail(index, "unit_price", Number(e.target.value))
+                        updateDetail(
+                          index,
+                          "unit_price",
+                          Number(e.target.value)
+                        )
                       }
                       className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
                     />
@@ -398,26 +418,26 @@ export default function SubmissionForm({
       </section>
 
       <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
-        <h2 className="text-lg font-bold">④ 結案報告</h2>
+        <h2 className="text-lg font-bold">④ 結案報告・証憑提出</h2>
         <p className="mt-1 text-xs text-slate-400">
-          精算明細の項目数に合わせて自動生成されます。リンクとスクリーンショットは1項目につき各1つまでです。
+          精算明細の項目数に合わせて自動生成されます。リンク欄には、出演費関連の場合の出演当日リンク、または資料が多い場合のGoogle Driveリンクをご記入ください。
         </p>
 
         <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-3 text-xs text-slate-300">
-          ※出演費関連の場合は、必ず出演当日の配信リンク・投稿リンクをご記入ください。多い場合はGoogle Driveリンクをご利用ください。
+          ※1項目につき、リンクは1つ、スクリーンショットは1枚までです。複数資料がある場合は、リンク欄にGoogle Driveリンクをご記入ください。
         </div>
 
         <div className="mt-4 overflow-x-auto rounded-lg border border-slate-700">
-          <table className="min-w-[1200px] w-full border-collapse text-left text-xs">
+          <table className="min-w-[1250px] w-full border-collapse text-left text-xs">
             <thead className="bg-slate-800 text-slate-300">
               <tr>
-                <th className="px-3 py-2 w-12">No.</th>
+                <th className="w-12 px-3 py-2">No.</th>
                 <th className="px-3 py-2">項目内容</th>
-                <th className="px-3 py-2 w-28">種別</th>
-                <th className="px-3 py-2 w-32">金額</th>
+                <th className="w-28 px-3 py-2">種別</th>
+                <th className="w-32 px-3 py-2">金額</th>
                 <th className="px-3 py-2">リンク</th>
-                <th className="px-3 py-2 w-36">実施日</th>
-                <th className="px-3 py-2 w-56">スクリーンショット</th>
+                <th className="w-36 px-3 py-2">実施日</th>
+                <th className="w-56 px-3 py-2">スクリーンショット</th>
                 <th className="px-3 py-2">備考</th>
               </tr>
             </thead>
@@ -471,7 +491,7 @@ export default function SubmissionForm({
                         onChange={(e) =>
                           updateReport(index, "link_url", e.target.value)
                         }
-                        placeholder="出演費関連の場合のみ"
+                        placeholder="出演リンクまたはGoogle Driveリンク"
                         className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
                       />
                     </td>
@@ -497,7 +517,7 @@ export default function SubmissionForm({
                         type="file"
                         name={`report_screenshot_${index}`}
                         accept="image/*"
-                        onChange={validateFiles}
+                        onChange={validateSingleImage}
                         className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2"
                       />
                     </td>
@@ -524,56 +544,6 @@ export default function SubmissionForm({
             {fileError}
           </div>
         ) : null}
-      </section>
-
-      <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
-        <h2 className="text-lg font-bold">⑤ Google Drive提出</h2>
-        <p className="mt-1 text-xs text-slate-400">
-          スクリーンショットが多い場合、PDF / Excelがある場合はGoogle Driveリンクで提出してください。
-        </p>
-
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <div>
-            <label className="block text-xs font-medium text-slate-300">
-              Google Driveリンク
-            </label>
-            <input
-              name="evidence_drive_url"
-              defaultValue={evidenceFile?.external_url || ""}
-              placeholder="https://drive.google.com/..."
-              className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-slate-300">
-              Google Drive内容確認截图
-            </label>
-            <input
-              type="file"
-              name="proof_screenshot"
-              accept="image/*"
-              onChange={validateFiles}
-              className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="block text-xs font-medium text-slate-300">
-              提出資料に関する備考
-            </label>
-            <input
-              name="evidence_note"
-              defaultValue={evidenceFile?.note || ""}
-              placeholder="例：交通費領収書はGoogle Driveに格納済み"
-              className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
-            />
-          </div>
-        </div>
-
-        <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-3 text-xs text-slate-400">
-          画像アップロードは一時的に最大3枚・1枚300KB以内です。多い場合はGoogle Driveリンクをご利用ください。
-        </div>
       </section>
 
       <SubmitButtons />
