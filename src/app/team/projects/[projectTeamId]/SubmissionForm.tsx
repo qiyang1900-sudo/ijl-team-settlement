@@ -103,6 +103,7 @@ export default function SubmissionForm({
 
   function getScreenshotForRow(index: number) {
     const rowNumber = index + 1;
+
     return screenshotFiles?.find((file: any) => {
       return (
         file.file_category === "report_screenshot" &&
@@ -532,18 +533,24 @@ export default function SubmissionForm({
                     </td>
 
                     <td className="px-3 py-2">
-                      {uploadedScreenshot?.file_url ? (
+                      {uploadedScreenshot?.file_name ? (
                         <div className="mb-2 rounded-md border border-slate-700 bg-slate-950 p-2">
                           <p className="text-[11px] text-slate-400">
-                            アップロード済み
+                            現在のファイル：
+                            <span className="text-slate-200">
+                              {uploadedScreenshot.file_name}
+                            </span>
                           </p>
-                          <a
-                            href={uploadedScreenshot.file_url}
-                            target="_blank"
-                            className="mt-1 block text-[11px] underline"
-                          >
-                            現在のスクリーンショットを確認
-                          </a>
+
+                          <label className="mt-2 flex items-center gap-2 text-[11px] text-red-300">
+                            <input
+                              type="checkbox"
+                              name={`delete_screenshot_${index}`}
+                              value="true"
+                              className="h-3 w-3"
+                            />
+                            この画像を削除する
+                          </label>
                         </div>
                       ) : null}
 
@@ -556,7 +563,7 @@ export default function SubmissionForm({
                       />
 
                       <p className="mt-1 text-[11px] text-slate-500">
-                        未選択の場合、現在のスクリーンショットは保持されます。
+                        新しい画像を選択した場合のみ差し替えます。
                       </p>
                     </td>
 
