@@ -15,6 +15,7 @@ async function saveSubmission(formData: FormData) {
 
   const projectTeamId = String(formData.get("project_team_id") || "");
   const teamId = String(formData.get("team_id") || "");
+  const currentStatus = String(formData.get("current_status") || "");
   const actionType = String(formData.get("action_type") || "draft");
 
   const companyName = String(formData.get("company_name") || "");
@@ -148,11 +149,19 @@ async function saveSubmission(formData: FormData) {
     });
   }
 
+  let nextStatus = "draft";
+  let submittedAt = null;
+
+  if (actionType === "submit") {
+    nextStatus = currentStatus === "returned" ? "resubmitted" : "submitted";
+    submittedAt = new Date().toISOString();
+  }
+
   await supabase
     .from("project_teams")
     .update({
-      status: actionType === "submit" ? "submitted" : "draft",
-      submitted_at: actionType === "submit" ? new Date().toISOString() : null,
+      status: nextStatus,
+      submitted_at: submittedAt,
     })
     .eq("id", projectTeamId);
 
@@ -191,6 +200,10 @@ export default async function TeamSubmissionPage({
       status,
       project_id,
       team_id,
+      submitted_at,
+      returned_at,
+      approved_at,
+      return_reason,
       projects (
         id,
         title,
@@ -287,6 +300,7 @@ export default async function TeamSubmissionPage({
           </a>
 
           <h1 className="mt-4 text-3xl font-bold">{project?.title || "-"}</h1>
+
           <p className="mt-2 text-slate-400">
             {team?.name || "-"} / 当前状态：{projectTeam.status}
           </p>
@@ -296,11 +310,58 @@ export default async function TeamSubmissionPage({
               保存成功。
             </div>
           ) : null}
+
+          <div className="mt-5 rounded-xl border border-slate-700 bg-slate-900 p-5">
+            <p className="text-sm text-slate-500">审核状态</p>
+            <p className="mt-2 text-lg font-semibold">
+              {projectTeam.status === "not_submitted" && "未提交"}
+              {projectTeam.status === "draft" && "草稿中"}
+              {projectTeam.status === "submitted" && "已提交，等待审核"}
+              {projectTeam.status === "returned" && "退回修改"}
+              {projectTeam.status === "resubmitted" && "重新提交，等待审核"}
+              {projectTeam.status === "approved" && "审核通过"}
+              {projectTeam.status === "exported" && "已导出"}
+            </p>
+
+            {projectTeam.submitted_at ? (
+              <p className="mt-2 text-sm text-slate-400">
+                提交时间：
+                {new Date(projectTeam.submitted_at).toLocaleString("ja-JP")}
+              </p>
+            ) : null}
+
+            {projectTeam.returned_at ? (
+              <p className="mt-2 text-sm text-yellow-300">
+                退回时间：
+                {new Date(projectTeam.returned_at).toLocaleString("ja-JP")}
+              </p>
+            ) : null}
+
+            {projectTeam.approved_at ? (
+              <p className="mt-2 text-sm text-green-300">
+                审核通过时间：
+                {new Date(projectTeam.approved_at).toLocaleString("ja-JP")}
+              </p>
+            ) : null}
+          </div>
+
+          {projectTeam.return_reason ? (
+            <div className="mt-5 rounded-xl border border-yellow-500 bg-yellow-950 p-5 text-yellow-100">
+              <p className="font-bold">退回理由</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm">
+                {projectTeam.return_reason}
+              </p>
+              <p className="mt-3 text-sm">
+                请根据以上内容修改后，重新提交审核。
+              </p>
+            </div>
+          ) : null}
         </div>
 
         <form action={saveSubmission} className="space-y-8">
           <input type="hidden" name="project_team_id" value={projectTeamId} />
           <input type="hidden" name="team_id" value={projectTeam.team_id} />
+          <input type="hidden" name="current_status" value={projectTeam.status} />
 
           <section className="rounded-2xl border border-slate-700 bg-slate-900 p-6">
             <h2 className="text-2xl font-bold">① 契約・口座情報</h2>
@@ -309,10 +370,26 @@ export default async function TeamSubmissionPage({
             </p>
 
             <div className="mt-6 grid gap-5 md:grid-cols-2">
-              <Field label="契約会社名" name="company_name" defaultValue={defaultCompanyName} />
-              <Field label="銀行名" name="bank_name" defaultValue={defaultBankName} />
-              <Field label="口座番号" name="bank_account_number" defaultValue={defaultBankAccountNumber} />
-              <Field label="Swift code" name="swift_code" defaultValue={defaultSwiftCode} />
+              <Field
+                label="契約会社名"
+                name="company_name"
+                defaultValue={defaultCompanyName}
+              />
+              <Field
+                label="銀行名"
+                name="bank_name"
+                defaultValue={defaultBankName}
+              />
+              <Field
+                label="口座番号"
+                name="bank_account_number"
+                defaultValue={defaultBankAccountNumber}
+              />
+              <Field
+                label="Swift code"
+                name="swift_code"
+                defaultValue={defaultSwiftCode}
+              />
             </div>
 
             <label className="mt-5 flex items-center gap-3 text-sm text-slate-300">
@@ -345,7 +422,9 @@ export default async function TeamSubmissionPage({
               <Field
                 label="契約支払基準"
                 name="contract_payment_standard"
-                defaultValue={summaryRow?.contract_payment_standard || "時間通り"}
+                defaultValue={
+                  summaryRow?.contract_payment_standard || "時間通り"
+                }
               />
               <Field
                 label="業務完了基準"
@@ -355,7 +434,9 @@ export default async function TeamSubmissionPage({
               <Field
                 label="プロジェクトチーム確認"
                 name="project_team_confirmation"
-                defaultValue={summaryRow?.project_team_confirmation || "確認"}
+                defaultValue={
+                  summaryRow?.project_team_confirmation || "確認"
+                }
               />
               <Field
                 label="備考"
@@ -396,7 +477,9 @@ export default async function TeamSubmissionPage({
                 </label>
                 <select
                   name="amount_match"
-                  defaultValue={detailRow?.amount_match === false ? "false" : "true"}
+                  defaultValue={
+                    detailRow?.amount_match === false ? "false" : "true"
+                  }
                   className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
                 >
                   <option value="true">はい</option>
@@ -404,7 +487,11 @@ export default async function TeamSubmissionPage({
                 </select>
               </div>
 
-              <Field label="備考" name="detail_note" defaultValue={detailRow?.note || ""} />
+              <Field
+                label="備考"
+                name="detail_note"
+                defaultValue={detailRow?.note || ""}
+              />
             </div>
           </section>
 
@@ -461,10 +548,12 @@ export default async function TeamSubmissionPage({
                 ※スクリーンショットには、対象選手の顔または出演状況が確認できる画面を含めてください。
               </p>
               <p className="mt-2">
-                ※交通費などスクリーンショットが多い場合は、Google Driveリンクを記入し、リンク先フォルダ内の資料が確認できるスクリーンショットをアップロードしてください。
+                ※交通費などスクリーンショットが多い場合は、Google
+                Driveリンクを記入し、リンク先フォルダ内の資料が確認できるスクリーンショットをアップロードしてください。
               </p>
               <p className="mt-2">
-                ※Google Driveリンクの閲覧権限が「リンクを知っている全員が閲覧可能」になっているか確認してください。
+                ※Google
+                Driveリンクの閲覧権限が「リンクを知っている全員が閲覧可能」になっているか確認してください。
               </p>
             </div>
 
@@ -501,7 +590,8 @@ export default async function TeamSubmissionPage({
             </div>
 
             <p className="mt-4 text-sm text-slate-500">
-              文件上传按钮会在下一步追加。截图少的情况，可直接上传截图；截图多的情况，可填写Google Drive链接。
+              文件上传按钮会在下一步追加。截图少的情况，可直接上传截图；截图多的情况，可填写Google
+              Drive链接。
             </p>
           </section>
 
