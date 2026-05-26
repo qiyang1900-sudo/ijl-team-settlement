@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
+import SubmitButtons from "./SubmitButtons";
 
 async function saveSubmission(formData: FormData) {
   "use server";
@@ -165,7 +166,8 @@ async function saveSubmission(formData: FormData) {
     })
     .eq("id", projectTeamId);
 
-  redirect(`/team/projects/${projectTeamId}?saved=1`);
+  const savedType = actionType === "submit" ? "submitted" : "draft";
+  redirect(`/team/projects/${projectTeamId}?saved=${savedType}`);
 }
 
 export default async function TeamSubmissionPage({
@@ -173,10 +175,10 @@ export default async function TeamSubmissionPage({
   searchParams,
 }: {
   params: Promise<{ projectTeamId: string }>;
-  searchParams: Promise<{ saved?: string }>;
+  searchParams: Promise<{ saved?: string; teamId?: string }>;
 }) {
   const { projectTeamId } = await params;
-  const { saved } = await searchParams;
+  const { saved, teamId } = await searchParams;
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -238,6 +240,25 @@ export default async function TeamSubmissionPage({
     );
   }
 
+  if (teamId && teamId !== projectTeam.team_id) {
+    return (
+      <main className="min-h-screen bg-slate-950 p-10 text-white">
+        <div className="mx-auto max-w-4xl">
+          <h1 className="text-3xl font-bold">访问错误</h1>
+          <p className="mt-4 text-red-400">
+            该项目不属于当前选择的战队，请返回战队登录页重新选择。
+          </p>
+          <a
+            href="/team/login"
+            className="mt-6 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950"
+          >
+            返回战队登录
+          </a>
+        </div>
+      </main>
+    );
+  }
+
   const project: any = projectTeam.projects;
   const team: any = projectTeam.teams;
 
@@ -291,12 +312,16 @@ export default async function TeamSubmissionPage({
     companyInfo?.bank_account_number || profile?.bank_account_number || "";
   const defaultSwiftCode = companyInfo?.swift_code || profile?.swift_code || "";
 
+  const backHref = teamId
+    ? `/team/projects?teamId=${teamId}`
+    : "/team/projects";
+
   return (
     <main className="min-h-screen bg-slate-950 p-10 text-white">
       <div className="mx-auto max-w-5xl">
         <div className="mb-8">
-          <a href="/team" className="text-sm text-slate-400 hover:text-white">
-            ← 战队入口へ戻る
+          <a href={backHref} className="text-sm text-slate-400 hover:text-white">
+            ← 我的提交项目へ戻る
           </a>
 
           <h1 className="mt-4 text-3xl font-bold">{project?.title || "-"}</h1>
@@ -305,9 +330,15 @@ export default async function TeamSubmissionPage({
             {team?.name || "-"} / 当前状态：{projectTeam.status}
           </p>
 
-          {saved === "1" ? (
+          {saved === "draft" ? (
             <div className="mt-5 rounded-xl border border-green-500 bg-green-950 p-4 text-green-200">
-              保存成功。
+              草稿已保存。
+            </div>
+          ) : null}
+
+          {saved === "submitted" ? (
+            <div className="mt-5 rounded-xl border border-green-500 bg-green-950 p-4 text-green-200">
+              已提交审核，请等待管理员确认。
             </div>
           ) : null}
 
@@ -595,25 +626,7 @@ export default async function TeamSubmissionPage({
             </p>
           </section>
 
-          <div className="flex justify-end gap-3">
-            <button
-              type="submit"
-              name="action_type"
-              value="draft"
-              className="rounded-xl border border-slate-700 px-6 py-3 text-sm font-semibold text-slate-300 hover:bg-slate-800"
-            >
-              保存草稿
-            </button>
-
-            <button
-              type="submit"
-              name="action_type"
-              value="submit"
-              className="rounded-xl bg-white px-6 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
-            >
-              提交审核
-            </button>
-          </div>
+          <SubmitButtons />
         </form>
       </div>
     </main>
