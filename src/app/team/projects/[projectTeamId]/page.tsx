@@ -182,6 +182,34 @@ async function saveSubmission(formData: FormData) {
       note: reportNote,
     });
 
+    const oldFilesForThisRow =
+      oldScreenshotFiles?.filter((file: any) => {
+        return getScreenshotRowNumber(file.note) === rowNumber;
+      }) || [];
+
+    const deleteScreenshot =
+      String(formData.get(`delete_screenshot_${index}`) || "") === "true";
+
+    if (deleteScreenshot && oldFilesForThisRow.length > 0) {
+      const oldStoragePaths = oldFilesForThisRow
+        .map((file: any) => file.storage_path)
+        .filter(Boolean);
+
+      if (oldStoragePaths.length > 0) {
+        await adminSupabase.storage
+          .from("screenshots")
+          .remove(oldStoragePaths);
+      }
+
+      await supabase
+        .from("submission_files")
+        .delete()
+        .in(
+          "id",
+          oldFilesForThisRow.map((file: any) => file.id)
+        );
+    }
+
     const reportScreenshot = formData.get(
       `report_screenshot_${index}`
     ) as File | null;
@@ -196,11 +224,6 @@ async function saveSubmission(formData: FormData) {
           "スクリーンショットは1枚300KB以内にしてください。大きい場合はリンク欄にGoogle Driveリンクをご記入ください。"
         );
       }
-
-      const oldFilesForThisRow =
-        oldScreenshotFiles?.filter((file: any) => {
-          return getScreenshotRowNumber(file.note) === rowNumber;
-        }) || [];
 
       if (oldFilesForThisRow.length > 0) {
         const oldStoragePaths = oldFilesForThisRow
@@ -291,7 +314,9 @@ export default async function TeamSubmissionPage({
     return (
       <main className="min-h-screen bg-slate-950 p-8 text-white">
         <h1 className="text-2xl font-bold">提出ページ</h1>
-        <p className="mt-4 text-red-400">Supabase環境変数が設定されていません。</p>
+        <p className="mt-4 text-red-400">
+          Supabase環境変数が設定されていません。
+        </p>
       </main>
     );
   }
