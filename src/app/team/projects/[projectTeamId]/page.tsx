@@ -7,6 +7,11 @@ function createStoragePath(projectTeamId: string, fileName: string) {
   return `${projectTeamId}/${Date.now()}-${safeFileName}`;
 }
 
+function getScreenshotRowNumber(note?: string | null) {
+  const match = String(note || "").match(/No\.(\d+)/);
+  return match ? Number(match[1]) : null;
+}
+
 async function saveSubmission(formData: FormData) {
   "use server";
 
@@ -15,7 +20,7 @@ async function saveSubmission(formData: FormData) {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Supabase 环境变量没有设置成功");
+    throw new Error("Supabase環境変数が設定されていません。");
   }
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
@@ -107,13 +112,39 @@ async function saveSubmission(formData: FormData) {
     .delete()
     .eq("project_team_id", projectTeamId);
 
-  await supabase
+  const { data: oldScreenshotFiles } = await supabase
     .from("submission_files")
-    .delete()
+    .select("*")
     .eq("project_team_id", projectTeamId)
     .eq("file_category", "report_screenshot");
 
+  const screenshotsToRemove =
+    oldScreenshotFiles?.filter((file: any) => {
+      const rowNumber = getScreenshotRowNumber(file.note);
+      return rowNumber !== null && rowNumber > detailCount;
+    }) || [];
+
+  if (screenshotsToRemove.length > 0) {
+    const storagePaths = screenshotsToRemove
+      .map((file: any) => file.storage_path)
+      .filter(Boolean);
+
+    if (storagePaths.length > 0) {
+      await adminSupabase.storage.from("screenshots").remove(storagePaths);
+    }
+
+    await supabase
+      .from("submission_files")
+      .delete()
+      .in(
+        "id",
+        screenshotsToRemove.map((file: any) => file.id)
+      );
+  }
+
   for (let index = 0; index < detailCount; index++) {
+    const rowNumber = index + 1;
+
     const serviceItem = String(formData.get(`service_item_${index}`) || "");
     const quantity = Number(formData.get(`quantity_${index}`) || 1);
     const unitPrice = Number(formData.get(`unit_price_${index}`) || 0);
@@ -131,7 +162,7 @@ async function saveSubmission(formData: FormData) {
 
     await supabase.from("settlement_detail_rows").insert({
       project_team_id: projectTeamId,
-      row_number: index + 1,
+      row_number: rowNumber,
       service_item: serviceItem,
       quantity,
       unit_price: unitPrice,
@@ -141,7 +172,7 @@ async function saveSubmission(formData: FormData) {
 
     await supabase.from("report_rows").insert({
       project_team_id: projectTeamId,
-      row_number: index + 1,
+      row_number: rowNumber,
       item_content: serviceItem,
       category_type: categoryType,
       amount: subtotal,
@@ -166,9 +197,34 @@ async function saveSubmission(formData: FormData) {
         );
       }
 
+      const oldFilesForThisRow =
+        oldScreenshotFiles?.filter((file: any) => {
+          return getScreenshotRowNumber(file.note) === rowNumber;
+        }) || [];
+
+      if (oldFilesForThisRow.length > 0) {
+        const oldStoragePaths = oldFilesForThisRow
+          .map((file: any) => file.storage_path)
+          .filter(Boolean);
+
+        if (oldStoragePaths.length > 0) {
+          await adminSupabase.storage
+            .from("screenshots")
+            .remove(oldStoragePaths);
+        }
+
+        await supabase
+          .from("submission_files")
+          .delete()
+          .in(
+            "id",
+            oldFilesForThisRow.map((file: any) => file.id)
+          );
+      }
+
       const storagePath = createStoragePath(
         projectTeamId,
-        reportScreenshot.name || `report-screenshot-${index + 1}`
+        reportScreenshot.name || `report-screenshot-${rowNumber}`
       );
 
       const { error: uploadError } = await adminSupabase.storage
@@ -194,7 +250,7 @@ async function saveSubmission(formData: FormData) {
         file_url: publicUrlData.publicUrl,
         storage_path: storagePath,
         mime_type: reportScreenshot.type,
-        note: `結案報告 No.${index + 1} スクリーンショット`,
+        note: `結案報告 No.${rowNumber} スクリーンショット`,
       });
     }
   }
@@ -234,8 +290,8 @@ export default async function TeamSubmissionPage({
   if (!supabaseUrl || !supabaseAnonKey) {
     return (
       <main className="min-h-screen bg-slate-950 p-8 text-white">
-        <h1 className="text-2xl font-bold">战队提交页面</h1>
-        <p className="mt-4 text-red-400">Supabase 环境变量没有设置成功。</p>
+        <h1 className="text-2xl font-bold">提出ページ</h1>
+        <p className="mt-4 text-red-400">Supabase環境変数が設定されていません。</p>
       </main>
     );
   }
@@ -276,11 +332,11 @@ export default async function TeamSubmissionPage({
     return (
       <main className="min-h-screen bg-slate-950 p-8 text-white">
         <div className="mx-auto max-w-4xl">
-          <h1 className="text-2xl font-bold">战队提交页面</h1>
+          <h1 className="text-2xl font-bold">提出ページ</h1>
           <div className="mt-6 rounded-xl border border-red-500 bg-red-950 p-5">
-            <p className="font-bold text-red-300">读取失败</p>
+            <p className="font-bold text-red-300">読み込みに失敗しました</p>
             <p className="mt-2 text-sm text-red-200">
-              {error?.message || "数据不存在"}
+              {error?.message || "データが存在しません。"}
             </p>
           </div>
         </div>
@@ -323,6 +379,13 @@ export default async function TeamSubmissionPage({
     .eq("project_team_id", projectTeamId)
     .order("row_number", { ascending: true });
 
+  const { data: screenshotFiles } = await supabase
+    .from("submission_files")
+    .select("*")
+    .eq("project_team_id", projectTeamId)
+    .eq("file_category", "report_screenshot")
+    .order("created_at", { ascending: false });
+
   const backHref = teamId
     ? `/team/projects?teamId=${teamId}`
     : "/team/projects";
@@ -332,56 +395,56 @@ export default async function TeamSubmissionPage({
       <div className="mx-auto max-w-7xl">
         <div className="mb-5">
           <a href={backHref} className="text-xs text-slate-400 hover:text-white">
-            ← 我的提交项目へ戻る
+            ← 提出プロジェクト一覧へ戻る
           </a>
 
           <h1 className="mt-3 text-2xl font-bold">{project?.title || "-"}</h1>
 
           <p className="mt-1 text-sm text-slate-400">
-            {team?.name || "-"} / 当前状态：{projectTeam.status}
+            {team?.name || "-"} / 現在のステータス：{projectTeam.status}
           </p>
 
           {result === "draft" ? (
             <div className="mt-4 rounded-lg border border-blue-500 bg-blue-950 p-3 text-sm text-blue-200">
-              草稿已保存。
+              下書きを保存しました。
             </div>
           ) : null}
 
           {result === "submit" ? (
             <div className="mt-4 rounded-lg border border-green-500 bg-green-950 p-3 text-sm text-green-200">
-              已提交审核，请等待管理员确认。
+              提出しました。管理者の確認をお待ちください。
             </div>
           ) : null}
 
           <div className="mt-4 rounded-lg border border-slate-700 bg-slate-900 p-4 text-sm">
-            <p className="text-xs text-slate-500">审核状态</p>
+            <p className="text-xs text-slate-500">審査ステータス</p>
             <p className="mt-1 font-semibold">
-              {projectTeam.status === "not_submitted" && "未提交"}
-              {projectTeam.status === "draft" && "草稿中"}
-              {projectTeam.status === "submitted" && "已提交，等待审核"}
-              {projectTeam.status === "returned" && "退回修改"}
-              {projectTeam.status === "resubmitted" && "重新提交，等待审核"}
-              {projectTeam.status === "approved" && "审核通过"}
-              {projectTeam.status === "exported" && "已导出"}
+              {projectTeam.status === "not_submitted" && "未提出"}
+              {projectTeam.status === "draft" && "下書き"}
+              {projectTeam.status === "submitted" && "提出済み・審査待ち"}
+              {projectTeam.status === "returned" && "差し戻し"}
+              {projectTeam.status === "resubmitted" && "再提出済み・審査待ち"}
+              {projectTeam.status === "approved" && "承認済み"}
+              {projectTeam.status === "exported" && "出力済み"}
             </p>
 
             {projectTeam.submitted_at ? (
               <p className="mt-1 text-xs text-slate-400">
-                提交时间：
+                提出日時：
                 {new Date(projectTeam.submitted_at).toLocaleString("ja-JP")}
               </p>
             ) : null}
 
             {projectTeam.returned_at ? (
               <p className="mt-1 text-xs text-yellow-300">
-                退回时间：
+                差し戻し日時：
                 {new Date(projectTeam.returned_at).toLocaleString("ja-JP")}
               </p>
             ) : null}
 
             {projectTeam.approved_at ? (
               <p className="mt-1 text-xs text-green-300">
-                审核通过时间：
+                承認日時：
                 {new Date(projectTeam.approved_at).toLocaleString("ja-JP")}
               </p>
             ) : null}
@@ -389,12 +452,12 @@ export default async function TeamSubmissionPage({
 
           {projectTeam.return_reason ? (
             <div className="mt-4 rounded-lg border border-yellow-500 bg-yellow-950 p-4 text-sm text-yellow-100">
-              <p className="font-bold">退回理由</p>
+              <p className="font-bold">差し戻し理由</p>
               <p className="mt-2 whitespace-pre-wrap text-xs">
                 {projectTeam.return_reason}
               </p>
               <p className="mt-2 text-xs">
-                请根据以上内容修改后，重新提交审核。
+                上記内容をご確認のうえ、修正後に再提出してください。
               </p>
             </div>
           ) : null}
@@ -410,6 +473,7 @@ export default async function TeamSubmissionPage({
           summaryRow={summaryRow}
           detailRows={detailRows || []}
           reportRows={reportRows || []}
+          screenshotFiles={screenshotFiles || []}
         />
       </div>
     </main>
