@@ -89,18 +89,6 @@ export default async function AdminSubmissionDetailPage({
     return (
       <main className="min-h-screen bg-slate-950 p-10 text-white">
         <h1 className="text-3xl font-bold">提交详情</h1>
-        <a
-  href={`/api/admin/project-teams/${projectTeamId}/export`}
-  className="mt-4 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
->
-  导出 CSV
-</a>
-        <a
-  href={`/api/admin/project-teams/${projectTeamId}/export`}
-  className="mt-4 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
->
-  导出 Excel
-</a>
         <p className="mt-4 text-red-400">Supabase 环境变量没有设置成功。</p>
       </main>
     );
@@ -222,7 +210,14 @@ export default async function AdminSubmissionDetailPage({
 
           <h1 className="mt-4 text-3xl font-bold">提交详情</h1>
 
-          <p className="mt-2 text-slate-400">
+          <a
+            href={`/api/admin/project-teams/${projectTeamId}/export`}
+            className="mt-4 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
+          >
+            导出 CSV
+          </a>
+
+          <p className="mt-4 text-slate-400">
             {project?.title || "-"} / {team?.name || "-"}
           </p>
 
