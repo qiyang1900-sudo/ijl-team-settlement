@@ -8,7 +8,7 @@ export default function AdminDashboardPage() {
 
         <h1 className="mt-4 text-3xl font-bold">管理员后台</h1>
         <p className="mt-3 text-slate-400">
-          管理项目、战队、提交审核和奖励金计算。
+          管理项目进度、战队进度、提交审核和奖励金计算。
         </p>
 
         <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -16,29 +16,29 @@ export default function AdminDashboardPage() {
             href="/admin/projects"
             className="rounded-2xl border border-slate-700 bg-slate-900 p-6 hover:bg-slate-800"
           >
-            <h2 className="text-xl font-semibold">按项目看进度</h2>
+            <h2 className="text-xl font-semibold">项目进度</h2>
             <p className="mt-2 text-sm text-slate-400">
-              查看每个项目下各战队的提交状态。
+              按项目查看各战队的提交状态、审核状态和导出状态。
             </p>
           </a>
 
           <a
-            href="/admin/teams"
+            href="/admin/team-progress"
             className="rounded-2xl border border-slate-700 bg-slate-900 p-6 hover:bg-slate-800"
           >
-            <h2 className="text-xl font-semibold">按战队看进度</h2>
+            <h2 className="text-xl font-semibold">战队进度</h2>
             <p className="mt-2 text-sm text-slate-400">
-              查看每个战队有哪些项目未提交、已提交或退回。
+              按战队查看该战队有哪些项目未提交、已提交、退回或通过。
             </p>
           </a>
 
           <a
-            href="/admin/projects"
+            href="/admin/reviews"
             className="rounded-2xl border border-slate-700 bg-slate-900 p-6 hover:bg-slate-800"
           >
             <h2 className="text-xl font-semibold">提交审核</h2>
             <p className="mt-2 text-sm text-slate-400">
-              查看提交内容，审核通过或退回修改。
+              直接查看待审核、已退回、重新提交、审核通过的资料。
             </p>
           </a>
 
