@@ -8,6 +8,7 @@ export default async function TeamLoginPage() {
 
   if (supabaseUrl && supabaseAnonKey) {
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
     const { data } = await supabase
       .from("teams")
       .select("id, name, short_name")
@@ -29,12 +30,20 @@ export default async function TeamLoginPage() {
           选择战队并输入密码，进入自己的提交页面。
         </p>
 
-        <form className="mt-8 space-y-5 rounded-2xl border border-slate-700 bg-slate-900 p-6">
+        <form
+          action="/team/dashboard"
+          method="GET"
+          className="mt-8 space-y-5 rounded-2xl border border-slate-700 bg-slate-900 p-6"
+        >
           <div>
             <label className="block text-sm text-slate-300">战队</label>
-            <select className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white">
+            <select
+              name="teamId"
+              required
+              className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
+            >
               {teams.length === 0 ? (
-                <option>暂无战队</option>
+                <option value="">暂无战队</option>
               ) : (
                 teams.map((team) => (
                   <option key={team.id} value={team.id}>
@@ -49,22 +58,23 @@ export default async function TeamLoginPage() {
           <div>
             <label className="block text-sm text-slate-300">密码</label>
             <input
+              name="password"
               type="password"
               placeholder="password"
               className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
             />
           </div>
 
-          <a
-            href="/team/dashboard"
-            className="block rounded-xl bg-white px-5 py-3 text-center text-sm font-semibold text-slate-950 hover:bg-slate-200"
+          <button
+            type="submit"
+            className="block w-full rounded-xl bg-white px-5 py-3 text-center text-sm font-semibold text-slate-950 hover:bg-slate-200"
           >
             登录
-          </a>
+          </button>
         </form>
 
         <p className="mt-4 text-sm text-slate-500">
-          ※现在是框架版，后续会接入真实战队密码，并只显示该战队项目。
+          ※现在是框架版，后续会接入真实战队密码验证。
         </p>
       </div>
     </main>
