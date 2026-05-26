@@ -1,4 +1,80 @@
 import { createClient } from "@supabase/supabase-js";
+import { redirect } from "next/navigation";
+
+async function approveSubmission(formData: FormData) {
+  "use server";
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Supabase 环境变量没有设置成功");
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+  const projectId = String(formData.get("project_id") || "");
+  const projectTeamId = String(formData.get("project_team_id") || "");
+
+  const { error } = await supabase
+    .from("project_teams")
+    .update({
+      status: "approved",
+      approved_at: new Date().toISOString(),
+      return_reason: null,
+    })
+    .eq("id", projectTeamId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  await supabase.from("review_logs").insert({
+    project_team_id: projectTeamId,
+    action: "approved",
+    comment: "审核通过",
+  });
+
+  redirect(`/admin/projects/${projectId}/teams/${projectTeamId}`);
+}
+
+async function returnSubmission(formData: FormData) {
+  "use server";
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Supabase 环境变量没有设置成功");
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+  const projectId = String(formData.get("project_id") || "");
+  const projectTeamId = String(formData.get("project_team_id") || "");
+  const returnReason = String(formData.get("return_reason") || "");
+
+  const { error } = await supabase
+    .from("project_teams")
+    .update({
+      status: "returned",
+      returned_at: new Date().toISOString(),
+      return_reason: returnReason,
+    })
+    .eq("id", projectTeamId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  await supabase.from("review_logs").insert({
+    project_team_id: projectTeamId,
+    action: "returned",
+    comment: returnReason || "退回修改",
+  });
+
+  redirect(`/admin/projects/${projectId}/teams/${projectTeamId}`);
+}
 
 export default async function AdminSubmissionDetailPage({
   params,
@@ -23,7 +99,8 @@ export default async function AdminSubmissionDetailPage({
 
   const { data: projectTeam, error: projectTeamError } = await supabase
     .from("project_teams")
-    .select(`
+    .select(
+      `
       id,
       status,
       submitted_at,
@@ -46,7 +123,8 @@ export default async function AdminSubmissionDetailPage({
         name,
         short_name
       )
-    `)
+    `
+    )
     .eq("id", projectTeamId)
     .single();
 
@@ -76,6 +154,12 @@ export default async function AdminSubmissionDetailPage({
 
   const { data: files } = await supabase
     .from("submission_files")
+    .select("*")
+    .eq("project_team_id", projectTeamId)
+    .order("created_at", { ascending: false });
+
+  const { data: reviewLogs } = await supabase
+    .from("review_logs")
     .select("*")
     .eq("project_team_id", projectTeamId)
     .order("created_at", { ascending: false });
@@ -146,9 +230,63 @@ export default async function AdminSubmissionDetailPage({
               </p>
             </div>
           </div>
+
+          {projectTeam.return_reason ? (
+            <div className="mt-6 rounded-xl border border-yellow-500 bg-yellow-950 p-5 text-yellow-100">
+              <p className="font-bold">退回理由</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm">
+                {projectTeam.return_reason}
+              </p>
+            </div>
+          ) : null}
         </div>
 
-        <section className="mt-10 rounded-2xl border border-slate-700 bg-slate-900 p-6">
+        <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
+          <h2 className="text-2xl font-bold">审核操作</h2>
+
+          <div className="mt-5 grid gap-6 md:grid-cols-2">
+            <form action={approveSubmission} className="rounded-xl border border-slate-700 bg-slate-950 p-5">
+              <input type="hidden" name="project_id" value={projectId} />
+              <input type="hidden" name="project_team_id" value={projectTeamId} />
+
+              <p className="text-sm text-slate-400">
+                确认资料没有问题后，可以点击审核通过。
+              </p>
+
+              <button
+                type="submit"
+                className="mt-4 rounded-xl bg-green-400 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-green-300"
+              >
+                审核通过
+              </button>
+            </form>
+
+            <form action={returnSubmission} className="rounded-xl border border-slate-700 bg-slate-950 p-5">
+              <input type="hidden" name="project_id" value={projectId} />
+              <input type="hidden" name="project_team_id" value={projectTeamId} />
+
+              <label className="block text-sm font-medium text-slate-300">
+                退回理由
+              </label>
+
+              <textarea
+                name="return_reason"
+                rows={5}
+                placeholder="例：スクリーンショットに対象選手の出演状況が確認できないため、再提出をお願いいたします。"
+                className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-white outline-none focus:border-white"
+              />
+
+              <button
+                type="submit"
+                className="mt-4 rounded-xl bg-yellow-400 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-yellow-300"
+              >
+                退回修改
+              </button>
+            </form>
+          </div>
+        </section>
+
+        <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
           <h2 className="text-2xl font-bold">契約・口座情報</h2>
 
           {!companyInfo ? (
@@ -220,7 +358,9 @@ export default async function AdminSubmissionDetailPage({
                       <td className="px-4 py-3">{row.quantity || "-"}</td>
                       <td className="px-4 py-3">{row.unit_price || "-"}</td>
                       <td className="px-4 py-3">{row.subtotal || "-"}</td>
-                      <td className="px-4 py-3">{row.amount_match ? "はい" : "いいえ"}</td>
+                      <td className="px-4 py-3">
+                        {row.amount_match ? "はい" : "いいえ"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -244,6 +384,7 @@ export default async function AdminSubmissionDetailPage({
                     <th className="px-4 py-3">金額</th>
                     <th className="px-4 py-3">リンク</th>
                     <th className="px-4 py-3">実施日</th>
+                    <th className="px-4 py-3">備考</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -266,6 +407,7 @@ export default async function AdminSubmissionDetailPage({
                         )}
                       </td>
                       <td className="px-4 py-3">{row.implementation_date || "-"}</td>
+                      <td className="px-4 py-3">{row.note || "-"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -275,10 +417,10 @@ export default async function AdminSubmissionDetailPage({
         </section>
 
         <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
-          <h2 className="text-2xl font-bold">上传文件</h2>
+          <h2 className="text-2xl font-bold">上传文件 / Google Drive</h2>
 
           {!files || files.length === 0 ? (
-            <p className="mt-4 text-slate-400">暂无上传文件。</p>
+            <p className="mt-4 text-slate-400">暂无上传文件或链接。</p>
           ) : (
             <div className="mt-4 space-y-3">
               {files.map((file: any) => (
@@ -286,14 +428,54 @@ export default async function AdminSubmissionDetailPage({
                   key={file.id}
                   className="rounded-xl border border-slate-700 bg-slate-950 p-4"
                 >
-                  <p className="font-semibold">{file.file_name || file.file_category || "文件"}</p>
+                  <p className="font-semibold">
+                    {file.file_name || file.file_category || "文件 / 链接"}
+                  </p>
                   <p className="mt-1 text-sm text-slate-400">
                     {file.submit_method || "-"} / {file.mime_type || "-"}
                   </p>
+
                   {file.external_url ? (
-                    <a href={file.external_url} target="_blank" className="mt-2 block text-sm underline">
-                      Google Drive / 外部链接
+                    <a
+                      href={file.external_url}
+                      target="_blank"
+                      className="mt-2 block text-sm underline"
+                    >
+                      打开 Google Drive / 外部链接
                     </a>
+                  ) : null}
+
+                  {file.note ? (
+                    <p className="mt-2 text-sm text-slate-400">{file.note}</p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
+          <h2 className="text-2xl font-bold">审核记录</h2>
+
+          {!reviewLogs || reviewLogs.length === 0 ? (
+            <p className="mt-4 text-slate-400">暂无审核记录。</p>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {reviewLogs.map((log: any) => (
+                <div
+                  key={log.id}
+                  className="rounded-xl border border-slate-700 bg-slate-950 p-4"
+                >
+                  <p className="font-semibold">{log.action}</p>
+                  <p className="mt-1 text-sm text-slate-400">
+                    {log.created_at
+                      ? new Date(log.created_at).toLocaleString("ja-JP")
+                      : "-"}
+                  </p>
+                  {log.comment ? (
+                    <p className="mt-2 whitespace-pre-wrap text-sm text-slate-300">
+                      {log.comment}
+                    </p>
                   ) : null}
                 </div>
               ))}
