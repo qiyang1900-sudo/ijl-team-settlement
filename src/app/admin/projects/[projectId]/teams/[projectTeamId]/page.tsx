@@ -93,6 +93,12 @@ export default async function AdminSubmissionDetailPage({
   href={`/api/admin/project-teams/${projectTeamId}/export`}
   className="mt-4 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
 >
+  导出 CSV
+</a>
+        <a
+  href={`/api/admin/project-teams/${projectTeamId}/export`}
+  className="mt-4 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
+>
   导出 Excel
 </a>
         <p className="mt-4 text-red-400">Supabase 环境变量没有设置成功。</p>
