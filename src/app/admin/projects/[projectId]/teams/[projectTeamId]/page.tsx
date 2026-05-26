@@ -162,6 +162,15 @@ export default async function AdminSubmissionDetailPage({
     .eq("project_team_id", projectTeamId)
     .order("created_at", { ascending: false });
 
+  function getReportScreenshot(rowNumber: number) {
+    return files?.find((file: any) => {
+      return (
+        file.file_category === "report_screenshot" &&
+        String(file.note || "").includes(`No.${rowNumber}`)
+      );
+    });
+  }
+
   if (projectTeamError || !projectTeam) {
     return (
       <main className="min-h-screen bg-slate-950 p-10 text-white">
@@ -254,7 +263,7 @@ export default async function AdminSubmissionDetailPage({
               />
 
               <p className="text-sm text-slate-400">
-                确认资料没有问题后，可以点击审核通过。操作后会自动返回提交审核页面。
+                确认资料没有问题后，可以点击审核通过。
               </p>
 
               <button
@@ -362,70 +371,27 @@ export default async function AdminSubmissionDetailPage({
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-800 text-slate-300">
                   <tr>
+                    <th className="px-4 py-3">No.</th>
                     <th className="px-4 py-3">サービス / 内容項目</th>
                     <th className="px-4 py-3">数量</th>
                     <th className="px-4 py-3">単価</th>
                     <th className="px-4 py-3">小計</th>
                     <th className="px-4 py-3">一致</th>
+                    <th className="px-4 py-3">備考</th>
                   </tr>
                 </thead>
                 <tbody>
                   {detailRows.map((row: any) => (
                     <tr key={row.id} className="border-t border-slate-700">
+                      <td className="px-4 py-3 text-slate-400">
+                        {row.row_number || "-"}
+                      </td>
                       <td className="px-4 py-3">{row.service_item || "-"}</td>
                       <td className="px-4 py-3">{row.quantity || "-"}</td>
                       <td className="px-4 py-3">{row.unit_price || "-"}</td>
                       <td className="px-4 py-3">{row.subtotal || "-"}</td>
                       <td className="px-4 py-3">
                         {row.amount_match ? "はい" : "いいえ"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-
-        <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
-          <h2 className="text-2xl font-bold">結案報告</h2>
-
-          {!reportRows || reportRows.length === 0 ? (
-            <p className="mt-4 text-slate-400">暂无提交资料。</p>
-          ) : (
-            <div className="mt-4 overflow-hidden rounded-xl border border-slate-700">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-800 text-slate-300">
-                  <tr>
-                    <th className="px-4 py-3">項目内容</th>
-                    <th className="px-4 py-3">種別</th>
-                    <th className="px-4 py-3">金額</th>
-                    <th className="px-4 py-3">リンク</th>
-                    <th className="px-4 py-3">実施日</th>
-                    <th className="px-4 py-3">備考</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportRows.map((row: any) => (
-                    <tr key={row.id} className="border-t border-slate-700">
-                      <td className="px-4 py-3">{row.item_content || "-"}</td>
-                      <td className="px-4 py-3">{row.category_type || "-"}</td>
-                      <td className="px-4 py-3">{row.amount || "-"}</td>
-                      <td className="px-4 py-3">
-                        {row.link_url ? (
-                          <a
-                            href={row.link_url}
-                            target="_blank"
-                            className="underline"
-                          >
-                            打开链接
-                          </a>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        {row.implementation_date || "-"}
                       </td>
                       <td className="px-4 py-3">{row.note || "-"}</td>
                     </tr>
@@ -437,39 +403,82 @@ export default async function AdminSubmissionDetailPage({
         </section>
 
         <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
-          <h2 className="text-2xl font-bold">上传文件 / Google Drive</h2>
+          <h2 className="text-2xl font-bold">結案報告・証憑</h2>
 
-          {!files || files.length === 0 ? (
-            <p className="mt-4 text-slate-400">暂无上传文件或链接。</p>
+          {!reportRows || reportRows.length === 0 ? (
+            <p className="mt-4 text-slate-400">暂无提交资料。</p>
           ) : (
-            <div className="mt-4 space-y-3">
-              {files.map((file: any) => (
-                <div
-                  key={file.id}
-                  className="rounded-xl border border-slate-700 bg-slate-950 p-4"
-                >
-                  <p className="font-semibold">
-                    {file.file_name || file.file_category || "文件 / 链接"}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-400">
-                    {file.submit_method || "-"} / {file.mime_type || "-"}
-                  </p>
+            <div className="mt-4 overflow-x-auto rounded-xl border border-slate-700">
+              <table className="min-w-[1100px] w-full text-left text-sm">
+                <thead className="bg-slate-800 text-slate-300">
+                  <tr>
+                    <th className="px-4 py-3">No.</th>
+                    <th className="px-4 py-3">項目内容</th>
+                    <th className="px-4 py-3">種別</th>
+                    <th className="px-4 py-3">金額</th>
+                    <th className="px-4 py-3">リンク</th>
+                    <th className="px-4 py-3">スクリーンショット</th>
+                    <th className="px-4 py-3">実施日</th>
+                    <th className="px-4 py-3">備考</th>
+                  </tr>
+                </thead>
 
-                  {file.external_url ? (
-                    <a
-                      href={file.external_url}
-                      target="_blank"
-                      className="mt-2 block text-sm underline"
-                    >
-                      打开 Google Drive / 外部链接
-                    </a>
-                  ) : null}
+                <tbody>
+                  {reportRows.map((row: any) => {
+                    const screenshot = getReportScreenshot(row.row_number);
 
-                  {file.note ? (
-                    <p className="mt-2 text-sm text-slate-400">{file.note}</p>
-                  ) : null}
-                </div>
-              ))}
+                    return (
+                      <tr key={row.id} className="border-t border-slate-700">
+                        <td className="px-4 py-3 text-slate-400">
+                          {row.row_number || "-"}
+                        </td>
+
+                        <td className="px-4 py-3">{row.item_content || "-"}</td>
+
+                        <td className="px-4 py-3">
+                          {row.category_type || "-"}
+                        </td>
+
+                        <td className="px-4 py-3">{row.amount || "-"}</td>
+
+                        <td className="px-4 py-3">
+                          {row.link_url ? (
+                            <a
+                              href={row.link_url}
+                              target="_blank"
+                              className="underline"
+                            >
+                              打开链接
+                            </a>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          {screenshot?.file_url ? (
+                            <a
+                              href={screenshot.file_url}
+                              target="_blank"
+                              className="underline"
+                            >
+                              查看截图
+                            </a>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          {row.implementation_date || "-"}
+                        </td>
+
+                        <td className="px-4 py-3">{row.note || "-"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </section>
