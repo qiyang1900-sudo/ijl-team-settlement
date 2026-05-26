@@ -18,6 +18,11 @@ type ReportRow = {
   note: string;
 };
 
+function getScreenshotRowNumber(note?: string | null) {
+  const match = String(note || "").match(/No\.(\d+)/);
+  return match ? Number(match[1]) : null;
+}
+
 export default function SubmissionForm({
   action,
   projectTeamId,
@@ -28,6 +33,7 @@ export default function SubmissionForm({
   summaryRow,
   detailRows,
   reportRows,
+  screenshotFiles,
 }: {
   action: (formData: FormData) => void;
   projectTeamId: string;
@@ -38,6 +44,7 @@ export default function SubmissionForm({
   summaryRow: any;
   detailRows: any[];
   reportRows: any[];
+  screenshotFiles: any[];
 }) {
   const defaultCompanyName =
     companyInfo?.company_name || profile?.company_name || "";
@@ -93,6 +100,16 @@ export default function SubmissionForm({
       return quantity * unitPrice;
     });
   }, [details]);
+
+  function getScreenshotForRow(index: number) {
+    const rowNumber = index + 1;
+    return screenshotFiles?.find((file: any) => {
+      return (
+        file.file_category === "report_screenshot" &&
+        getScreenshotRowNumber(file.note) === rowNumber
+      );
+    });
+  }
 
   function updateDetail(index: number, key: keyof DetailRow, value: any) {
     const nextDetails = [...details];
@@ -407,7 +424,7 @@ export default function SubmissionForm({
                       onClick={() => removeRow(index)}
                       className="rounded-md border border-red-500 px-2 py-1 text-red-300 hover:bg-red-950"
                     >
-                      删除
+                      削除
                     </button>
                   </td>
                 </tr>
@@ -424,7 +441,7 @@ export default function SubmissionForm({
         </p>
 
         <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-3 text-xs text-slate-300">
-          ※1項目につき、リンクは1つ、スクリーンショットは1枚までです。複数資料がある場合は、リンク欄にGoogle Driveリンクをご記入ください。
+          ※1項目につき、リンクは1つ、スクリーンショットは1枚までです。新しい画像を選択した場合、現在のスクリーンショットを差し替えます。新しい画像を選択しない場合、現在のスクリーンショットは保持されます。
         </div>
 
         <div className="mt-4 overflow-x-auto rounded-lg border border-slate-700">
@@ -437,7 +454,7 @@ export default function SubmissionForm({
                 <th className="w-32 px-3 py-2">金額</th>
                 <th className="px-3 py-2">リンク</th>
                 <th className="w-36 px-3 py-2">実施日</th>
-                <th className="w-56 px-3 py-2">スクリーンショット</th>
+                <th className="w-64 px-3 py-2">スクリーンショット</th>
                 <th className="px-3 py-2">備考</th>
               </tr>
             </thead>
@@ -450,6 +467,8 @@ export default function SubmissionForm({
                   implementation_date: "",
                   note: "",
                 };
+
+                const uploadedScreenshot = getScreenshotForRow(index);
 
                 return (
                   <tr key={index} className="border-t border-slate-700">
@@ -513,6 +532,21 @@ export default function SubmissionForm({
                     </td>
 
                     <td className="px-3 py-2">
+                      {uploadedScreenshot?.file_url ? (
+                        <div className="mb-2 rounded-md border border-slate-700 bg-slate-950 p-2">
+                          <p className="text-[11px] text-slate-400">
+                            アップロード済み
+                          </p>
+                          <a
+                            href={uploadedScreenshot.file_url}
+                            target="_blank"
+                            className="mt-1 block text-[11px] underline"
+                          >
+                            現在のスクリーンショットを確認
+                          </a>
+                        </div>
+                      ) : null}
+
                       <input
                         type="file"
                         name={`report_screenshot_${index}`}
@@ -520,6 +554,10 @@ export default function SubmissionForm({
                         onChange={validateSingleImage}
                         className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2"
                       />
+
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        未選択の場合、現在のスクリーンショットは保持されます。
+                      </p>
                     </td>
 
                     <td className="px-3 py-2">
