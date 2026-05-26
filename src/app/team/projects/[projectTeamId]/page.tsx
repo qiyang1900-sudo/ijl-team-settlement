@@ -19,6 +19,7 @@ async function saveSubmission(formData: FormData) {
   }
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
   const adminSupabase =
     serviceRoleKey && supabaseUrl
       ? createClient(supabaseUrl, serviceRoleKey)
@@ -48,10 +49,6 @@ async function saveSubmission(formData: FormData) {
     formData.get("project_team_confirmation") || "確認"
   );
   const summaryNote = String(formData.get("summary_note") || "全額支払い");
-
-  const evidenceDriveUrl = String(formData.get("evidence_drive_url") || "");
-  const evidenceNote = String(formData.get("evidence_note") || "");
-  const proofScreenshot = formData.get("proof_screenshot") as File | null;
 
   await supabase.from("submission_company_info").upsert(
     {
@@ -114,11 +111,7 @@ async function saveSubmission(formData: FormData) {
     .from("submission_files")
     .delete()
     .eq("project_team_id", projectTeamId)
-    .in("file_category", [
-      "google_drive",
-      "drive_proof_screenshot",
-      "report_screenshot",
-    ]);
+    .eq("file_category", "report_screenshot");
 
   for (let index = 0; index < detailCount; index++) {
     const serviceItem = String(formData.get(`service_item_${index}`) || "");
@@ -169,7 +162,7 @@ async function saveSubmission(formData: FormData) {
 
       if (reportScreenshot.size > 300 * 1024) {
         throw new Error(
-          "スクリーンショットは1枚300KB以内にしてください。大きい場合はGoogle Driveリンクをご利用ください。"
+          "スクリーンショットは1枚300KB以内にしてください。大きい場合はリンク欄にGoogle Driveリンクをご記入ください。"
         );
       }
 
@@ -204,59 +197,6 @@ async function saveSubmission(formData: FormData) {
         note: `結案報告 No.${index + 1} スクリーンショット`,
       });
     }
-  }
-
-  if (evidenceDriveUrl || evidenceNote) {
-    await supabase.from("submission_files").insert({
-      project_team_id: projectTeamId,
-      file_category: "google_drive",
-      submit_method: "link",
-      external_url: evidenceDriveUrl || null,
-      note: evidenceNote || null,
-    });
-  }
-
-  if (proofScreenshot && proofScreenshot.size > 0) {
-    if (!proofScreenshot.type.startsWith("image/")) {
-      throw new Error("Google Drive内容確認截图は画像のみアップロードできます。");
-    }
-
-    if (proofScreenshot.size > 300 * 1024) {
-      throw new Error(
-        "Google Drive内容確認截图は300KB以内にしてください。大きい場合はGoogle Driveリンクをご利用ください。"
-      );
-    }
-
-    const storagePath = createStoragePath(
-      projectTeamId,
-      proofScreenshot.name || "drive-proof-screenshot"
-    );
-
-    const { error: uploadError } = await adminSupabase.storage
-      .from("screenshots")
-      .upload(storagePath, proofScreenshot, {
-        contentType: proofScreenshot.type || "application/octet-stream",
-        upsert: false,
-      });
-
-    if (uploadError) {
-      throw new Error(uploadError.message);
-    }
-
-    const { data: publicUrlData } = adminSupabase.storage
-      .from("screenshots")
-      .getPublicUrl(storagePath);
-
-    await supabase.from("submission_files").insert({
-      project_team_id: projectTeamId,
-      file_category: "drive_proof_screenshot",
-      submit_method: "upload",
-      file_name: proofScreenshot.name,
-      file_url: publicUrlData.publicUrl,
-      storage_path: storagePath,
-      mime_type: proofScreenshot.type,
-      note: "Google Driveフォルダ内確認用スクリーンショット",
-    });
   }
 
   let nextStatus = "draft";
@@ -383,13 +323,6 @@ export default async function TeamSubmissionPage({
     .eq("project_team_id", projectTeamId)
     .order("row_number", { ascending: true });
 
-  const { data: evidenceFile } = await supabase
-    .from("submission_files")
-    .select("*")
-    .eq("project_team_id", projectTeamId)
-    .eq("file_category", "google_drive")
-    .maybeSingle();
-
   const backHref = teamId
     ? `/team/projects?teamId=${teamId}`
     : "/team/projects";
@@ -477,8 +410,6 @@ export default async function TeamSubmissionPage({
           summaryRow={summaryRow}
           detailRows={detailRows || []}
           reportRows={reportRows || []}
-          evidenceFile={evidenceFile}
-          backHref={backHref}
         />
       </div>
     </main>
