@@ -160,22 +160,12 @@ export default async function ProjectDetailPage({
                       </td>
 
                       <td className="px-4 py-3">
-                        <div className="flex gap-4">
-                          <a
-                            href={`/admin/projects/${projectId}/teams/${row.id}`}
-                            className="text-slate-300 underline hover:text-white"
-                          >
-                            查看提交
-                          </a>
-
-                          <a
-                            href={`/team/projects/${row.id}`}
-                            target="_blank"
-                            className="text-slate-300 underline hover:text-white"
-                          >
-                            战队填写页
-                          </a>
-                        </div>
+                        <a
+                          href={`/admin/projects/${projectId}/teams/${row.id}`}
+                          className="text-slate-300 underline hover:text-white"
+                        >
+                          查看提交
+                        </a>
                       </td>
                     </tr>
                   ))}
