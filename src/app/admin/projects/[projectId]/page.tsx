@@ -23,13 +23,16 @@ export default async function ProjectDetailPage({
 
   const { data: project, error: projectError } = await supabase
     .from("projects")
-    .select("id, title, description, template_type, deadline_at, edit_deadline_at, status")
+    .select(
+      "id, title, description, template_type, deadline_at, edit_deadline_at, status"
+    )
     .eq("id", projectId)
     .single();
 
   const { data: projectTeams, error: teamsError } = await supabase
     .from("project_teams")
-    .select(`
+    .select(
+      `
       id,
       status,
       submitted_at,
@@ -41,7 +44,8 @@ export default async function ProjectDetailPage({
         name,
         short_name
       )
-    `)
+    `
+    )
     .eq("project_id", projectId)
     .order("created_at", { ascending: true });
 
@@ -49,7 +53,10 @@ export default async function ProjectDetailPage({
     <main className="min-h-screen bg-slate-950 p-10 text-white">
       <div className="mx-auto max-w-6xl">
         <div className="mb-8">
-          <a href="/admin/projects" className="text-sm text-slate-400 hover:text-white">
+          <a
+            href="/admin/projects"
+            className="text-sm text-slate-400 hover:text-white"
+          >
             ← 项目管理へ戻る
           </a>
 
@@ -63,7 +70,9 @@ export default async function ProjectDetailPage({
           ) : (
             <>
               <h1 className="mt-4 text-3xl font-bold">{project.title}</h1>
-              <p className="mt-2 text-slate-400">{project.description || "-"}</p>
+              <p className="mt-2 text-slate-400">
+                {project.description || "-"}
+              </p>
 
               <div className="mt-6 grid gap-4 md:grid-cols-4">
                 <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
@@ -84,7 +93,9 @@ export default async function ProjectDetailPage({
                   <p className="text-sm text-slate-500">修改截止时间</p>
                   <p className="mt-2 font-semibold">
                     {project.edit_deadline_at
-                      ? new Date(project.edit_deadline_at).toLocaleString("ja-JP")
+                      ? new Date(project.edit_deadline_at).toLocaleString(
+                          "ja-JP"
+                        )
                       : "-"}
                   </p>
                 </div>
@@ -104,7 +115,9 @@ export default async function ProjectDetailPage({
           {teamsError ? (
             <div className="mt-4 rounded-xl border border-red-500 bg-red-950 p-5">
               <p className="font-bold text-red-300">战队读取失败</p>
-              <p className="mt-2 text-sm text-red-200">{teamsError.message}</p>
+              <p className="mt-2 text-sm text-red-200">
+                {teamsError.message}
+              </p>
             </div>
           ) : !projectTeams || projectTeams.length === 0 ? (
             <div className="mt-4 rounded-xl border border-slate-700 bg-slate-900 p-8 text-center">
@@ -128,21 +141,30 @@ export default async function ProjectDetailPage({
                       <td className="px-4 py-3 font-medium">
                         {row.teams?.name || "-"}
                       </td>
+
                       <td className="px-4 py-3 text-slate-300">
                         {row.teams?.short_name || "-"}
                       </td>
+
                       <td className="px-4 py-3">
                         <span className="rounded-full bg-slate-800 px-3 py-1 text-slate-300">
                           {row.status}
                         </span>
                       </td>
+
                       <td className="px-4 py-3 text-slate-300">
                         {row.submitted_at
                           ? new Date(row.submitted_at).toLocaleString("ja-JP")
                           : "-"}
                       </td>
-                      <td className="px-4 py-3 text-slate-400">
-                        查看提交
+
+                      <td className="px-4 py-3">
+                        <a
+                          href={`/admin/projects/${projectId}/teams/${row.id}`}
+                          className="text-slate-300 underline hover:text-white"
+                        >
+                          查看提交
+                        </a>
                       </td>
                     </tr>
                   ))}
