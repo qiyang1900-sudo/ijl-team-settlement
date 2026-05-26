@@ -1,34 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
-import ExcelJS from "exceljs";
 
-function addRowsSheet(
-  workbook: ExcelJS.Workbook,
-  sheetName: string,
-  columns: { header: string; key: string; width?: number }[],
-  rows: any[]
-) {
-  const sheet = workbook.addWorksheet(sheetName);
+function csvEscape(value: any) {
+  if (value === null || value === undefined) return "";
+  const text = String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+}
 
-  sheet.columns = columns.map((column) => ({
-    header: column.header,
-    key: column.key,
-    width: column.width || 20,
-  }));
-
-  sheet.getRow(1).font = { bold: true };
-
-  rows.forEach((row) => {
-    sheet.addRow(row);
-  });
-
-  sheet.eachRow((row) => {
-    row.eachCell((cell) => {
-      cell.alignment = {
-        vertical: "top",
-        wrapText: true,
-      };
-    });
-  });
+function makeCsv(rows: any[][]) {
+  return rows.map((row) => row.map(csvEscape).join(",")).join("\n");
 }
 
 export async function GET(
@@ -115,115 +94,124 @@ export async function GET(
     .eq("project_team_id", projectTeamId)
     .order("created_at", { ascending: true });
 
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Team Settlement System";
-  workbook.created = new Date();
-
   const project: any = projectTeam.projects;
   const team: any = projectTeam.teams;
 
-  addRowsSheet(
-    workbook,
-    "基本情報",
-    [
-      { header: "項目", key: "label", width: 28 },
-      { header: "内容", key: "value", width: 60 },
-    ],
-    [
-      { label: "プロジェクト名", value: project?.title || "" },
-      { label: "プロジェクト説明", value: project?.description || "" },
-      { label: "テンプレート種別", value: project?.template_type || "" },
-      { label: "提出期限", value: project?.deadline_at || "" },
-      { label: "修正期限", value: project?.edit_deadline_at || "" },
-      { label: "戦隊名", value: team?.name || "" },
-      { label: "戦隊略称", value: team?.short_name || "" },
-      { label: "担当者", value: team?.contact_name || "" },
-      { label: "担当者メール", value: team?.contact_email || "" },
-      { label: "提出ステータス", value: projectTeam.status || "" },
-      { label: "提出日時", value: projectTeam.submitted_at || "" },
-      { label: "承認日時", value: projectTeam.approved_at || "" },
-      { label: "差し戻し理由", value: projectTeam.return_reason || "" },
-    ]
-  );
+  const rows: any[][] = [];
 
-  addRowsSheet(
-    workbook,
-    "契約・口座情報",
-    [
-      { header: "項目", key: "label", width: 28 },
-      { header: "内容", key: "value", width: 60 },
-    ],
-    [
-      { label: "契約会社名", value: companyInfo?.company_name || "" },
-      { label: "銀行名", value: companyInfo?.bank_name || "" },
-      { label: "口座番号", value: companyInfo?.bank_account_number || "" },
-      { label: "Swift code", value: companyInfo?.swift_code || "" },
-    ]
-  );
+  rows.push(["基本情報"]);
+  rows.push(["プロジェクト名", project?.title || ""]);
+  rows.push(["プロジェクト説明", project?.description || ""]);
+  rows.push(["テンプレート種別", project?.template_type || ""]);
+  rows.push(["提出期限", project?.deadline_at || ""]);
+  rows.push(["修正期限", project?.edit_deadline_at || ""]);
+  rows.push(["戦隊名", team?.name || ""]);
+  rows.push(["戦隊略称", team?.short_name || ""]);
+  rows.push(["担当者", team?.contact_name || ""]);
+  rows.push(["担当者メール", team?.contact_email || ""]);
+  rows.push(["提出ステータス", projectTeam.status || ""]);
+  rows.push(["提出日時", projectTeam.submitted_at || ""]);
+  rows.push(["承認日時", projectTeam.approved_at || ""]);
+  rows.push(["差し戻し理由", projectTeam.return_reason || ""]);
+  rows.push([]);
 
-  addRowsSheet(
-    workbook,
-    "検収総表",
-    [
-      { header: "No.", key: "row_number", width: 8 },
-      { header: "今回の支払内容", key: "payment_content", width: 40 },
-      { header: "納品期日", key: "delivery_due_date", width: 18 },
-      { header: "契約支払基準", key: "contract_payment_standard", width: 24 },
-      { header: "業務完了基準", key: "completion_standard", width: 24 },
-      { header: "確認", key: "project_team_confirmation", width: 18 },
-      { header: "備考", key: "note", width: 40 },
-    ],
-    summaryRows || []
-  );
+  rows.push(["契約・口座情報"]);
+  rows.push(["契約会社名", companyInfo?.company_name || ""]);
+  rows.push(["銀行名", companyInfo?.bank_name || ""]);
+  rows.push(["口座番号", companyInfo?.bank_account_number || ""]);
+  rows.push(["Swift code", companyInfo?.swift_code || ""]);
+  rows.push([]);
 
-  addRowsSheet(
-    workbook,
-    "精算明細",
-    [
-      { header: "No.", key: "row_number", width: 8 },
-      { header: "サービス / 内容項目", key: "service_item", width: 40 },
-      { header: "数量", key: "quantity", width: 12 },
-      { header: "単価", key: "unit_price", width: 16 },
-      { header: "小計", key: "subtotal", width: 16 },
-      { header: "金額一致", key: "amount_match", width: 14 },
-      { header: "備考", key: "note", width: 40 },
-    ],
-    (detailRows || []).map((row: any) => ({
-      ...row,
-      amount_match: row.amount_match ? "はい" : "いいえ",
-    }))
-  );
+  rows.push(["検収総表"]);
+  rows.push([
+    "No.",
+    "今回の支払内容",
+    "納品期日",
+    "契約支払基準",
+    "業務完了基準",
+    "確認",
+    "備考",
+  ]);
 
-  addRowsSheet(
-    workbook,
-    "結案報告",
-    [
-      { header: "No.", key: "row_number", width: 8 },
-      { header: "項目内容", key: "item_content", width: 40 },
-      { header: "種別", key: "category_type", width: 16 },
-      { header: "金額", key: "amount", width: 16 },
-      { header: "リンク", key: "link_url", width: 60 },
-      { header: "実施日", key: "implementation_date", width: 18 },
-      { header: "備考", key: "note", width: 40 },
-    ],
-    reportRows || []
-  );
+  for (const row of summaryRows || []) {
+    rows.push([
+      row.row_number,
+      row.payment_content,
+      row.delivery_due_date,
+      row.contract_payment_standard,
+      row.completion_standard,
+      row.project_team_confirmation,
+      row.note,
+    ]);
+  }
 
-  addRowsSheet(
-    workbook,
-    "提出ファイル",
-    [
-      { header: "カテゴリ", key: "file_category", width: 24 },
-      { header: "提出方法", key: "submit_method", width: 18 },
-      { header: "ファイル名", key: "file_name", width: 40 },
-      { header: "URL", key: "file_url", width: 70 },
-      { header: "外部URL", key: "external_url", width: 70 },
-      { header: "備考", key: "note", width: 40 },
-    ],
-    files || []
-  );
+  rows.push([]);
 
-  const buffer = await workbook.xlsx.writeBuffer();
+  rows.push(["精算明細"]);
+  rows.push([
+    "No.",
+    "サービス / 内容項目",
+    "数量",
+    "単価",
+    "小計",
+    "金額一致",
+    "備考",
+  ]);
+
+  for (const row of detailRows || []) {
+    rows.push([
+      row.row_number,
+      row.service_item,
+      row.quantity,
+      row.unit_price,
+      row.subtotal,
+      row.amount_match ? "はい" : "いいえ",
+      row.note,
+    ]);
+  }
+
+  rows.push([]);
+
+  rows.push(["結案報告"]);
+  rows.push([
+    "No.",
+    "項目内容",
+    "種別",
+    "金額",
+    "リンク",
+    "実施日",
+    "備考",
+  ]);
+
+  for (const row of reportRows || []) {
+    rows.push([
+      row.row_number,
+      row.item_content,
+      row.category_type,
+      row.amount,
+      row.link_url,
+      row.implementation_date,
+      row.note,
+    ]);
+  }
+
+  rows.push([]);
+
+  rows.push(["提出ファイル"]);
+  rows.push(["カテゴリ", "提出方法", "ファイル名", "URL", "外部URL", "備考"]);
+
+  for (const file of files || []) {
+    rows.push([
+      file.file_category,
+      file.submit_method,
+      file.file_name,
+      file.file_url,
+      file.external_url,
+      file.note,
+    ]);
+  }
+
+  const csv = "\uFEFF" + makeCsv(rows);
 
   const safeTeamName = String(team?.short_name || team?.name || "team").replace(
     /[^a-zA-Z0-9ぁ-んァ-ヶ一-龠_-]/g,
@@ -235,13 +223,12 @@ export async function GET(
     "_"
   );
 
-  const fileName = `${safeTeamName}_${safeProjectTitle}_export.xlsx`;
+  const fileName = `${safeTeamName}_${safeProjectTitle}_export.csv`;
 
-  return new Response(buffer, {
+  return new Response(csv, {
     status: 200,
     headers: {
-      "Content-Type":
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(
         fileName
       )}`,
