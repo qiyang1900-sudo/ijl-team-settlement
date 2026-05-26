@@ -135,6 +135,7 @@ export default async function ProjectDetailPage({
                     <th className="px-4 py-3">操作</th>
                   </tr>
                 </thead>
+
                 <tbody>
                   {projectTeams.map((row: any) => (
                     <tr key={row.id} className="border-t border-slate-700">
@@ -159,12 +160,22 @@ export default async function ProjectDetailPage({
                       </td>
 
                       <td className="px-4 py-3">
-                        <a
-                          href={`/admin/projects/${projectId}/teams/${row.id}`}
-                          className="text-slate-300 underline hover:text-white"
-                        >
-                          查看提交
-                        </a>
+                        <div className="flex gap-4">
+                          <a
+                            href={`/admin/projects/${projectId}/teams/${row.id}`}
+                            className="text-slate-300 underline hover:text-white"
+                          >
+                            查看提交
+                          </a>
+
+                          <a
+                            href={`/team/projects/${row.id}`}
+                            target="_blank"
+                            className="text-slate-300 underline hover:text-white"
+                          >
+                            战队填写页
+                          </a>
+                        </div>
                       </td>
                     </tr>
                   ))}
