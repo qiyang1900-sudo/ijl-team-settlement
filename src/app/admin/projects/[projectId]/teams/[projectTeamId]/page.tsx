@@ -13,7 +13,6 @@ async function approveSubmission(formData: FormData) {
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-  const projectId = String(formData.get("project_id") || "");
   const projectTeamId = String(formData.get("project_team_id") || "");
 
   const { error } = await supabase
@@ -35,7 +34,7 @@ async function approveSubmission(formData: FormData) {
     comment: "审核通过",
   });
 
-  redirect(`/admin/projects/${projectId}/teams/${projectTeamId}`);
+  redirect("/admin/reviews");
 }
 
 async function returnSubmission(formData: FormData) {
@@ -50,7 +49,6 @@ async function returnSubmission(formData: FormData) {
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-  const projectId = String(formData.get("project_id") || "");
   const projectTeamId = String(formData.get("project_team_id") || "");
   const returnReason = String(formData.get("return_reason") || "");
 
@@ -73,7 +71,7 @@ async function returnSubmission(formData: FormData) {
     comment: returnReason || "退回修改",
   });
 
-  redirect(`/admin/projects/${projectId}/teams/${projectTeamId}`);
+  redirect("/admin/reviews");
 }
 
 export default async function AdminSubmissionDetailPage({
@@ -169,10 +167,10 @@ export default async function AdminSubmissionDetailPage({
       <main className="min-h-screen bg-slate-950 p-10 text-white">
         <div className="mx-auto max-w-5xl">
           <a
-            href={`/admin/projects/${projectId}`}
+            href="/admin/reviews"
             className="text-sm text-slate-400 hover:text-white"
           >
-            ← 项目详情へ戻る
+            ← 提交审核へ戻る
           </a>
 
           <div className="mt-6 rounded-xl border border-red-500 bg-red-950 p-5">
@@ -194,10 +192,10 @@ export default async function AdminSubmissionDetailPage({
       <div className="mx-auto max-w-6xl">
         <div className="mb-8">
           <a
-            href={`/admin/projects/${projectId}`}
+            href="/admin/reviews"
             className="text-sm text-slate-400 hover:text-white"
           >
-            ← 项目详情へ戻る
+            ← 提交审核へ戻る
           </a>
 
           <h1 className="mt-4 text-3xl font-bold">提交详情</h1>
@@ -245,12 +243,18 @@ export default async function AdminSubmissionDetailPage({
           <h2 className="text-2xl font-bold">审核操作</h2>
 
           <div className="mt-5 grid gap-6 md:grid-cols-2">
-            <form action={approveSubmission} className="rounded-xl border border-slate-700 bg-slate-950 p-5">
-              <input type="hidden" name="project_id" value={projectId} />
-              <input type="hidden" name="project_team_id" value={projectTeamId} />
+            <form
+              action={approveSubmission}
+              className="rounded-xl border border-slate-700 bg-slate-950 p-5"
+            >
+              <input
+                type="hidden"
+                name="project_team_id"
+                value={projectTeamId}
+              />
 
               <p className="text-sm text-slate-400">
-                确认资料没有问题后，可以点击审核通过。
+                确认资料没有问题后，可以点击审核通过。操作后会自动返回提交审核页面。
               </p>
 
               <button
@@ -261,9 +265,15 @@ export default async function AdminSubmissionDetailPage({
               </button>
             </form>
 
-            <form action={returnSubmission} className="rounded-xl border border-slate-700 bg-slate-950 p-5">
-              <input type="hidden" name="project_id" value={projectId} />
-              <input type="hidden" name="project_team_id" value={projectTeamId} />
+            <form
+              action={returnSubmission}
+              className="rounded-xl border border-slate-700 bg-slate-950 p-5"
+            >
+              <input
+                type="hidden"
+                name="project_team_id"
+                value={projectTeamId}
+              />
 
               <label className="block text-sm font-medium text-slate-300">
                 退回理由
@@ -321,10 +331,18 @@ export default async function AdminSubmissionDetailPage({
                 <tbody>
                   {summaryRows.map((row: any) => (
                     <tr key={row.id} className="border-t border-slate-700">
-                      <td className="px-4 py-3">{row.payment_content || "-"}</td>
-                      <td className="px-4 py-3">{row.delivery_due_date || "-"}</td>
-                      <td className="px-4 py-3">{row.contract_payment_standard || "-"}</td>
-                      <td className="px-4 py-3">{row.completion_standard || "-"}</td>
+                      <td className="px-4 py-3">
+                        {row.payment_content || "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {row.delivery_due_date || "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {row.contract_payment_standard || "-"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {row.completion_standard || "-"}
+                      </td>
                       <td className="px-4 py-3">{row.note || "-"}</td>
                     </tr>
                   ))}
@@ -406,7 +424,9 @@ export default async function AdminSubmissionDetailPage({
                           "-"
                         )}
                       </td>
-                      <td className="px-4 py-3">{row.implementation_date || "-"}</td>
+                      <td className="px-4 py-3">
+                        {row.implementation_date || "-"}
+                      </td>
                       <td className="px-4 py-3">{row.note || "-"}</td>
                     </tr>
                   ))}
