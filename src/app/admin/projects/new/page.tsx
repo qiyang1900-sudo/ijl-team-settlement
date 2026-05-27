@@ -16,8 +16,11 @@ async function createProject(formData: FormData) {
   const title = String(formData.get("title") || "");
   const description = String(formData.get("description") || "");
   const templateType = String(formData.get("template_type") || "subsidy_report");
-  const deadlineAt = String(formData.get("deadline_at") || "");
-  const editDeadlineAt = String(formData.get("edit_deadline_at") || "");
+  const deadlineDate = String(formData.get("deadline_date") || "").trim();
+  const deadlineTime = String(formData.get("deadline_time") || "").trim();
+  const deadlineAt = deadlineDate
+    ? `${deadlineDate}T${deadlineTime || "23:59"}`
+    : "";
   const teamIds = formData.getAll("team_ids").map(String);
 
   const { data: project, error: projectError } = await supabase
@@ -27,7 +30,7 @@ async function createProject(formData: FormData) {
       description,
       template_type: templateType,
       deadline_at: deadlineAt || null,
-      edit_deadline_at: editDeadlineAt || null,
+      edit_deadline_at: deadlineAt || null,
       status: "active",
     })
     .select("id")
@@ -141,26 +144,27 @@ export default async function NewProjectPage() {
               </select>
             </div>
 
-            <div className="grid gap-6 md:grid-cols-2">
-              <div>
-                <label className="block text-sm font-medium text-slate-300">
-                  提交截止时间
-                </label>
-                <input
-                  name="deadline_at"
-                  type="datetime-local"
-                  className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
-                />
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-300">
+                截止时间
+              </label>
+              <p className="mt-1 text-xs text-slate-500">
+                提交和修改共用同一个截止时间。
+              </p>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-300">
-                  修改截止时间
-                </label>
+              <div className="mt-2 grid gap-3 md:grid-cols-[1fr_180px]">
                 <input
-                  name="edit_deadline_at"
-                  type="datetime-local"
-                  className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
+                  name="deadline_date"
+                  type="date"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
+                />
+
+                <input
+                  name="deadline_time"
+                  type="time"
+                  step="60"
+                  defaultValue="23:59"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
                 />
               </div>
             </div>
