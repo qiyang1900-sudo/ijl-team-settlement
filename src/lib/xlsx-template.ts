@@ -70,6 +70,7 @@ function readZipEntries(input: Buffer): ZipEntry[] {
     const compressionMethod = input.readUInt16LE(offset + 10);
     const modTime = input.readUInt16LE(offset + 12);
     const modDate = input.readUInt16LE(offset + 14);
+    const expectedCrc = input.readUInt32LE(offset + 16);
     const compressedSize = input.readUInt32LE(offset + 20);
     const nameLength = input.readUInt16LE(offset + 28);
     const extraLength = input.readUInt16LE(offset + 30);
@@ -100,6 +101,10 @@ function readZipEntries(input: Buffer): ZipEntry[] {
       data = inflateRawSync(compressedData);
     } else {
       throw new Error(`Unsupported XLSX compression method ${compressionMethod}.`);
+    }
+
+    if (crc32(data) !== expectedCrc) {
+      throw new Error(`Invalid XLSX CRC for ${name}.`);
     }
 
     entries.push({
