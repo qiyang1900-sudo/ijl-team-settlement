@@ -5,6 +5,18 @@ import { getStatusTone, getTeamStatusLabel } from "@/lib/status-labels";
 
 export const dynamic = "force-dynamic";
 
+type TeamProjectRow = {
+  id: string;
+  status: string;
+  return_reason: string | null;
+  projects: {
+    id: string | null;
+    title: string | null;
+    description: string | null;
+    deadline_at: string | null;
+  } | null;
+};
+
 export default async function TeamProjectsPage({
   searchParams,
 }: {
@@ -108,17 +120,17 @@ export default async function TeamProjectsPage({
           </div>
         ) : (
           <div className="space-y-4">
-            {projectTeams.map((row: any) => (
+            {((projectTeams || []) as unknown as TeamProjectRow[]).map((row) => (
               <article
                 key={row.id}
                 className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
               >
-                <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(420px,0.8fr)] lg:items-center">
+                <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
                   <div className="min-w-0">
                     <h2 className="text-lg font-bold text-slate-950">
                       {row.projects?.title || "-"}
                     </h2>
-                    <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7 text-slate-600">
+                    <p className="mt-2 line-clamp-5 whitespace-pre-wrap break-words text-sm leading-7 text-slate-600">
                       {row.projects?.description || "-"}
                     </p>
                   </div>
@@ -138,10 +150,9 @@ export default async function TeamProjectsPage({
                       </div>
                     </div>
 
-                    <InfoBlock
-                      label="差し戻し理由"
-                      value={row.return_reason || "-"}
-                    />
+                    <div className="sm:col-span-2">
+                      <ReasonBlock reason={row.return_reason || ""} />
+                    </div>
 
                     <div>
                       <p className="text-xs font-semibold text-slate-500">
@@ -184,6 +195,21 @@ function InfoBlock({ label, value }: { label: string; value: string }) {
       <p className="mt-2 break-words text-sm leading-6 text-slate-700">
         {value}
       </p>
+    </div>
+  );
+}
+
+function ReasonBlock({ reason }: { reason: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs font-semibold text-slate-500">差し戻し理由</p>
+      {reason ? (
+        <p className="mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border border-rose-100 bg-rose-50 p-3 pr-2 text-sm leading-6 text-slate-700">
+          {reason}
+        </p>
+      ) : (
+        <p className="mt-2 text-sm leading-6 text-slate-700">-</p>
+      )}
     </div>
   );
 }
