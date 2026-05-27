@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { TeamEditDialog } from "./TeamEditDialog";
 
@@ -75,20 +76,29 @@ export default async function AdminTeamsPage() {
   return (
     <main className="min-h-screen bg-slate-950 p-10 text-white">
       <div className="mx-auto max-w-6xl">
-        <div className="mb-8 flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">战队管理</h1>
-            <p className="mt-2 text-slate-400">
-              管理战队账号、联系人、Webhook 和常用资料。
-            </p>
-          </div>
-
-          <a
-            href="/admin/teams/new"
-            className="rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
+        <div className="mb-8">
+          <Link
+            href="/admin/dashboard"
+            className="text-sm text-slate-400 hover:text-white"
           >
-            新增战队
-          </a>
+            ← 返回管理员后台
+          </Link>
+
+          <div className="mt-4 flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold">战队管理</h1>
+              <p className="mt-2 text-slate-400">
+                管理战队账号、联系人、Webhook 和常用资料。
+              </p>
+            </div>
+
+            <Link
+              href="/admin/teams/new"
+              className="rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
+            >
+              新增战队
+            </Link>
+          </div>
         </div>
 
         {error ? (
