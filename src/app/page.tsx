@@ -37,7 +37,7 @@ export default function Home() {
             </p>
             <h2 className="text-2xl font-bold">戦隊入口</h2>
             <p className="mt-3 text-slate-600">
-              提出プロジェクトの確認、資料入力、審査状況の確認はこちら。
+              請求書と結案報告書の確認、資料入力、審査状況の確認はこちら。
             </p>
           </a>
         </div>

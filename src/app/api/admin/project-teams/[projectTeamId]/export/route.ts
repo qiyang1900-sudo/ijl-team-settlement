@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { SETTLEMENT_REPORT_TEMPLATE_BASE64 } from "@/lib/settlement-report-template";
+import { getTaxRateFromRows } from "@/lib/tax-rate";
 import {
   fillXlsxTemplate,
   trimWorksheetToMaxColumn,
@@ -162,7 +163,8 @@ function buildSummarySheetUpdates({
   detailRows: Row[];
 }): SheetUpdates {
   const totalAmount = detailRows.reduce((sum, row) => sum + subtotal(row), 0);
-  const taxAmount = Math.round(totalAmount * 0.1);
+  const taxRate = getTaxRateFromRows(detailRows);
+  const taxAmount = Math.round(totalAmount * taxRate);
   const updates: SheetUpdates = {
     B9: companyInfo?.company_name || "",
     B10: companyInfo?.bank_name || "",

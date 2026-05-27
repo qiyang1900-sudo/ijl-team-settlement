@@ -62,7 +62,7 @@ export default async function TeamDashboardPage({
             href={`/team/projects?teamId=${teamId}`}
             className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"
           >
-            <h2 className="text-xl font-semibold">提出プロジェクト</h2>
+            <h2 className="text-xl font-semibold">請求書と結案報告書提出</h2>
             <p className="mt-2 text-sm text-slate-600">
               提出対象の確認、資料入力、下書き保存、審査提出ができます。
             </p>
@@ -72,7 +72,7 @@ export default async function TeamDashboardPage({
             href={`/team/reward?teamId=${teamId}`}
             className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-md"
           >
-            <h2 className="text-xl font-semibold">コンテンツ奨励</h2>
+            <h2 className="text-xl font-semibold">月データ提出</h2>
             <p className="mt-2 text-sm text-slate-600">
               毎月のX、TT、YouTube実績、月間スコア、奨励金を確認できます。
             </p>

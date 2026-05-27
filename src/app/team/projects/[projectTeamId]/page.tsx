@@ -1,7 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
+import { getInvoiceUploadUrl } from "@/lib/invoice-upload-links";
 import { getStatusTone, getTeamStatusLabel } from "@/lib/status-labels";
+import { createTaxRateNote, normalizeTaxRate } from "@/lib/tax-rate";
 import SubmissionForm from "./SubmissionForm";
+
+type TeamRecord = {
+  name?: string | null;
+  short_name?: string | null;
+};
 
 function createStoragePath(projectTeamId: string, fileName: string) {
   const safeFileName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, "_");
@@ -37,6 +44,8 @@ async function saveSubmission(formData: FormData) {
   const actionType = String(formData.get("action_type") || "draft");
   const rawSummaryCount = Number(formData.get("summary_count") || 1);
   const rawDetailCount = Number(formData.get("detail_count") || 1);
+  const taxRate = normalizeTaxRate(formData.get("tax_rate"));
+  const invoiceUploaded = formData.get("invoice_uploaded") === "on";
   const summaryCount = Number.isFinite(rawSummaryCount)
     ? Math.min(Math.max(rawSummaryCount, 1), 3)
     : 1;
@@ -163,7 +172,7 @@ async function saveSubmission(formData: FormData) {
       quantity,
       unit_price: unitPrice,
       amount_match: true,
-      note: "",
+      note: index === 0 ? createTaxRateNote(taxRate) : "",
     });
 
     await supabase.from("report_rows").insert({
@@ -270,6 +279,37 @@ async function saveSubmission(formData: FormData) {
         storage_path: storagePath,
         mime_type: reportScreenshot.type,
         note: `結果報告 No.${rowNumber} スクリーンショット`,
+      });
+    }
+  }
+
+  await supabase
+    .from("submission_files")
+    .delete()
+    .eq("project_team_id", projectTeamId)
+    .eq("file_category", "invoice_confirmation");
+
+  if (invoiceUploaded) {
+    const { data: invoiceTeam } = await supabase
+      .from("teams")
+      .select("name, short_name")
+      .eq("id", teamId)
+      .maybeSingle();
+    const invoiceTeamRecord = invoiceTeam as TeamRecord | null;
+    const invoiceUploadUrl = getInvoiceUploadUrl(
+      invoiceTeamRecord?.short_name || invoiceTeamRecord?.name
+    );
+
+    if (invoiceUploadUrl) {
+      await supabase.from("submission_files").insert({
+        project_team_id: projectTeamId,
+        file_category: "invoice_confirmation",
+        submit_method: "external_drive",
+        file_name: "請求書アップロード済み",
+        file_url: invoiceUploadUrl,
+        storage_path: null,
+        mime_type: null,
+        note: "請求書アップロード確認",
       });
     }
   }
@@ -407,6 +447,18 @@ export default async function TeamSubmissionPage({
     .eq("file_category", "report_screenshot")
     .order("created_at", { ascending: false });
 
+  const { data: invoiceFiles } = await supabase
+    .from("submission_files")
+    .select("*")
+    .eq("project_team_id", projectTeamId)
+    .eq("file_category", "invoice_confirmation")
+    .order("created_at", { ascending: false });
+
+  const invoiceUploadUrl = getInvoiceUploadUrl(
+    team?.short_name || team?.name || ""
+  );
+  const invoiceConfirmed = Boolean(invoiceFiles?.length);
+
   const backHref = teamId
     ? `/team/projects?teamId=${teamId}`
     : "/team/projects";
@@ -416,7 +468,7 @@ export default async function TeamSubmissionPage({
       <div className="mx-auto max-w-7xl">
         <div className="mb-5">
           <a href={backHref} className="text-xs font-medium text-slate-500 hover:text-slate-900">
-            ← 提出プロジェクト一覧へ戻る
+            ← 請求書と結案報告書提出一覧へ戻る
           </a>
 
           <h1 className="mt-3 text-2xl font-bold">{project?.title || "-"}</h1>
@@ -470,6 +522,19 @@ export default async function TeamSubmissionPage({
                 {new Date(projectTeam.approved_at).toLocaleString("ja-JP")}
               </p>
             ) : null}
+
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+              <span className="text-xs text-slate-500">請求書</span>
+              <span
+                className={
+                  invoiceConfirmed
+                    ? "rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200"
+                    : "rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500 ring-1 ring-slate-200"
+                }
+              >
+                {invoiceConfirmed ? "アップロード済み" : "未確認"}
+              </span>
+            </div>
           </div>
 
           {projectTeam.return_reason ? (
@@ -496,6 +561,8 @@ export default async function TeamSubmissionPage({
           detailRows={detailRows || []}
           reportRows={reportRows || []}
           screenshotFiles={screenshotFiles || []}
+          invoiceUploadUrl={invoiceUploadUrl}
+          invoiceConfirmed={invoiceConfirmed}
         />
       </div>
     </main>

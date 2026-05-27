@@ -13,7 +13,7 @@ export default function TeamPage() {
         </p>
 
         <div className="mt-8 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold">提出プロジェクト</h2>
+          <h2 className="text-xl font-semibold">請求書と結案報告書提出</h2>
 
           <p className="mt-2 text-sm text-slate-600">
             現在の提出対象を確認し、下書き保存または審査提出ができます。
