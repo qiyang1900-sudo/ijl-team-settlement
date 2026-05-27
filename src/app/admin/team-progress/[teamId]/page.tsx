@@ -1,6 +1,24 @@
 import { createClient } from "@supabase/supabase-js";
+import Link from "next/link";
 import { formatDateTime } from "@/lib/date-format";
 import { getAdminStatusLabel, getStatusTone } from "@/lib/status-labels";
+
+export const dynamic = "force-dynamic";
+
+type TeamProgressProject = {
+  id: string | null;
+  title: string | null;
+  description: string | null;
+  deadline_at: string | null;
+};
+
+type TeamProgressRow = {
+  id: string;
+  status: string;
+  submitted_at: string | null;
+  return_reason: string | null;
+  projects: TeamProgressProject | null;
+};
 
 export default async function TeamProgressDetailPage({
   params,
@@ -58,12 +76,12 @@ export default async function TeamProgressDetailPage({
     <main className="min-h-screen bg-slate-950 p-10 text-white">
       <div className="mx-auto max-w-6xl">
         <div className="mb-8">
-          <a
+          <Link
             href="/admin/team-progress"
             className="text-sm text-slate-400 hover:text-white"
           >
             ← 返回战队进度
-          </a>
+          </Link>
 
           {teamError || !team ? (
             <div className="mt-6 rounded-xl border border-red-500 bg-red-950 p-5">
@@ -95,69 +113,66 @@ export default async function TeamProgressDetailPage({
             <p className="text-slate-300">这个战队暂无关联项目。</p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-slate-700">
-            <table className="w-full border-collapse bg-slate-900 text-left text-sm">
-              <thead className="bg-slate-800 text-slate-300">
-                <tr>
-                  <th className="px-4 py-3">项目名</th>
-                  <th className="px-4 py-3">截止时间</th>
-                  <th className="px-4 py-3">状态</th>
-                  <th className="px-4 py-3">提交时间</th>
-                  <th className="px-4 py-3">退回理由</th>
-                  <th className="px-4 py-3">操作</th>
-                </tr>
-              </thead>
+          <div className="space-y-3">
+            {((projectTeams || []) as unknown as TeamProgressRow[]).map((row) => {
+              const project = row.projects;
 
-              <tbody>
-                {projectTeams.map((row: any) => {
-                  const project = row.projects;
+              return (
+                <article
+                  key={row.id}
+                  className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-4"
+                >
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_180px_140px_180px_110px] lg:items-center">
+                    <div className="min-w-0">
+                      <h2 className="truncate text-base font-semibold">
+                        {project?.title || "-"}
+                      </h2>
+                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+                        {project?.description || "-"}
+                      </p>
+                    </div>
 
-                  return (
-                    <tr key={row.id} className="border-t border-slate-700">
-                      <td className="px-4 py-3">
-                        <div className="font-medium">
-                          {project?.title || "-"}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {project?.description || "-"}
-                        </div>
-                      </td>
-
-                      <td className="px-4 py-3 text-slate-300">
-                        {project?.deadline_at
+                    <CompactMeta
+                      label="截止时间"
+                      value={
+                        project?.deadline_at
                           ? formatDateTime(project.deadline_at)
-                          : "-"}
-                      </td>
+                          : "-"
+                      }
+                      noWrap
+                    />
 
-                      <td className="px-4 py-3">
+                    <div>
+                      <p className="text-xs text-slate-500">状态</p>
+                      <div className="mt-1">
                         <StatusPill status={row.status} />
-                      </td>
+                      </div>
+                    </div>
 
-                      <td className="px-4 py-3 text-slate-300">
-                        {row.submitted_at
+                    <CompactMeta
+                      label="提交时间"
+                      value={
+                        row.submitted_at
                           ? formatDateTime(row.submitted_at)
-                          : "-"}
-                      </td>
+                          : "-"
+                      }
+                      noWrap
+                    />
 
-                      <td className="max-w-xs px-4 py-3 text-slate-300">
-                        <div className="line-clamp-2">
-                          {row.return_reason || "-"}
-                        </div>
-                      </td>
+                    <Link
+                      href={`/admin/projects/${project?.id}/teams/${row.id}`}
+                      className="text-sm text-slate-300 underline hover:text-white lg:text-right"
+                    >
+                      查看提交
+                    </Link>
+                  </div>
 
-                      <td className="px-4 py-3">
-                        <a
-                          href={`/admin/projects/${project?.id}/teams/${row.id}`}
-                          className="text-slate-300 underline hover:text-white"
-                        >
-                          查看提交
-                        </a>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  {row.return_reason ? (
+                    <ReasonPreview reason={row.return_reason} />
+                  ) : null}
+                </article>
+              );
+            })}
           </div>
         )}
       </div>
@@ -167,8 +182,42 @@ export default async function TeamProgressDetailPage({
 
 function StatusPill({ status }: { status: string }) {
   return (
-    <span className={`rounded-full px-3 py-1 text-xs ring-1 ${getStatusTone(status)}`}>
+    <span className={`inline-flex whitespace-nowrap rounded-full px-3 py-1 text-xs ring-1 ${getStatusTone(status)}`}>
       {getAdminStatusLabel(status)}
     </span>
+  );
+}
+
+function CompactMeta({
+  label,
+  value,
+  noWrap = false,
+}: {
+  label: string;
+  value: string;
+  noWrap?: boolean;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p
+        className={`mt-1 text-sm text-slate-300 ${
+          noWrap ? "whitespace-nowrap" : "break-words"
+        }`}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function ReasonPreview({ reason }: { reason: string }) {
+  return (
+    <div className="mt-3 rounded-lg border border-rose-500/30 bg-rose-950/30 p-3">
+      <p className="text-xs font-semibold text-rose-200">退回理由</p>
+      <p className="mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap break-words pr-2 text-xs leading-5 text-rose-100">
+        {reason}
+      </p>
+    </div>
   );
 }
