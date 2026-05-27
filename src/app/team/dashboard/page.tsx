@@ -72,9 +72,9 @@ export default async function TeamDashboardPage({
             href={`/team/reward?teamId=${teamId}`}
             className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-md"
           >
-            <h2 className="text-xl font-semibold">報酬確認</h2>
+            <h2 className="text-xl font-semibold">コンテンツ奨励</h2>
             <p className="mt-2 text-sm text-slate-600">
-              現在準備中です。後続で戦隊報酬に関する内容を表示します。
+              毎月のX、TT、YouTube実績、月間スコア、奨励金を確認できます。
             </p>
           </a>
         </div>
