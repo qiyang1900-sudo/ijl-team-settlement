@@ -19,6 +19,10 @@ create table if not exists monthly_data_submissions (
   unique (team_id, target_month)
 );
 
+grant select, insert, update on table public.monthly_data_submissions to anon;
+grant select, insert, update on table public.monthly_data_submissions to authenticated;
+grant select, insert, update on table public.monthly_data_submissions to service_role;
+
 alter table monthly_data_submissions enable row level security;
 
 drop policy if exists "monthly data submissions are readable" on monthly_data_submissions;
