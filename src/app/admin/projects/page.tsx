@@ -2,6 +2,10 @@ import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatDateTime } from "@/lib/date-format";
+import {
+  getProjectStatusLabel,
+  getTemplateTypeLabel,
+} from "@/lib/project-labels";
 import DeleteProjectButton from "./DeleteProjectButton";
 
 export const dynamic = "force-dynamic";
@@ -170,66 +174,86 @@ export default async function AdminProjectsPage({
             </p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-slate-700">
-            <table className="w-full border-collapse bg-slate-900 text-left text-sm">
-              <thead className="bg-slate-800 text-slate-300">
-                <tr>
-                  <th className="px-4 py-3">项目名</th>
-                  <th className="px-4 py-3">模板类型</th>
-                  <th className="px-4 py-3">截止时间</th>
-                  <th className="px-4 py-3">状态</th>
-                  <th className="px-4 py-3">操作</th>
-                </tr>
-              </thead>
+          <div className="space-y-3">
+            {projects.map((project) => (
+              <article
+                key={project.id}
+                className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-4"
+              >
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_150px_180px_110px_120px] lg:items-center">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-base font-semibold">
+                      {project.title}
+                    </h2>
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+                      {project.description || "-"}
+                    </p>
+                  </div>
 
-              <tbody>
-                {projects.map((project) => (
-                  <tr key={project.id} className="border-t border-slate-700">
-                    <td className="px-4 py-3">
-                      <div className="font-medium">{project.title}</div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        {project.description || "-"}
-                      </div>
-                    </td>
+                  <CompactMeta
+                    label="模板类型"
+                    value={getTemplateTypeLabel(project.template_type)}
+                  />
 
-                    <td className="px-4 py-3 text-slate-300">
-                      {project.template_type}
-                    </td>
-
-                    <td className="px-4 py-3 text-slate-300">
-                      {project.deadline_at
+                  <CompactMeta
+                    label="截止时间"
+                    value={
+                      project.deadline_at
                         ? formatDateTime(project.deadline_at)
-                        : "-"}
-                    </td>
+                        : "-"
+                    }
+                    noWrap
+                  />
 
-                    <td className="px-4 py-3">
-                      <span className="rounded-full bg-slate-800 px-3 py-1 text-slate-300">
-                        {project.status}
-                      </span>
-                    </td>
+                  <div>
+                    <p className="text-xs text-slate-500">状态</p>
+                    <span className="mt-1 inline-flex rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">
+                      {getProjectStatusLabel(project.status)}
+                    </span>
+                  </div>
 
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <Link
-                          href={`/admin/projects/${project.id}`}
-                          className="text-slate-300 underline hover:text-white"
-                        >
-                          查看进度
-                        </Link>
-                        <DeleteProjectButton
-                          projectId={project.id}
-                          projectTitle={project.title}
-                          deleteProjectAction={deleteProject}
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                  <div className="flex flex-wrap items-center gap-3 lg:justify-end">
+                    <Link
+                      href={`/admin/projects/${project.id}`}
+                      className="text-sm text-slate-300 underline hover:text-white"
+                    >
+                      查看进度
+                    </Link>
+                    <DeleteProjectButton
+                      projectId={project.id}
+                      projectTitle={project.title}
+                      deleteProjectAction={deleteProject}
+                    />
+                  </div>
+                </div>
+              </article>
+            ))}
           </div>
         )}
       </div>
     </main>
+  );
+}
+
+function CompactMeta({
+  label,
+  value,
+  noWrap = false,
+}: {
+  label: string;
+  value: string;
+  noWrap?: boolean;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p
+        className={`mt-1 text-sm text-slate-300 ${
+          noWrap ? "whitespace-nowrap" : "break-words"
+        }`}
+      >
+        {value}
+      </p>
+    </div>
   );
 }

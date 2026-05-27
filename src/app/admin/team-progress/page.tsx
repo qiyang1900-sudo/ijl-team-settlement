@@ -1,5 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
+import Link from "next/link";
 import { isApprovedLike } from "@/lib/status-labels";
+
+export const dynamic = "force-dynamic";
 
 export default async function TeamProgressPage() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -41,15 +44,15 @@ export default async function TeamProgressPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 p-10 text-white">
-      <div className="mx-auto max-w-6xl">
+    <main className="min-h-screen bg-slate-950 p-8 text-white">
+      <div className="mx-auto max-w-5xl">
         <div className="mb-8">
-          <a
+          <Link
             href="/admin/dashboard"
             className="text-sm text-slate-400 hover:text-white"
           >
             ← 返回管理员后台
-          </a>
+          </Link>
 
           <h1 className="mt-4 text-3xl font-bold">战队进度</h1>
           <p className="mt-2 text-slate-400">
@@ -67,7 +70,7 @@ export default async function TeamProgressPage() {
             <p className="text-slate-300">暂无战队资料。</p>
           </div>
         ) : (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div className="space-y-3">
             {teams.map((team) => {
               const total = getTeamCount(team.id);
               const notSubmitted = getTeamCount(team.id, "not_submitted");
@@ -78,32 +81,35 @@ export default async function TeamProgressPage() {
               const approved = getTeamCount(team.id, "approved");
 
               return (
-                <a
+                <Link
                   key={team.id}
                   href={`/admin/team-progress/${team.id}`}
-                  className="rounded-2xl border border-slate-700 bg-slate-900 p-6 hover:bg-slate-800"
+                  className="block rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 transition hover:border-slate-500 hover:bg-slate-800"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h2 className="text-xl font-semibold">{team.name}</h2>
-                      <p className="mt-1 text-sm text-slate-500">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="truncate text-lg font-semibold">
+                          {team.name}
+                        </h2>
+                        <span className="rounded-full bg-slate-800 px-2.5 py-1 text-xs text-slate-300">
+                          {total} 件
+                        </span>
+                      </div>
+                      <p className="mt-1 truncate text-sm text-slate-500">
                         {team.short_name || "-"}
                       </p>
                     </div>
 
-                    <span className="rounded-full bg-slate-800 px-3 py-1 text-sm text-slate-300">
-                      {total} 件
-                    </span>
+                    <div className="grid gap-2 text-xs sm:grid-cols-5 lg:w-[620px]">
+                      <StatusBadge label="未提交" count={notSubmitted} color="slate" />
+                      <StatusBadge label="草稿" count={draft} color="blue" />
+                      <StatusBadge label="待审核" count={submitted + resubmitted} color="yellow" />
+                      <StatusBadge label="待再次提交" count={returned} color="red" />
+                      <StatusBadge label="审核通过" count={approved} color="green" />
+                    </div>
                   </div>
-
-                  <div className="mt-5 grid grid-cols-2 gap-2 text-sm">
-                    <StatusBadge label="未提交" count={notSubmitted} color="slate" />
-                    <StatusBadge label="草稿" count={draft} color="blue" />
-                    <StatusBadge label="待审核" count={submitted + resubmitted} color="yellow" />
-                    <StatusBadge label="待再次提交" count={returned} color="red" />
-                    <StatusBadge label="审核通过" count={approved} color="green" />
-                  </div>
-                </a>
+                </Link>
               );
             })}
           </div>
@@ -131,8 +137,8 @@ function StatusBadge({
   }[color];
 
   return (
-    <div className={`rounded-xl px-3 py-2 ${colorClass}`}>
-      <span>{label}</span>
+    <div className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 ${colorClass}`}>
+      <span className="whitespace-nowrap">{label}</span>
       <span className="ml-2 font-semibold">{count}</span>
     </div>
   );

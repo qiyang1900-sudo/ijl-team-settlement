@@ -1,6 +1,21 @@
 import { createClient } from "@supabase/supabase-js";
+import Link from "next/link";
 import { formatDateTime } from "@/lib/date-format";
+import {
+  getProjectStatusLabel,
+  getTemplateTypeLabel,
+} from "@/lib/project-labels";
 import { getAdminStatusLabel, getStatusTone } from "@/lib/status-labels";
+
+type ProjectTeamRow = {
+  id: string;
+  status: string;
+  submitted_at: string | null;
+  teams: {
+    name: string | null;
+    short_name: string | null;
+  } | null;
+};
 
 export default async function ProjectDetailPage({
   params,
@@ -55,12 +70,12 @@ export default async function ProjectDetailPage({
     <main className="min-h-screen bg-slate-950 p-10 text-white">
       <div className="mx-auto max-w-6xl">
         <div className="mb-8">
-          <a
+          <Link
             href="/admin/projects"
             className="text-sm text-slate-400 hover:text-white"
           >
             ← 返回项目管理
-          </a>
+          </Link>
 
           {projectError || !project ? (
             <div className="mt-6 rounded-xl border border-red-500 bg-red-950 p-5">
@@ -79,7 +94,9 @@ export default async function ProjectDetailPage({
               <div className="mt-6 grid gap-4 md:grid-cols-3">
                 <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
                   <p className="text-sm text-slate-500">模板类型</p>
-                  <p className="mt-2 font-semibold">{project.template_type}</p>
+                  <p className="mt-2 font-semibold">
+                    {getTemplateTypeLabel(project.template_type)}
+                  </p>
                 </div>
 
                 <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
@@ -95,7 +112,9 @@ export default async function ProjectDetailPage({
 
                 <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
                   <p className="text-sm text-slate-500">状态</p>
-                  <p className="mt-2 font-semibold">{project.status}</p>
+                  <p className="mt-2 font-semibold">
+                    {getProjectStatusLabel(project.status)}
+                  </p>
                 </div>
               </div>
             </>
@@ -130,7 +149,7 @@ export default async function ProjectDetailPage({
                 </thead>
 
                 <tbody>
-                  {projectTeams.map((row: any) => (
+                  {((projectTeams || []) as unknown as ProjectTeamRow[]).map((row) => (
                     <tr key={row.id} className="border-t border-slate-700">
                       <td className="px-4 py-3 font-medium">
                         {row.teams?.name || "-"}
@@ -153,12 +172,12 @@ export default async function ProjectDetailPage({
                       </td>
 
                       <td className="px-4 py-3">
-                        <a
+                        <Link
                           href={`/admin/projects/${projectId}/teams/${row.id}`}
                           className="text-slate-300 underline hover:text-white"
                         >
                           查看提交
-                        </a>
+                        </Link>
                       </td>
                     </tr>
                   ))}
