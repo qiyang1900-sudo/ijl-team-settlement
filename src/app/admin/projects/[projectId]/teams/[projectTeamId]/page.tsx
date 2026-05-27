@@ -210,12 +210,18 @@ export default async function AdminSubmissionDetailPage({
 
           <h1 className="mt-4 text-3xl font-bold">提交详情</h1>
 
-          <a
-            href={`/api/admin/project-teams/${projectTeamId}/export`}
-            className="mt-4 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
-          >
-            导出 CSV
-          </a>
+          {["approved", "exported"].includes(projectTeam.status) ? (
+            <a
+              href={`/api/admin/project-teams/${projectTeamId}/export`}
+              className="mt-4 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
+            >
+              导出 Excel
+            </a>
+          ) : (
+            <p className="mt-4 text-sm text-slate-500">
+              审核通过后可导出指定模版 Excel。
+            </p>
+          )}
 
           <p className="mt-4 text-slate-400">
             {project?.title || "-"} / {team?.name || "-"}
@@ -420,7 +426,7 @@ export default async function AdminSubmissionDetailPage({
             <p className="mt-4 text-slate-400">暂无提交资料。</p>
           ) : (
             <div className="mt-4 overflow-x-auto rounded-xl border border-slate-700">
-              <table className="min-w-[1200px] w-full text-left text-sm">
+              <table className="min-w-[1300px] w-full text-left text-sm">
                 <thead className="bg-slate-800 text-slate-300">
                   <tr>
                     <th className="px-4 py-3">No.</th>
@@ -430,6 +436,7 @@ export default async function AdminSubmissionDetailPage({
                     <th className="px-4 py-3">リンク</th>
                     <th className="px-4 py-3">スクリーンショット</th>
                     <th className="px-4 py-3">実施日</th>
+                    <th className="px-4 py-3">掲載チャネル</th>
                     <th className="px-4 py-3">備考</th>
                   </tr>
                 </thead>
@@ -481,6 +488,10 @@ export default async function AdminSubmissionDetailPage({
 
                         <td className="px-4 py-3">
                           {row.implementation_date || "-"}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          {row.publish_channel || "-"}
                         </td>
 
                         <td className="px-4 py-3">{row.note || "-"}</td>
