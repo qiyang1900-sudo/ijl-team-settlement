@@ -99,7 +99,7 @@ export async function GET(
     .eq("project_team_id", projectTeamId)
     .order("created_at", { ascending: true });
 
-  const template = Buffer.from(SETTLEMENT_REPORT_TEMPLATE_BASE64, "base64");
+  const template = Buffer.from(getTemplateBase64(), "base64");
   const workbook = fillXlsxTemplate(template, {
     "xl/worksheets/sheet1.xml": buildSummarySheetUpdates({
       projectTeam,
@@ -140,6 +140,24 @@ export async function GET(
       )}`,
     },
   });
+}
+
+function getTemplateBase64() {
+  const chars = SETTLEMENT_REPORT_TEMPLATE_BASE64.split("");
+  // Repair the PR branch's text-uploaded template if the known bad bytes appear.
+  const corrections = [
+    { index: 7359, bad: "K", fixed: "S" },
+    { index: 7710, bad: "G", fixed: "F" },
+    { index: 7711, bad: "f", fixed: "v" },
+  ];
+
+  for (const correction of corrections) {
+    if (chars[correction.index] === correction.bad) {
+      chars[correction.index] = correction.fixed;
+    }
+  }
+
+  return chars.join("");
 }
 
 function buildSummarySheetUpdates({
