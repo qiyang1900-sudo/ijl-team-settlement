@@ -1,7 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { formatDateTime } from "@/lib/date-format";
 import DeleteProjectButton from "./DeleteProjectButton";
+
+export const dynamic = "force-dynamic";
 
 function throwIfError(error: { message: string } | null) {
   if (error) {
@@ -16,14 +19,11 @@ async function deleteProject(formData: FormData) {
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (!supabaseUrl || !supabaseAnonKey || !serviceRoleKey) {
     throw new Error("Supabase 环境变量没有设置成功");
   }
 
-  const supabase =
-    serviceRoleKey && supabaseUrl
-      ? createClient(supabaseUrl, serviceRoleKey)
-      : createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
 
   const projectId = String(formData.get("project_id") || "");
 
@@ -198,7 +198,7 @@ export default async function AdminProjectsPage({
 
                     <td className="px-4 py-3 text-slate-300">
                       {project.deadline_at
-                        ? new Date(project.deadline_at).toLocaleString("ja-JP")
+                        ? formatDateTime(project.deadline_at)
                         : "-"}
                     </td>
 

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { formatDateTime } from "@/lib/date-format";
 import { getAdminStatusLabel, getStatusTone } from "@/lib/status-labels";
 
 export default async function TeamProgressDetailPage({
@@ -124,9 +125,7 @@ export default async function TeamProgressDetailPage({
 
                       <td className="px-4 py-3 text-slate-300">
                         {project?.deadline_at
-                          ? new Date(project.deadline_at).toLocaleString(
-                              "ja-JP"
-                            )
+                          ? formatDateTime(project.deadline_at)
                           : "-"}
                       </td>
 
@@ -136,7 +135,7 @@ export default async function TeamProgressDetailPage({
 
                       <td className="px-4 py-3 text-slate-300">
                         {row.submitted_at
-                          ? new Date(row.submitted_at).toLocaleString("ja-JP")
+                          ? formatDateTime(row.submitted_at)
                           : "-"}
                       </td>
 

@@ -1,9 +1,16 @@
+const waitingReviewStatuses = [
+  "submitted",
+  "resubmitted",
+  "pending",
+  "pending_review",
+];
+
 export function getTeamStatusLabel(status: string) {
   if (status === "returned") {
     return "再提出待ち";
   }
 
-  if (status === "submitted" || status === "resubmitted") {
+  if (waitingReviewStatuses.includes(status)) {
     return "審査待ち";
   }
 
@@ -19,7 +26,7 @@ export function getAdminStatusLabel(status: string) {
     return "待再次提交";
   }
 
-  if (status === "submitted" || status === "resubmitted") {
+  if (waitingReviewStatuses.includes(status)) {
     return "待审核";
   }
 
@@ -35,7 +42,7 @@ export function getStatusTone(status: string) {
     return "bg-rose-50 text-rose-700 ring-rose-200";
   }
 
-  if (status === "submitted" || status === "resubmitted") {
+  if (waitingReviewStatuses.includes(status)) {
     return "bg-amber-50 text-amber-700 ring-amber-200";
   }
 
@@ -51,5 +58,5 @@ export function isApprovedLike(status: string) {
 }
 
 export function isWaitingReview(status: string) {
-  return status === "submitted" || status === "resubmitted";
+  return waitingReviewStatuses.includes(status);
 }
