@@ -89,6 +89,29 @@ export function fillXlsxTemplate(
   return writeZipEntries(entries);
 }
 
+export function trimWorksheetToMaxColumn(
+  workbook: Buffer,
+  worksheetPath: string,
+  maxColumn: string
+) {
+  const entries = readZipEntries(workbook);
+  const worksheetEntry = findEntry(entries, worksheetPath);
+
+  if (!worksheetEntry) {
+    return workbook;
+  }
+
+  worksheetEntry.data = Buffer.from(
+    trimWorksheetXmlToMaxColumn(
+      worksheetEntry.data.toString("utf8"),
+      columnNameToIndex(maxColumn.toUpperCase())
+    ),
+    "utf8"
+  );
+
+  return writeZipEntries(entries);
+}
+
 function addWorksheetImages(entries: ZipEntry[], worksheetImages: XlsxTemplateImage[]) {
   const contentTypesEntry = findEntry(entries, "[Content_Types].xml");
 
@@ -434,6 +457,19 @@ function columnNameToIndex(columnName: string) {
   }
 
   return Math.max(index - 1, 0);
+}
+
+function indexToColumnName(index: number) {
+  let value = Math.max(index, 0) + 1;
+  let columnName = "";
+
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    columnName = String.fromCharCode(65 + remainder) + columnName;
+    value = Math.floor((value - 1) / 26);
+  }
+
+  return columnName || "A";
 }
 
 function normalizeImageExtension(extension: string) {
@@ -789,6 +825,180 @@ function insertCell(xml: string, cellRef: string, value: XlsxCellValue) {
     rowPattern,
     () => `${rowMatch[1]}${rowMatch[2]}${cellXml}${rowMatch[3]}`
   );
+}
+
+function trimWorksheetXmlToMaxColumn(xml: string, maxColumnIndex: number) {
+  let updatedXml = xml;
+  const maxColumnNumber = maxColumnIndex + 1;
+  const maxColumnName = indexToColumnName(maxColumnIndex);
+
+  updatedXml = updatedXml.replace(
+    /<dimension\b([^>]*\bref=")([^"]+)("[^>]*\/?>)/,
+    (_match, before, ref, after) =>
+      `<dimension${before}${trimRangeRefToMaxColumn(
+        ref,
+        maxColumnIndex,
+        maxColumnName
+      )}${after}`
+  );
+
+  updatedXml = updatedXml.replace(
+    /<row\b([^>]*)>/g,
+    (match, attrs) => {
+      const spansMatch = attrs.match(/\bspans="(\d+):(\d+)"/);
+
+      if (!spansMatch) {
+        return match;
+      }
+
+      const spanStart = Number(spansMatch[1]);
+      const spanEnd = Number(spansMatch[2]);
+
+      if (!Number.isFinite(spanStart) || !Number.isFinite(spanEnd)) {
+        return match;
+      }
+
+      const trimmedAttrs = setAttribute(
+        attrs,
+        "spans",
+        `${Math.min(spanStart, maxColumnNumber)}:${Math.min(
+          spanEnd,
+          maxColumnNumber
+        )}`
+      );
+
+      return `<row${trimmedAttrs}>`;
+    }
+  );
+
+  updatedXml = updatedXml.replace(
+    /<col\b[^>]*\/>/g,
+    (tag) => {
+      const min = Number(tag.match(/\bmin="(\d+)"/)?.[1]);
+      const max = Number(tag.match(/\bmax="(\d+)"/)?.[1]);
+
+      if (!Number.isFinite(min) || !Number.isFinite(max)) {
+        return tag;
+      }
+
+      if (min > maxColumnNumber) {
+        return "";
+      }
+
+      if (max > maxColumnNumber) {
+        return tag.replace(/\bmax="\d+"/, `max="${maxColumnNumber}"`);
+      }
+
+      return tag;
+    }
+  );
+
+  updatedXml = updatedXml.replace(
+    /<c\b[^>]*\br="([A-Z]+)\d+"[^>]*\/>|<c\b[^>]*\br="([A-Z]+)\d+"[^>]*>[\s\S]*?<\/c>/g,
+    (cellXml, selfClosingColumnName, fullColumnName) => {
+      const columnName = selfClosingColumnName || fullColumnName;
+
+      return columnNameToIndex(columnName) > maxColumnIndex ? "" : cellXml;
+    }
+  );
+
+  updatedXml = trimMergeCellsToMaxColumn(
+    updatedXml,
+    maxColumnIndex,
+    maxColumnName
+  );
+
+  updatedXml = updatedXml.replace(
+    /<hyperlink\b[^>]*\bref="([A-Z]+)\d+"[^>]*\/>/g,
+    (hyperlinkXml, columnName) =>
+      columnNameToIndex(columnName) > maxColumnIndex ? "" : hyperlinkXml
+  );
+
+  return updatedXml;
+}
+
+function trimMergeCellsToMaxColumn(
+  xml: string,
+  maxColumnIndex: number,
+  maxColumnName: string
+) {
+  return xml.replace(
+    /<mergeCells\b([^>]*)>([\s\S]*?)<\/mergeCells>/,
+    (_match, attrs, body) => {
+      const mergeCells = body
+        .replace(
+          /<mergeCell\b[^>]*\bref="([^"]+)"[^>]*\/>/g,
+          (mergeCellXml: string, ref: string) => {
+            const trimmedRef = trimRangeRefToMaxColumn(
+              ref,
+              maxColumnIndex,
+              maxColumnName
+            );
+
+            if (!trimmedRef || !isMultiCellRange(trimmedRef)) {
+              return "";
+            }
+
+            return mergeCellXml.replace(
+              /\bref="[^"]+"/,
+              `ref="${escapeXmlAttribute(trimmedRef)}"`
+            );
+          }
+        )
+        .trim();
+
+      const count = (mergeCells.match(/<mergeCell\b/g) || []).length;
+
+      if (count === 0) {
+        return "";
+      }
+
+      return `<mergeCells${setAttribute(attrs, "count", String(count))}>${mergeCells}</mergeCells>`;
+    }
+  );
+}
+
+function trimRangeRefToMaxColumn(
+  ref: string,
+  maxColumnIndex: number,
+  maxColumnName: string
+) {
+  const [startRef, endRef = startRef] = ref.split(":");
+  const start = parseCellReference(startRef);
+  const end = parseCellReference(endRef);
+
+  if (!start || !end || start.columnIndex > maxColumnIndex) {
+    return "";
+  }
+
+  const trimmedEndRef =
+    end.columnIndex > maxColumnIndex ? `${maxColumnName}${end.row}` : endRef;
+
+  return endRef === startRef ? startRef : `${startRef}:${trimmedEndRef}`;
+}
+
+function parseCellReference(ref: string) {
+  const match = ref.match(/^([A-Z]+)(\d+)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    columnName: match[1],
+    columnIndex: columnNameToIndex(match[1]),
+    row: match[2],
+  };
+}
+
+function isMultiCellRange(ref: string) {
+  const [startRef, endRef] = ref.split(":");
+
+  if (!endRef) {
+    return false;
+  }
+
+  return startRef !== endRef;
 }
 
 function removeAttribute(attrs: string, name: string) {
