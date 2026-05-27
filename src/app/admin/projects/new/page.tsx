@@ -1,35 +1,44 @@
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import NewProjectSubmitButton from "./NewProjectSubmitButton";
 
-function normalizeDeadlineDate(value: string) {
-  const normalized = value.trim().replace(/[/.]/g, "-");
-  const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+function pad2(value: string | number) {
+  return String(value).padStart(2, "0");
+}
 
-  if (!match) {
+function buildDeadlineAt(formData: FormData) {
+  const year = Number(formData.get("deadline_year") || "");
+  const month = Number(formData.get("deadline_month") || "");
+  const day = Number(formData.get("deadline_day") || "");
+  const hour = Number(formData.get("deadline_hour") || "");
+  const minute = Number(formData.get("deadline_minute") || "");
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute)
+  ) {
     return "";
   }
 
-  const [, year, month, day] = match;
-  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-}
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const isValidDate =
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day;
+  const isValidTime =
+    hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
 
-function normalizeDeadlineTime(value: string) {
-  const normalized = value.trim();
-  const match = normalized.match(/^(\d{1,2}):(\d{2})$/);
-
-  if (!match) {
-    return "23:59";
+  if (!isValidDate || !isValidTime) {
+    return "";
   }
 
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-    return "23:59";
-  }
-
-  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  return `${year}-${pad2(month)}-${pad2(day)}T${pad2(hour)}:${pad2(
+    minute
+  )}:00+09:00`;
 }
 
 async function createProject(formData: FormData) {
@@ -47,16 +56,12 @@ async function createProject(formData: FormData) {
   const title = String(formData.get("title") || "");
   const description = String(formData.get("description") || "");
   const templateType = String(formData.get("template_type") || "subsidy_report");
-  const deadlineDate = normalizeDeadlineDate(
-    String(formData.get("deadline_date") || "")
-  );
-  const deadlineTime = normalizeDeadlineTime(
-    String(formData.get("deadline_time") || "")
-  );
-  const deadlineAt = deadlineDate
-    ? `${deadlineDate}T${deadlineTime}`
-    : "";
+  const deadlineAt = buildDeadlineAt(formData);
   const teamIds = formData.getAll("team_ids").map(String);
+
+  if (!deadlineAt) {
+    throw new Error("请选择有效的截止时间。");
+  }
 
   const { data: project, error: projectError } = await supabase
     .from("projects")
@@ -114,6 +119,15 @@ export default async function NewProjectPage() {
     .select("id, name, short_name")
     .eq("is_active", true)
     .order("created_at", { ascending: true });
+  const currentYear = new Date().getFullYear();
+  const years = Array.from(
+    { length: 7 },
+    (_, index) => currentYear - 1 + index
+  );
+  const months = Array.from({ length: 12 }, (_, index) => index + 1);
+  const days = Array.from({ length: 31 }, (_, index) => index + 1);
+  const hours = Array.from({ length: 24 }, (_, index) => index);
+  const minutes = Array.from({ length: 60 }, (_, index) => index);
 
   return (
     <main className="min-h-screen bg-slate-950 p-10 text-white">
@@ -184,32 +198,83 @@ export default async function NewProjectPage() {
                 截止时间
               </label>
               <p className="mt-1 text-xs text-slate-500">
-                提交和修改共用同一个截止时间。日期可输入 2026-05-31 或 2026/05/31。
+                提交和修改共用同一个截止时间。
               </p>
 
-              <div className="mt-2 grid gap-3 md:grid-cols-[1fr_180px]">
-                <input
-                  name="deadline_date"
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="YYYY-MM-DD"
-                  pattern="\d{4}[-/.]\d{1,2}[-/.]\d{1,2}"
-                  title="请输入日期，例如 2026-05-31 或 2026/05/31"
-                  autoComplete="off"
+              <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                <select
+                  name="deadline_year"
+                  defaultValue=""
+                  required
                   className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
-                />
+                >
+                  <option value="" disabled>
+                    年
+                  </option>
+                  {years.map((year) => (
+                    <option key={year} value={year}>
+                      {year}年
+                    </option>
+                  ))}
+                </select>
 
-                <input
-                  name="deadline_time"
-                  type="text"
-                  inputMode="numeric"
-                  defaultValue="23:59"
-                  placeholder="23:59"
-                  pattern="\d{1,2}:\d{2}"
-                  title="请输入时间，例如 23:59"
-                  autoComplete="off"
+                <select
+                  name="deadline_month"
+                  defaultValue=""
+                  required
                   className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
-                />
+                >
+                  <option value="" disabled>
+                    月
+                  </option>
+                  {months.map((month) => (
+                    <option key={month} value={month}>
+                      {pad2(month)}月
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  name="deadline_day"
+                  defaultValue=""
+                  required
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
+                >
+                  <option value="" disabled>
+                    日
+                  </option>
+                  {days.map((day) => (
+                    <option key={day} value={day}>
+                      {pad2(day)}日
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  name="deadline_hour"
+                  defaultValue="23"
+                  required
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
+                >
+                  {hours.map((hour) => (
+                    <option key={hour} value={hour}>
+                      {pad2(hour)}時
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  name="deadline_minute"
+                  defaultValue="59"
+                  required
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
+                >
+                  {minutes.map((minute) => (
+                    <option key={minute} value={minute}>
+                      {pad2(minute)}分
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -256,12 +321,7 @@ export default async function NewProjectPage() {
               >
                 取消
               </Link>
-              <button
-                type="submit"
-                className="rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
-              >
-                保存项目
-              </button>
+              <NewProjectSubmitButton />
             </div>
           </form>
         )}
