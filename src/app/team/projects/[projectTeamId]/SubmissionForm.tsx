@@ -15,6 +15,7 @@ type ReportRow = {
   category_type: string;
   link_url: string;
   implementation_date: string;
+  publish_channel: string;
   note: string;
 };
 
@@ -79,6 +80,7 @@ export default function SubmissionForm({
           category_type: row.category_type || "",
           link_url: row.link_url || "",
           implementation_date: row.implementation_date || "",
+          publish_channel: row.publish_channel || "",
           note: row.note || "",
         }))
       : [
@@ -86,6 +88,7 @@ export default function SubmissionForm({
             category_type: "",
             link_url: "",
             implementation_date: "",
+            publish_channel: "",
             note: "",
           },
         ]
@@ -126,6 +129,7 @@ export default function SubmissionForm({
         category_type: "",
         link_url: "",
         implementation_date: "",
+        publish_channel: "",
         note: "",
       };
       setReports(nextReports);
@@ -164,6 +168,7 @@ export default function SubmissionForm({
         category_type: "",
         link_url: "",
         implementation_date: "",
+        publish_channel: "",
         note: "",
       },
     ]);
@@ -446,7 +451,7 @@ export default function SubmissionForm({
         </div>
 
         <div className="mt-4 overflow-x-auto rounded-lg border border-slate-700">
-          <table className="min-w-[1250px] w-full border-collapse text-left text-xs">
+          <table className="min-w-[1400px] w-full border-collapse text-left text-xs">
             <thead className="bg-slate-800 text-slate-300">
               <tr>
                 <th className="w-12 px-3 py-2">No.</th>
@@ -455,6 +460,7 @@ export default function SubmissionForm({
                 <th className="w-32 px-3 py-2">金額</th>
                 <th className="px-3 py-2">リンク</th>
                 <th className="w-36 px-3 py-2">実施日</th>
+                <th className="w-40 px-3 py-2">掲載チャネル</th>
                 <th className="w-64 px-3 py-2">スクリーンショット</th>
                 <th className="px-3 py-2">備考</th>
               </tr>
@@ -466,6 +472,7 @@ export default function SubmissionForm({
                   category_type: "",
                   link_url: "",
                   implementation_date: "",
+                  publish_channel: "",
                   note: "",
                 };
 
@@ -528,6 +535,22 @@ export default function SubmissionForm({
                           )
                         }
                         placeholder="2025-12-31"
+                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                      />
+                    </td>
+
+                    <td className="px-3 py-2">
+                      <input
+                        name={`publish_channel_${index}`}
+                        value={report.publish_channel}
+                        onChange={(e) =>
+                          updateReport(
+                            index,
+                            "publish_channel",
+                            e.target.value
+                          )
+                        }
+                        placeholder="例：X / YouTube / Discord"
                         className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
                       />
                     </td>
