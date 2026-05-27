@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { getStatusTone, getTeamStatusLabel } from "@/lib/status-labels";
 
 export default async function TeamProjectsPage({
   searchParams,
@@ -12,26 +13,26 @@ export default async function TeamProjectsPage({
 
   if (!supabaseUrl || !supabaseAnonKey) {
     return (
-      <main className="min-h-screen bg-slate-950 p-10 text-white">
-        <h1 className="text-3xl font-bold">我的提交项目</h1>
-        <p className="mt-4 text-red-400">Supabase 环境变量没有设置成功。</p>
+      <main className="min-h-screen bg-[#f6f7fb] p-10 text-slate-950">
+        <h1 className="text-3xl font-bold">提出プロジェクト</h1>
+        <p className="mt-4 text-rose-600">Supabase環境変数が設定されていません。</p>
       </main>
     );
   }
 
   if (!teamId) {
     return (
-      <main className="min-h-screen bg-slate-950 p-10 text-white">
+      <main className="min-h-screen bg-[#f6f7fb] p-10 text-slate-950">
         <div className="mx-auto max-w-4xl">
-          <h1 className="text-3xl font-bold">我的提交项目</h1>
-          <p className="mt-4 text-red-400">
-            没有选择战队，请先从战队登录页进入。
+          <h1 className="text-3xl font-bold">提出プロジェクト</h1>
+          <p className="mt-4 text-rose-600">
+            戦隊が選択されていません。ログインページから入り直してください。
           </p>
           <a
             href="/team/login"
-            className="mt-6 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950"
+            className="mt-6 inline-block rounded-lg bg-emerald-600 px-5 py-3 text-sm font-semibold text-white"
           >
-            返回战队登录
+            戦隊ログインへ戻る
           </a>
         </div>
       </main>
@@ -75,48 +76,48 @@ export default async function TeamProjectsPage({
     .order("created_at", { ascending: false });
 
   return (
-    <main className="min-h-screen bg-slate-950 p-10 text-white">
+    <main className="min-h-screen bg-[#f6f7fb] p-10 text-slate-950">
       <div className="mx-auto max-w-6xl">
         <div className="mb-8">
           <a
             href={`/team/dashboard?teamId=${teamId}`}
-            className="text-sm text-slate-400 hover:text-white"
+            className="text-sm font-medium text-slate-500 hover:text-slate-900"
           >
-            ← 战队后台へ戻る
+            ← 戦隊ダッシュボードへ戻る
           </a>
 
-          <h1 className="mt-4 text-3xl font-bold">我的提交项目</h1>
-          <p className="mt-2 text-slate-400">
-            当前战队：{team?.name || "-"}
+          <h1 className="mt-4 text-3xl font-bold">提出プロジェクト</h1>
+          <p className="mt-2 text-slate-600">
+            現在の戦隊：{team?.name || "-"}
             {team?.short_name ? `（${team.short_name}）` : ""}
           </p>
         </div>
 
         {error ? (
-          <div className="rounded-xl border border-red-500 bg-red-950 p-5">
-            <p className="font-bold text-red-300">读取失败</p>
-            <p className="mt-2 text-sm text-red-200">{error.message}</p>
+          <div className="rounded-lg border border-rose-200 bg-rose-50 p-5">
+            <p className="font-bold text-rose-700">読み込みに失敗しました</p>
+            <p className="mt-2 text-sm text-rose-600">{error.message}</p>
           </div>
         ) : !projectTeams || projectTeams.length === 0 ? (
-          <div className="rounded-xl border border-slate-700 bg-slate-900 p-8 text-center">
-            <p className="text-slate-300">暂无需要提交的项目。</p>
+          <div className="rounded-lg border border-slate-200 bg-white p-8 text-center shadow-sm">
+            <p className="text-slate-600">現在、提出が必要なプロジェクトはありません。</p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-slate-700">
-            <table className="w-full border-collapse bg-slate-900 text-left text-sm">
-              <thead className="bg-slate-800 text-slate-300">
+          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+            <table className="w-full border-collapse text-left text-sm">
+              <thead className="bg-slate-100 text-slate-600">
                 <tr>
-                  <th className="px-4 py-3">项目名</th>
-                  <th className="px-4 py-3">截止时间</th>
-                  <th className="px-4 py-3">审核状态</th>
-                  <th className="px-4 py-3">退回理由</th>
+                  <th className="px-4 py-3">プロジェクト名</th>
+                  <th className="px-4 py-3">締切</th>
+                  <th className="px-4 py-3">審査ステータス</th>
+                  <th className="px-4 py-3">差し戻し理由</th>
                   <th className="px-4 py-3">操作</th>
                 </tr>
               </thead>
 
               <tbody>
                 {projectTeams.map((row: any) => (
-                  <tr key={row.id} className="border-t border-slate-700">
+                  <tr key={row.id} className="border-t border-slate-100">
                     <td className="px-4 py-3">
                       <div className="font-medium">
                         {row.projects?.title || "-"}
@@ -126,7 +127,7 @@ export default async function TeamProjectsPage({
                       </div>
                     </td>
 
-                    <td className="px-4 py-3 text-slate-300">
+                    <td className="px-4 py-3 text-slate-600">
                       {row.projects?.deadline_at
                         ? new Date(row.projects.deadline_at).toLocaleString(
                             "ja-JP"
@@ -138,8 +139,8 @@ export default async function TeamProjectsPage({
                       <StatusPill status={row.status} />
                     </td>
 
-                    <td className="max-w-xs px-4 py-3 text-slate-300">
-                      <div className="line-clamp-2">
+                    <td className="max-w-xs px-4 py-3 text-slate-600">
+                      <div className="line-clamp-2 text-slate-600">
                         {row.return_reason || "-"}
                       </div>
                     </td>
@@ -147,9 +148,9 @@ export default async function TeamProjectsPage({
                     <td className="px-4 py-3">
                       <a
                         href={`/team/projects/${row.id}?teamId=${teamId}`}
-                        className="text-slate-300 underline hover:text-white"
+                        className="font-medium text-emerald-700 underline hover:text-emerald-600"
                       >
-                        填写 / 查看
+                        入力 / 確認
                       </a>
                     </td>
                   </tr>
@@ -164,45 +165,9 @@ export default async function TeamProjectsPage({
 }
 
 function StatusPill({ status }: { status: string }) {
-  const map: Record<string, { label: string; className: string }> = {
-    not_submitted: {
-      label: "未提交",
-      className: "bg-slate-800 text-slate-300",
-    },
-    draft: {
-      label: "草稿中",
-      className: "bg-blue-950 text-blue-300",
-    },
-    submitted: {
-      label: "待审核",
-      className: "bg-yellow-950 text-yellow-300",
-    },
-    resubmitted: {
-      label: "重新提交",
-      className: "bg-orange-950 text-orange-300",
-    },
-    returned: {
-      label: "退回修改",
-      className: "bg-red-950 text-red-300",
-    },
-    approved: {
-      label: "审核通过",
-      className: "bg-green-950 text-green-300",
-    },
-    exported: {
-      label: "已导出",
-      className: "bg-purple-950 text-purple-300",
-    },
-  };
-
-  const item = map[status] || {
-    label: status,
-    className: "bg-slate-800 text-slate-300",
-  };
-
   return (
-    <span className={`rounded-full px-3 py-1 text-xs ${item.className}`}>
-      {item.label}
+    <span className={`rounded-full px-3 py-1 text-xs ring-1 ${getStatusTone(status)}`}>
+      {getTeamStatusLabel(status)}
     </span>
   );
 }

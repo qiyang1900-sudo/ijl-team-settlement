@@ -43,7 +43,7 @@ export default function NewTeamPage() {
       <div className="mx-auto max-w-3xl">
         <div className="mb-8">
           <a href="/admin/teams" className="text-sm text-slate-400 hover:text-white">
-            ← 战队管理へ戻る
+            ← 返回战队管理
           </a>
           <h1 className="mt-4 text-3xl font-bold">新增战队</h1>
           <p className="mt-2 text-slate-400">

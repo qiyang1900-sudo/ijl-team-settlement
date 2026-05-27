@@ -156,7 +156,7 @@ function buildSummarySheetUpdates({
   detailRows: Row[];
 }): SheetUpdates {
   const totalAmount = detailRows.reduce((sum, row) => sum + subtotal(row), 0);
-  const taxAmount = 0;
+  const taxAmount = Math.round(totalAmount * 0.1);
   const updates: SheetUpdates = {
     B9: companyInfo?.company_name || "",
     B10: companyInfo?.bank_name || "",

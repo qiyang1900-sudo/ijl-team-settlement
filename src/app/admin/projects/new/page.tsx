@@ -82,7 +82,7 @@ export default async function NewProjectPage() {
       <div className="mx-auto max-w-4xl">
         <div className="mb-8">
           <a href="/admin/projects" className="text-sm text-slate-400 hover:text-white">
-            ← 项目管理へ戻る
+            ← 返回项目管理
           </a>
           <h1 className="mt-4 text-3xl font-bold">新建项目</h1>
           <p className="mt-2 text-slate-400">
@@ -107,7 +107,7 @@ export default async function NewProjectPage() {
               <input
                 name="title"
                 required
-                placeholder="例：2025年秋季リーグ補助金"
+                placeholder="例：2025年秋季联赛补助金"
                 className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
               />
             </div>
@@ -119,7 +119,7 @@ export default async function NewProjectPage() {
               <textarea
                 name="description"
                 rows={4}
-                placeholder="例：9-12月分のリーグ補助金結案報告"
+                placeholder="例：9-12月联赛补助金结案报告"
                 className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
               />
             </div>
@@ -133,11 +133,11 @@ export default async function NewProjectPage() {
                 defaultValue="subsidy_report"
                 className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
               >
-                <option value="subsidy_report">補助金結案報告</option>
-                <option value="transportation_report">交通費精算</option>
-                <option value="invoice_report">請求書関連</option>
-                <option value="prize_report">賞金関連</option>
-                <option value="other">その他</option>
+                <option value="subsidy_report">补助金结案报告</option>
+                <option value="transportation_report">交通费精算</option>
+                <option value="invoice_report">请款/发票相关</option>
+                <option value="prize_report">奖金相关</option>
+                <option value="other">其他</option>
               </select>
             </div>
 

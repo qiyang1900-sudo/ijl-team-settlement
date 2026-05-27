@@ -110,6 +110,12 @@ export default function SubmissionForm({
       return quantity * unitPrice;
     });
   }, [details]);
+  const subtotalAmount = useMemo(
+    () => totals.reduce((sum, amount) => sum + amount, 0),
+    [totals]
+  );
+  const taxAmount = Math.round(subtotalAmount * 0.1);
+  const totalAmount = subtotalAmount + taxAmount;
 
   function getScreenshotForRow(index: number) {
     const rowNumber = index + 1;
@@ -265,9 +271,9 @@ export default function SubmissionForm({
       <input type="hidden" name="summary_count" value={summaries.length} />
       <input type="hidden" name="detail_count" value={details.length} />
 
-      <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-bold">① 契約・口座情報</h2>
-        <p className="mt-1 text-xs text-slate-400">
+        <p className="mt-1 text-xs text-slate-500">
           今後も同じ情報を使用する場合は、「次回以降も使用する」を選択してください。
         </p>
 
@@ -294,7 +300,7 @@ export default function SubmissionForm({
           />
         </div>
 
-        <label className="mt-3 flex items-center gap-2 text-xs text-slate-300">
+        <label className="mt-3 flex items-center gap-2 text-xs text-slate-700">
           <input
             type="checkbox"
             name="save_profile"
@@ -305,22 +311,22 @@ export default function SubmissionForm({
         </label>
       </section>
 
-      <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-lg font-bold">② 検収総表</h2>
 
           <button
             type="button"
             onClick={addSummaryRow}
-            className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-slate-200"
+            className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500"
           >
             ＋項目追加
           </button>
         </div>
 
-        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-700">
+        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
           <table className="min-w-[760px] w-full border-collapse text-left text-xs">
-            <thead className="bg-slate-800 text-slate-300">
+            <thead className="bg-slate-100 text-slate-600">
               <tr>
                 <th className="w-12 px-3 py-2">No.</th>
                 <th className="px-3 py-2">今回の支払内容</th>
@@ -331,8 +337,8 @@ export default function SubmissionForm({
 
             <tbody>
               {summaries.map((row, index) => (
-                <tr key={index} className="border-t border-slate-700">
-                  <td className="px-3 py-2 text-slate-400">{index + 1}</td>
+                <tr key={index} className="border-t border-slate-100">
+                  <td className="px-3 py-2 text-slate-500">{index + 1}</td>
 
                   <td className="px-3 py-2">
                     <input
@@ -342,7 +348,7 @@ export default function SubmissionForm({
                         updateSummary(index, "payment_content", e.target.value)
                       }
                       placeholder="例：2025年秋季リーグ補助金"
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
                     />
                   </td>
 
@@ -354,7 +360,7 @@ export default function SubmissionForm({
                         updateSummary(index, "delivery_due_date", e.target.value)
                       }
                       placeholder="2025-12-31"
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
                     />
                   </td>
 
@@ -362,7 +368,7 @@ export default function SubmissionForm({
                     <button
                       type="button"
                       onClick={() => removeSummaryRow(index)}
-                      className="rounded-md border border-red-500 px-2 py-1 text-red-300 hover:bg-red-950"
+                      className="rounded-md border border-rose-300 px-2 py-1 text-rose-700 hover:bg-rose-50"
                     >
                       削除
                     </button>
@@ -374,11 +380,11 @@ export default function SubmissionForm({
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-bold">③ 精算明細</h2>
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-xs text-slate-500">
               必要に応じて項目を追加してください。小計は自動計算されます。
             </p>
           </div>
@@ -386,15 +392,15 @@ export default function SubmissionForm({
           <button
             type="button"
             onClick={addRow}
-            className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-slate-200"
+            className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500"
           >
             ＋項目追加
           </button>
         </div>
 
-        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-700">
+        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
           <table className="min-w-[860px] w-full border-collapse text-left text-xs">
-            <thead className="bg-slate-800 text-slate-300">
+            <thead className="bg-slate-100 text-slate-600">
               <tr>
                 <th className="w-12 px-3 py-2">No.</th>
                 <th className="px-3 py-2">サービス / 内容項目</th>
@@ -407,8 +413,8 @@ export default function SubmissionForm({
 
             <tbody>
               {details.map((row, index) => (
-                <tr key={index} className="border-t border-slate-700">
-                  <td className="px-3 py-2 text-slate-400">{index + 1}</td>
+                <tr key={index} className="border-t border-slate-100">
+                  <td className="px-3 py-2 text-slate-500">{index + 1}</td>
 
                   <td className="px-3 py-2">
                     <input
@@ -417,7 +423,7 @@ export default function SubmissionForm({
                       onChange={(e) =>
                         updateDetail(index, "service_item", e.target.value)
                       }
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
                     />
                   </td>
 
@@ -429,7 +435,7 @@ export default function SubmissionForm({
                       onChange={(e) =>
                         updateDetail(index, "quantity", Number(e.target.value))
                       }
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
                     />
                   </td>
 
@@ -445,7 +451,7 @@ export default function SubmissionForm({
                           Number(e.target.value)
                         )
                       }
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
                     />
                   </td>
 
@@ -454,7 +460,7 @@ export default function SubmissionForm({
                       name={`subtotal_${index}`}
                       value={totals[index]}
                       readOnly
-                      className="w-full rounded-md border border-slate-700 bg-slate-800 px-2 py-2 text-slate-300"
+                      className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-slate-700"
                     />
                   </td>
 
@@ -462,7 +468,7 @@ export default function SubmissionForm({
                     <button
                       type="button"
                       onClick={() => removeRow(index)}
-                      className="rounded-md border border-red-500 px-2 py-1 text-red-300 hover:bg-red-950"
+                      className="rounded-md border border-rose-300 px-2 py-1 text-rose-700 hover:bg-rose-50"
                     >
                       削除
                     </button>
@@ -474,16 +480,16 @@ export default function SubmissionForm({
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-bold">④ 結果報告</h2>
 
-        <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-3 text-xs text-slate-300">
+        <div className="mt-3 rounded-lg border border-slate-300 bg-white p-3 text-xs text-slate-700">
           ※1項目につき、リンクは1つ、スクリーンショットは1枚までです。新しい画像を選択した場合、現在のスクリーンショットを差し替えます。新しい画像を選択しない場合、現在のスクリーンショットは保持されます。
         </div>
 
-        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-700">
+        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
           <table className="min-w-[1200px] w-full border-collapse text-left text-xs">
-            <thead className="bg-slate-800 text-slate-300">
+            <thead className="bg-slate-100 text-slate-600">
               <tr>
                 <th className="w-12 px-3 py-2">No.</th>
                 <th className="px-3 py-2">項目内容</th>
@@ -506,15 +512,15 @@ export default function SubmissionForm({
                 const uploadedScreenshot = getScreenshotForRow(index);
 
                 return (
-                  <tr key={index} className="border-t border-slate-700">
-                    <td className="px-3 py-2 text-slate-400">{index + 1}</td>
+                  <tr key={index} className="border-t border-slate-100">
+                    <td className="px-3 py-2 text-slate-500">{index + 1}</td>
 
                     <td className="px-3 py-2">
                       <input
                         name={`item_content_${index}`}
                         value={detail.service_item}
                         readOnly
-                        className="w-full rounded-md border border-slate-700 bg-slate-800 px-2 py-2 text-slate-300"
+                        className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-slate-700"
                       />
                     </td>
 
@@ -525,7 +531,7 @@ export default function SubmissionForm({
                         onChange={(e) =>
                           updateReport(index, "category_type", e.target.value)
                         }
-                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
                       />
                     </td>
 
@@ -534,7 +540,7 @@ export default function SubmissionForm({
                         name={`report_amount_${index}`}
                         value={totals[index]}
                         readOnly
-                        className="w-full rounded-md border border-slate-700 bg-slate-800 px-2 py-2 text-slate-300"
+                        className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-slate-700"
                       />
                     </td>
 
@@ -546,7 +552,7 @@ export default function SubmissionForm({
                           updateReport(index, "link_url", e.target.value)
                         }
                         placeholder="出演リンクまたはGoogle Driveリンク"
-                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
                       />
                     </td>
 
@@ -562,21 +568,21 @@ export default function SubmissionForm({
                           )
                         }
                         placeholder="2025-12-31"
-                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
                       />
                     </td>
 
                     <td className="px-3 py-2">
                       {uploadedScreenshot?.file_name ? (
-                        <div className="mb-2 rounded-md border border-slate-700 bg-slate-950 p-2">
-                          <p className="text-[11px] text-slate-400">
+                        <div className="mb-2 rounded-md border border-slate-300 bg-white p-2">
+                          <p className="text-[11px] text-slate-500">
                             現在のファイル：
-                            <span className="text-slate-200">
+                            <span className="text-slate-700">
                               {uploadedScreenshot.file_name}
                             </span>
                           </p>
 
-                          <label className="mt-2 flex items-center gap-2 text-[11px] text-red-300">
+                          <label className="mt-2 flex items-center gap-2 text-[11px] text-rose-700">
                             <input
                               type="checkbox"
                               name={`delete_screenshot_${index}`}
@@ -593,7 +599,7 @@ export default function SubmissionForm({
                         name={`report_screenshot_${index}`}
                         accept="image/*"
                         onChange={validateSingleImage}
-                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-2"
                       />
 
                       <p className="mt-1 text-[11px] text-slate-500">
@@ -607,8 +613,14 @@ export default function SubmissionForm({
           </table>
         </div>
 
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <AmountCard label="小計" value={subtotalAmount} />
+          <AmountCard label="消費税（10%）" value={taxAmount} />
+          <AmountCard label="合計" value={totalAmount} highlight />
+        </div>
+
         {fileError ? (
-          <div className="mt-3 rounded-lg border border-red-500 bg-red-950 p-3 text-xs text-red-200">
+          <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
             {fileError}
           </div>
         ) : null}
@@ -634,14 +646,41 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-slate-300">{label}</label>
+      <label className="block text-xs font-medium text-slate-700">{label}</label>
       <input
         name={name}
         type={type}
         defaultValue={defaultValue}
         placeholder={placeholder}
-        className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 text-sm outline-none focus:border-white"
+        className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-emerald-500"
       />
+    </div>
+  );
+}
+
+function AmountCard({
+  label,
+  value,
+  highlight = false,
+}: {
+  label: string;
+  value: number;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      className={
+        highlight
+          ? "rounded-lg border border-emerald-200 bg-emerald-50 p-4"
+          : "rounded-lg border border-slate-200 bg-slate-50 p-4"
+      }
+    >
+      <p className={highlight ? "text-xs text-emerald-700" : "text-xs text-slate-500"}>
+        {label}
+      </p>
+      <p className="mt-1 text-xl font-bold">
+        {value.toLocaleString("ja-JP")}
+      </p>
     </div>
   );
 }

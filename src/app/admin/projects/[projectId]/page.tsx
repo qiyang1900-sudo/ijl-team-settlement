@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { getAdminStatusLabel, getStatusTone } from "@/lib/status-labels";
 
 export default async function ProjectDetailPage({
   params,
@@ -57,7 +58,7 @@ export default async function ProjectDetailPage({
             href="/admin/projects"
             className="text-sm text-slate-400 hover:text-white"
           >
-            ← 项目管理へ戻る
+            ← 返回项目管理
           </a>
 
           {projectError || !project ? (
@@ -148,8 +149,8 @@ export default async function ProjectDetailPage({
                       </td>
 
                       <td className="px-4 py-3">
-                        <span className="rounded-full bg-slate-800 px-3 py-1 text-slate-300">
-                          {row.status}
+                        <span className={`rounded-full px-3 py-1 text-xs ring-1 ${getStatusTone(row.status)}`}>
+                          {getAdminStatusLabel(row.status)}
                         </span>
                       </td>
 

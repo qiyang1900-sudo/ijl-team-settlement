@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { isApprovedLike } from "@/lib/status-labels";
 
 export default async function TeamProgressPage() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -32,6 +33,10 @@ export default async function TeamProgressPage() {
       return rows.length;
     }
 
+    if (status === "approved") {
+      return rows.filter((row) => isApprovedLike(row.status)).length;
+    }
+
     return rows.filter((row) => row.status === status).length;
   }
 
@@ -43,7 +48,7 @@ export default async function TeamProgressPage() {
             href="/admin/dashboard"
             className="text-sm text-slate-400 hover:text-white"
           >
-            ← 管理员后台へ戻る
+            ← 返回管理员后台
           </a>
 
           <h1 className="mt-4 text-3xl font-bold">战队进度</h1>
@@ -95,8 +100,8 @@ export default async function TeamProgressPage() {
                     <StatusBadge label="未提交" count={notSubmitted} color="slate" />
                     <StatusBadge label="草稿" count={draft} color="blue" />
                     <StatusBadge label="待审核" count={submitted + resubmitted} color="yellow" />
-                    <StatusBadge label="退回" count={returned} color="red" />
-                    <StatusBadge label="通过" count={approved} color="green" />
+                    <StatusBadge label="待再次提交" count={returned} color="red" />
+                    <StatusBadge label="审核通过" count={approved} color="green" />
                   </div>
                 </a>
               );

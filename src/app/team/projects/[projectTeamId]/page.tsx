@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
+import { getStatusTone, getTeamStatusLabel } from "@/lib/status-labels";
 import SubmissionForm from "./SubmissionForm";
 
 function createStoragePath(projectTeamId: string, fileName: string) {
@@ -289,7 +290,9 @@ async function saveSubmission(formData: FormData) {
     })
     .eq("id", projectTeamId);
 
-  redirect(`/team/projects/${projectTeamId}?result=${actionType}`);
+  redirect(
+    `/team/projects/${projectTeamId}?result=${actionType}&teamId=${teamId}`
+  );
 }
 
 export default async function TeamSubmissionPage({
@@ -307,9 +310,9 @@ export default async function TeamSubmissionPage({
 
   if (!supabaseUrl || !supabaseAnonKey) {
     return (
-      <main className="min-h-screen bg-slate-950 p-8 text-white">
+      <main className="min-h-screen bg-[#f6f7fb] p-8 text-slate-950">
         <h1 className="text-2xl font-bold">提出ページ</h1>
-        <p className="mt-4 text-red-400">
+        <p className="mt-4 text-rose-600">
           Supabase環境変数が設定されていません。
         </p>
       </main>
@@ -350,12 +353,12 @@ export default async function TeamSubmissionPage({
 
   if (error || !projectTeam) {
     return (
-      <main className="min-h-screen bg-slate-950 p-8 text-white">
+      <main className="min-h-screen bg-[#f6f7fb] p-8 text-slate-950">
         <div className="mx-auto max-w-4xl">
           <h1 className="text-2xl font-bold">提出ページ</h1>
-          <div className="mt-6 rounded-xl border border-red-500 bg-red-950 p-5">
-            <p className="font-bold text-red-300">読み込みに失敗しました</p>
-            <p className="mt-2 text-sm text-red-200">
+          <div className="mt-6 rounded-lg border border-rose-200 bg-rose-50 p-5">
+            <p className="font-bold text-rose-700">読み込みに失敗しました</p>
+            <p className="mt-2 text-sm text-rose-600">
               {error?.message || "データが存在しません。"}
             </p>
           </div>
@@ -409,41 +412,42 @@ export default async function TeamSubmissionPage({
     : "/team/projects";
 
   return (
-    <main className="min-h-screen bg-slate-950 p-6 text-white">
+    <main className="min-h-screen bg-[#f6f7fb] p-6 text-slate-950">
       <div className="mx-auto max-w-7xl">
         <div className="mb-5">
-          <a href={backHref} className="text-xs text-slate-400 hover:text-white">
+          <a href={backHref} className="text-xs font-medium text-slate-500 hover:text-slate-900">
             ← 提出プロジェクト一覧へ戻る
           </a>
 
           <h1 className="mt-3 text-2xl font-bold">{project?.title || "-"}</h1>
 
-          <p className="mt-1 text-sm text-slate-400">
-            {team?.name || "-"} / 現在のステータス：{projectTeam.status}
+          <p className="mt-1 text-sm text-slate-600">
+            {team?.name || "-"} / 現在のステータス：
+            {getTeamStatusLabel(projectTeam.status)}
           </p>
 
           {result === "draft" ? (
-            <div className="mt-4 rounded-lg border border-blue-500 bg-blue-950 p-3 text-sm text-blue-200">
+            <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-700">
               下書きを保存しました。
             </div>
           ) : null}
 
           {result === "submit" ? (
-            <div className="mt-4 rounded-lg border border-green-500 bg-green-950 p-3 text-sm text-green-200">
+            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
               提出しました。管理者の確認をお待ちください。
             </div>
           ) : null}
 
-          <div className="mt-4 rounded-lg border border-slate-700 bg-slate-900 p-4 text-sm">
+          <div className="mt-4 rounded-lg border border-slate-200 bg-white p-4 text-sm shadow-sm">
             <p className="text-xs text-slate-500">審査ステータス</p>
-            <p className="mt-1 font-semibold">
-              {projectTeam.status === "not_submitted" && "未提出"}
-              {projectTeam.status === "draft" && "下書き"}
-              {projectTeam.status === "submitted" && "提出済み・審査待ち"}
-              {projectTeam.status === "returned" && "差し戻し"}
-              {projectTeam.status === "resubmitted" && "再提出済み・審査待ち"}
-              {projectTeam.status === "approved" && "承認済み"}
-              {projectTeam.status === "exported" && "出力済み"}
+            <p className="mt-2">
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ring-1 ${getStatusTone(
+                  projectTeam.status
+                )}`}
+              >
+                {getTeamStatusLabel(projectTeam.status)}
+              </span>
             </p>
 
             {projectTeam.submitted_at ? (
@@ -454,14 +458,14 @@ export default async function TeamSubmissionPage({
             ) : null}
 
             {projectTeam.returned_at ? (
-              <p className="mt-1 text-xs text-yellow-300">
+              <p className="mt-1 text-xs text-amber-700">
                 差し戻し日時：
                 {new Date(projectTeam.returned_at).toLocaleString("ja-JP")}
               </p>
             ) : null}
 
             {projectTeam.approved_at ? (
-              <p className="mt-1 text-xs text-green-300">
+              <p className="mt-1 text-xs text-emerald-700">
                 承認日時：
                 {new Date(projectTeam.approved_at).toLocaleString("ja-JP")}
               </p>
@@ -469,7 +473,7 @@ export default async function TeamSubmissionPage({
           </div>
 
           {projectTeam.return_reason ? (
-            <div className="mt-4 rounded-lg border border-yellow-500 bg-yellow-950 p-4 text-sm text-yellow-100">
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
               <p className="font-bold">差し戻し理由</p>
               <p className="mt-2 whitespace-pre-wrap text-xs">
                 {projectTeam.return_reason}
