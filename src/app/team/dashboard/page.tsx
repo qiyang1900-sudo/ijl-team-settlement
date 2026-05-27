@@ -74,7 +74,7 @@ export default async function TeamDashboardPage({
           >
             <h2 className="text-xl font-semibold">月データ提出</h2>
             <p className="mt-2 text-sm text-slate-600">
-              毎月のX、TT、YouTube実績、月間スコア、奨励金を確認できます。
+              選手給与、X、YouTube、クラブ活動の月次データを提出できます。
             </p>
           </a>
         </div>

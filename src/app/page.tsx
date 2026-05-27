@@ -24,7 +24,7 @@ export default function Home() {
             </p>
             <h2 className="text-2xl font-bold">管理员入口</h2>
             <p className="mt-3 text-slate-600">
-              项目管理、战队管理、提交审核、奖励金计算入口。
+              项目管理、战队管理、提交审核、月数据审核入口。
             </p>
           </a>
 

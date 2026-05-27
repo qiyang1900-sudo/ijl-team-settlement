@@ -7,11 +7,19 @@ const waitingReviewStatuses = [
 
 export function getTeamStatusLabel(status: string) {
   if (status === "returned") {
-    return "再提出待ち";
+    return "差し戻し（追記必要）";
   }
 
-  if (waitingReviewStatuses.includes(status)) {
-    return "審査待ち";
+  if (status === "draft") {
+    return "保存済み";
+  }
+
+  if (status === "submitted") {
+    return "提出済み";
+  }
+
+  if (status === "resubmitted" || status === "pending" || status === "pending_review") {
+    return "審査中";
   }
 
   if (status === "approved" || status === "exported") {
@@ -23,15 +31,23 @@ export function getTeamStatusLabel(status: string) {
 
 export function getAdminStatusLabel(status: string) {
   if (status === "returned") {
-    return "待再次提交";
+    return "已驳回需补充";
   }
 
-  if (waitingReviewStatuses.includes(status)) {
-    return "待审核";
+  if (status === "draft") {
+    return "已保存";
+  }
+
+  if (status === "submitted") {
+    return "已提交";
+  }
+
+  if (status === "resubmitted" || status === "pending" || status === "pending_review") {
+    return "审核中";
   }
 
   if (status === "approved" || status === "exported") {
-    return "审核通过";
+    return "已通过";
   }
 
   return "未提交";

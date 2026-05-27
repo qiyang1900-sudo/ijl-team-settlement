@@ -47,9 +47,9 @@ export default function AdminPage() {
             href="/admin/reward"
             className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"
           >
-            <h2 className="text-xl font-semibold">奖励金计算</h2>
+            <h2 className="text-xl font-semibold">月数据审核</h2>
             <p className="mt-2 text-sm text-slate-600">
-              暂未开放，后续用于战队奖励金计算。
+              审核战队提交的月数据资料。
             </p>
           </a>
         </div>

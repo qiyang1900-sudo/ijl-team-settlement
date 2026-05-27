@@ -1,18 +1,185 @@
 import { createClient } from "@supabase/supabase-js";
+import { redirect } from "next/navigation";
+import MonthlyDataForm from "./MonthlyDataForm";
+import {
+  MonthlyPlayerRow,
+  formatMonthLabel,
+  getMonthlyStatusLabel,
+  getMonthlyStatusTone,
+  normalizeMonthlyStatus,
+  parseMonthlyPlayerRows,
+} from "@/lib/monthly-data";
 
-type ContentIncentiveRow = Record<string, any>;
+type MonthlySubmissionRow = {
+  id?: string | null;
+  team_id?: string | null;
+  target_month: string;
+  status?: string | null;
+  player_rows?: unknown;
+  club_activity_link?: string | null;
+  club_activity_image_url?: string | null;
+  club_activity_image_name?: string | null;
+  club_activity_image_mime_type?: string | null;
+  club_activity_image_storage_path?: string | null;
+  return_reason?: string | null;
+  submitted_at?: string | null;
+  reviewing_at?: string | null;
+  returned_at?: string | null;
+  approved_at?: string | null;
+  updated_at?: string | null;
+};
+type TeamRecord = {
+  id?: string | null;
+  name?: string | null;
+  short_name?: string | null;
+};
+type StorageClient = {
+  storage: {
+    from: (bucket: string) => {
+      upload: (
+        path: string,
+        file: File,
+        options: { contentType: string; upsert: boolean }
+      ) => Promise<{ error: { message: string } | null }>;
+      getPublicUrl: (path: string) => { data: { publicUrl: string } };
+    };
+  };
+};
+
+const imageMaxSize = 2 * 1024 * 1024;
+
+function createStoragePath(teamId: string, targetMonth: string, fileName: string) {
+  const safeFileName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+  return `monthly-data/${teamId}/${targetMonth}-${Date.now()}-${safeFileName}`;
+}
+
+async function saveMonthlyData(formData: FormData) {
+  "use server";
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Supabase環境変数が設定されていません。");
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const storageClient =
+    serviceRoleKey && supabaseUrl
+      ? createClient(supabaseUrl, serviceRoleKey)
+      : supabase;
+
+  const teamId = String(formData.get("team_id") || "");
+  const targetMonth =
+    String(formData.get("target_month") || "") ||
+    String(formData.get("selected_month") || "");
+  const actionType = String(formData.get("action_type") || "draft");
+  const clubActivityLink = String(formData.get("club_activity_link") || "").trim();
+  const playerRows = parseMonthlyPlayerRows(formData.get("player_rows"));
+  const nextStatus = actionType === "submit" ? "submitted" : "draft";
+  const now = new Date().toISOString();
+
+  if (!teamId || !targetMonth) {
+    throw new Error("戦隊または対象月が確認できません。");
+  }
+
+  const { data: existingSubmission } = await supabase
+    .from("monthly_data_submissions")
+    .select("*")
+    .eq("team_id", teamId)
+    .eq("target_month", targetMonth)
+    .maybeSingle();
+
+  const existingPlayerRows = parseMonthlyPlayerRows(existingSubmission?.player_rows);
+  const rowsWithScreenshots = await uploadSalaryScreenshots({
+    formData,
+    playerRows,
+    existingPlayerRows,
+    teamId,
+    targetMonth,
+    storageClient,
+  });
+
+  const clubActivityImage = formData.get("club_activity_image") as File | null;
+  const uploadedClubActivity =
+    !clubActivityLink && clubActivityImage && clubActivityImage.size > 0
+      ? await uploadImage({
+          file: clubActivityImage,
+          teamId,
+          targetMonth,
+          storageClient,
+          prefix: "club-activity",
+        })
+      : null;
+
+  const previousClubImage = {
+    club_activity_image_url: existingSubmission?.club_activity_image_url || null,
+    club_activity_image_name: existingSubmission?.club_activity_image_name || null,
+    club_activity_image_mime_type:
+      existingSubmission?.club_activity_image_mime_type || null,
+    club_activity_image_storage_path:
+      existingSubmission?.club_activity_image_storage_path || null,
+  };
+
+  const imagePatch = uploadedClubActivity
+    ? {
+        club_activity_image_url: uploadedClubActivity.fileUrl,
+        club_activity_image_name: uploadedClubActivity.fileName,
+        club_activity_image_mime_type: uploadedClubActivity.mimeType,
+        club_activity_image_storage_path: uploadedClubActivity.storagePath,
+      }
+    : clubActivityLink
+      ? {
+          club_activity_image_url: null,
+          club_activity_image_name: null,
+          club_activity_image_mime_type: null,
+          club_activity_image_storage_path: null,
+        }
+      : previousClubImage;
+
+  const payload = {
+    team_id: teamId,
+    target_month: targetMonth,
+    status: nextStatus,
+    player_rows: rowsWithScreenshots,
+    club_activity_link: clubActivityLink || null,
+    return_reason: null,
+    submitted_at:
+      actionType === "submit"
+        ? now
+        : existingSubmission?.submitted_at || null,
+    updated_at: now,
+    ...imagePatch,
+  };
+
+  const { error } = await supabase
+    .from("monthly_data_submissions")
+    .upsert(payload, { onConflict: "team_id,target_month" });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  redirect(
+    `/team/reward?teamId=${encodeURIComponent(teamId)}&month=${encodeURIComponent(
+      targetMonth
+    )}&result=${actionType}`
+  );
+}
 
 export default async function TeamRewardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ teamId?: string }>;
+  searchParams: Promise<{ teamId?: string; month?: string; result?: string }>;
 }) {
-  const { teamId } = await searchParams;
+  const { teamId, month, result } = await searchParams;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  let team: ContentIncentiveRow | null = null;
-  let rows: ContentIncentiveRow[] = [];
+  let team: TeamRecord | null = null;
+  let submissions: MonthlySubmissionRow[] = [];
+  let tableError: string | null = null;
 
   if (teamId && supabaseUrl && supabaseAnonKey) {
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
@@ -25,14 +192,17 @@ export default async function TeamRewardPage({
 
     team = teamData;
 
-    const { data } = await supabase
-      .from("content_incentive_monthly")
+    const { data, error } = await supabase
+      .from("monthly_data_submissions")
       .select("*")
-      .eq("team_id", teamId);
+      .eq("team_id", teamId)
+      .order("target_month", { ascending: false });
 
-    rows = (data || [])
-      .map(normalizeIncentiveRow)
-      .sort((a, b) => String(b.month).localeCompare(String(a.month)));
+    if (error) {
+      tableError = error.message;
+    } else {
+      submissions = data || [];
+    }
   }
 
   if (!teamId) {
@@ -54,14 +224,19 @@ export default async function TeamRewardPage({
     );
   }
 
-  const totalScore = rows.reduce((sum, row) => sum + toNumber(row.score), 0);
-  const totalAmount = rows.reduce((sum, row) => sum + toNumber(row.amount), 0);
-  const latestRow = rows[0];
+  const selectedMonth =
+    month ||
+    new Date().toISOString().slice(0, 7);
+  const selectedSubmission =
+    submissions.find((row) => row.target_month === selectedMonth) || null;
+  const status = normalizeMonthlyStatus(selectedSubmission?.status);
+  const playerRows = parseMonthlyPlayerRows(selectedSubmission?.player_rows);
+  const isLocked = status === "submitted" || status === "reviewing" || status === "approved";
   const dashboardHref = `/team/dashboard?teamId=${encodeURIComponent(teamId)}`;
 
   return (
     <main className="min-h-screen bg-[#f6f7fb] text-slate-950">
-      <div className="mx-auto max-w-6xl px-6 py-12">
+      <div className="mx-auto max-w-7xl px-6 py-10">
         <a href={dashboardHref} className="text-sm font-medium text-slate-500 hover:text-slate-900">
           ← 戦隊ダッシュボードへ戻る
         </a>
@@ -71,169 +246,254 @@ export default async function TeamRewardPage({
             <h1 className="text-3xl font-bold">月データ提出</h1>
             <p className="mt-3 text-slate-600">
               {team?.name || "読み込み中"}
-              {team?.short_name ? `（${team.short_name}）` : ""} の月別実績を確認できます。
+              {team?.short_name ? `（${team.short_name}）` : ""} の月次データを入力・提出できます。
             </p>
           </div>
 
-          <div className="rounded-full bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700">
-            X / TT / YouTube
+          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
+            <p className="text-slate-500">現在のステータス</p>
+            <span className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${getMonthlyStatusTone(status)}`}>
+              {getMonthlyStatusLabel(status)}
+            </span>
           </div>
         </div>
 
-        <div className="mt-8 grid gap-4 md:grid-cols-3">
-          <SummaryCard
-            label="最新月"
-            value={latestRow ? formatMonth(latestRow.month) : "-"}
-          />
-          <SummaryCard label="累計スコア" value={formatNumber(totalScore)} />
-          <SummaryCard
-            label="累計奨励金"
-            value={formatCurrency(totalAmount)}
-            highlight
-          />
-        </div>
+        {result === "draft" ? (
+          <Notice tone="sky" text="下書きを保存しました。" />
+        ) : null}
 
-        <section className="mt-8 rounded-lg border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 px-5 py-4">
-            <h2 className="text-lg font-semibold">月別データ</h2>
+        {result === "submit" ? (
+          <Notice tone="emerald" text="審査提出しました。管理者の確認をお待ちください。" />
+        ) : null}
+
+        {tableError ? (
+          <section className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-5 text-amber-800">
+            <h2 className="font-bold">月データ提出テーブルがまだ準備されていません。</h2>
+            <p className="mt-2 text-sm">
+              管理者側で Supabase に `monthly_data_submissions` テーブルを作成すると利用できます。
+            </p>
+            <p className="mt-2 text-xs">{tableError}</p>
+          </section>
+        ) : (
+          <div className="mt-6 grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
+            <aside className="space-y-3">
+              <a
+                href={`/team/reward?teamId=${encodeURIComponent(teamId)}`}
+                className="block rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold shadow-sm hover:border-slate-400"
+              >
+                新しい月を入力
+              </a>
+
+              <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+                <div className="border-b border-slate-100 px-4 py-3">
+                  <h2 className="text-sm font-bold">提出履歴</h2>
+                </div>
+                {submissions.length === 0 ? (
+                  <p className="px-4 py-4 text-sm text-slate-500">
+                    まだ提出データがありません。
+                  </p>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {submissions.map((submission) => (
+                      <a
+                        key={submission.id || submission.target_month}
+                        href={`/team/reward?teamId=${encodeURIComponent(teamId)}&month=${encodeURIComponent(submission.target_month)}`}
+                        className={`block px-4 py-3 text-sm hover:bg-slate-50 ${
+                          submission.target_month === selectedMonth ? "bg-slate-50" : ""
+                        }`}
+                      >
+                        <div className="font-semibold">
+                          {formatMonthLabel(submission.target_month)}
+                        </div>
+                        <span className={`mt-2 inline-flex rounded-full px-2 py-1 text-xs font-semibold ring-1 ${getMonthlyStatusTone(submission.status)}`}>
+                          {getMonthlyStatusLabel(submission.status)}
+                        </span>
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </aside>
+
+            <div>
+              {selectedSubmission?.return_reason ? (
+                <section className="mb-5 rounded-lg border border-rose-200 bg-rose-50 p-4 text-rose-800">
+                  <p className="font-bold">差し戻し理由</p>
+                  <p className="mt-2 whitespace-pre-wrap break-words text-sm">
+                    {selectedSubmission.return_reason}
+                  </p>
+                </section>
+              ) : null}
+
+              {isLocked ? (
+                <section className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+                  この月は提出済み、審査中、または承認済みのため編集できません。
+                </section>
+              ) : null}
+
+              <MonthlyDataForm
+                action={saveMonthlyData}
+                teamId={teamId}
+                selectedMonth={selectedMonth}
+                initialPlayers={
+                  playerRows.length > 0 ? playerRows : [createInitialPlayer()]
+                }
+                clubActivityLink={selectedSubmission?.club_activity_link || ""}
+                clubActivityImageUrl={selectedSubmission?.club_activity_image_url || null}
+                clubActivityImageName={selectedSubmission?.club_activity_image_name || null}
+                isLocked={isLocked}
+              />
+            </div>
           </div>
-
-          {rows.length === 0 ? (
-            <div className="px-5 py-10 text-center">
-              <p className="font-medium text-slate-700">
-                まだ月データが登録されていません。
-              </p>
-              <p className="mt-2 text-sm text-slate-500">
-                月次データが登録されると、ここにX、TT、YouTube、スコア、金額が表示されます。
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-[760px] w-full border-collapse text-left text-sm">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">対象月</th>
-                    <th className="px-4 py-3">X</th>
-                    <th className="px-4 py-3">TT</th>
-                    <th className="px-4 py-3">YouTube</th>
-                    <th className="px-4 py-3">月間スコア</th>
-                    <th className="px-4 py-3">奨励金</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id || row.month} className="border-t border-slate-100">
-                      <td className="px-4 py-3 font-medium">
-                        {formatMonth(row.month)}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {formatNumber(row.xCount)}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {formatNumber(row.ttCount)}
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">
-                        {formatNumber(row.youtubeCount)}
-                      </td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">
-                        {formatNumber(row.score)}
-                      </td>
-                      <td className="px-4 py-3 font-semibold text-emerald-700">
-                        {formatCurrency(row.amount)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+        )}
       </div>
     </main>
   );
 }
 
-function SummaryCard({
-  label,
-  value,
-  highlight = false,
+async function uploadSalaryScreenshots({
+  formData,
+  playerRows,
+  existingPlayerRows,
+  teamId,
+  targetMonth,
+  storageClient,
 }: {
-  label: string;
-  value: string;
-  highlight?: boolean;
+  formData: FormData;
+  playerRows: MonthlyPlayerRow[];
+  existingPlayerRows: MonthlyPlayerRow[];
+  teamId: string;
+  targetMonth: string;
+  storageClient: StorageClient;
 }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-sm text-slate-500">{label}</p>
-      <p className={`mt-2 text-2xl font-bold ${highlight ? "text-emerald-700" : "text-slate-950"}`}>
-        {value}
-      </p>
-    </div>
-  );
+  const rows = [...playerRows];
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const file = formData.get(`salary_screenshot_${index}`) as File | null;
+
+    if (!file || file.size <= 0) {
+      rows[index] = {
+        ...rows[index],
+        salaryScreenshotName:
+          rows[index].salaryScreenshotName ||
+          existingPlayerRows[index]?.salaryScreenshotName ||
+          "",
+        salaryScreenshotUrl:
+          rows[index].salaryScreenshotUrl ||
+          existingPlayerRows[index]?.salaryScreenshotUrl ||
+          "",
+        salaryScreenshotStoragePath:
+          rows[index].salaryScreenshotStoragePath ||
+          existingPlayerRows[index]?.salaryScreenshotStoragePath ||
+          "",
+        salaryScreenshotMimeType:
+          rows[index].salaryScreenshotMimeType ||
+          existingPlayerRows[index]?.salaryScreenshotMimeType ||
+          "",
+      };
+      continue;
+    }
+
+    const uploaded = await uploadImage({
+      file,
+      teamId,
+      targetMonth,
+      storageClient,
+      prefix: `salary-${index + 1}`,
+    });
+
+    rows[index] = {
+      ...rows[index],
+      salaryScreenshotName: uploaded.fileName,
+      salaryScreenshotUrl: uploaded.fileUrl,
+      salaryScreenshotStoragePath: uploaded.storagePath,
+      salaryScreenshotMimeType: uploaded.mimeType,
+    };
+  }
+
+  return rows;
 }
 
-function normalizeIncentiveRow(row: ContentIncentiveRow) {
+async function uploadImage({
+  file,
+  teamId,
+  targetMonth,
+  storageClient,
+  prefix,
+}: {
+  file: File;
+  teamId: string;
+  targetMonth: string;
+  storageClient: StorageClient;
+  prefix: string;
+}) {
+  if (!file.type.startsWith("image/")) {
+    throw new Error("画像ファイルのみアップロードできます。");
+  }
+
+  if (file.size > imageMaxSize) {
+    throw new Error("画像は2MB以内にしてください。");
+  }
+
+  const storagePath = createStoragePath(teamId, targetMonth, `${prefix}-${file.name}`);
+  const { error } = await storageClient.storage
+    .from("screenshots")
+    .upload(storagePath, file, {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const { data } = storageClient.storage
+    .from("screenshots")
+    .getPublicUrl(storagePath);
+
   return {
-    ...row,
-    month:
-      row.target_month ||
-      row.month ||
-      row.report_month ||
-      row.period ||
-      row.created_month ||
-      "",
-    xCount:
-      row.x_count ||
-      row.x_posts ||
-      row.x_value ||
-      row.twitter_count ||
-      row.twitter_posts ||
-      0,
-    ttCount:
-      row.tt_count ||
-      row.tt_posts ||
-      row.tiktok_count ||
-      row.tiktok_posts ||
-      0,
-    youtubeCount:
-      row.youtube_count ||
-      row.youtube_posts ||
-      row.yt_count ||
-      row.yt_posts ||
-      0,
-    score: row.monthly_score || row.score || row.points || 0,
-    amount: row.reward_amount || row.amount || row.payment_amount || 0,
+    storagePath,
+    fileUrl: data.publicUrl,
+    fileName: file.name,
+    mimeType: file.type,
   };
 }
 
-function toNumber(value: unknown) {
-  const numberValue = Number(value || 0);
-  return Number.isFinite(numberValue) ? numberValue : 0;
+function createInitialPlayer(): MonthlyPlayerRow {
+  return {
+    id: "player-1",
+    playerName: "",
+    salaryAmount: "",
+    salaryScreenshotName: "",
+    salaryScreenshotUrl: "",
+    salaryScreenshotStoragePath: "",
+    salaryScreenshotMimeType: "",
+    xTweetCount: "",
+    xImpressions: "",
+    xEngagements: "",
+    xFanEventCount: "",
+    xFollowerCount: "",
+    youtubeVideoPostCount: "",
+    youtubeVideoViews: "",
+    youtubeShortPostCount: "",
+    youtubeShortViews: "",
+    youtubeLikeCount: "",
+    youtubeStreamCount: "",
+    youtubeStreamViews: "",
+    youtubeTotalImpressions: "",
+    youtubeSubscriberCount: "",
+  };
 }
 
-function formatNumber(value: unknown) {
-  return new Intl.NumberFormat("ja-JP").format(toNumber(value));
-}
+function Notice({ text, tone }: { text: string; tone: "sky" | "emerald" }) {
+  const className =
+    tone === "emerald"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      : "border-sky-200 bg-sky-50 text-sky-800";
 
-function formatCurrency(value: unknown) {
-  return new Intl.NumberFormat("ja-JP", {
-    style: "currency",
-    currency: "JPY",
-    maximumFractionDigits: 0,
-  }).format(toNumber(value));
-}
-
-function formatMonth(value: unknown) {
-  const rawValue = String(value || "");
-
-  if (/^\d{4}-\d{2}/.test(rawValue)) {
-    const [year, month] = rawValue.split("-");
-    return `${year}年${month}月`;
-  }
-
-  if (/^\d{6}$/.test(rawValue)) {
-    return `${rawValue.slice(0, 4)}年${rawValue.slice(4)}月`;
-  }
-
-  return rawValue || "-";
+  return (
+    <div className={`mt-5 rounded-lg border p-4 text-sm font-semibold ${className}`}>
+      {text}
+    </div>
+  );
 }
