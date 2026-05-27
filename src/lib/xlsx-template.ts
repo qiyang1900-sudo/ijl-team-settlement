@@ -210,7 +210,7 @@ function setCellValue(xml: string, cellRef: string, value: XlsxCellValue) {
   const fullMatch = xml.match(fullCellPattern);
 
   if (fullMatch) {
-    return xml.replace(fullCellPattern, renderCell(fullMatch[0], value));
+    return xml.replace(fullCellPattern, () => renderCell(fullMatch[0], value));
   }
 
   const selfClosingMatch = xml.match(selfClosingCellPattern);
@@ -218,7 +218,7 @@ function setCellValue(xml: string, cellRef: string, value: XlsxCellValue) {
   if (selfClosingMatch) {
     return xml.replace(
       selfClosingCellPattern,
-      renderCell(selfClosingMatch[0], value)
+      () => renderCell(selfClosingMatch[0], value)
     );
   }
 
@@ -267,7 +267,10 @@ function insertCell(xml: string, cellRef: string, value: XlsxCellValue) {
 
   const cellXml = renderCell(`<c r="${cellRef}"/>`, value);
 
-  return xml.replace(rowPattern, `${rowMatch[1]}${rowMatch[2]}${cellXml}${rowMatch[3]}`);
+  return xml.replace(
+    rowPattern,
+    () => `${rowMatch[1]}${rowMatch[2]}${cellXml}${rowMatch[3]}`
+  );
 }
 
 function removeAttribute(attrs: string, name: string) {
