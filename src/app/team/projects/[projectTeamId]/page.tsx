@@ -158,6 +158,9 @@ async function saveSubmission(formData: FormData) {
     const implementationDate = String(
       formData.get(`implementation_date_${index}`) || ""
     );
+    const publishChannel = String(
+      formData.get(`publish_channel_${index}`) || ""
+    );
     const reportNote = String(formData.get(`report_note_${index}`) || "");
 
     await supabase.from("settlement_detail_rows").insert({
@@ -178,7 +181,7 @@ async function saveSubmission(formData: FormData) {
       amount: subtotal,
       link_url: linkUrl || null,
       implementation_date: implementationDate || null,
-      publish_channel: "",
+      publish_channel: publishChannel,
       note: reportNote,
     });
 
