@@ -1,6 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import {
+  formatTaxRate,
+  getTaxRateFromRows,
+  normalizeTaxRate,
+} from "@/lib/tax-rate";
 import SubmitButtons from "./SubmitButtons";
 
 type SummaryRow = {
@@ -36,6 +41,8 @@ export default function SubmissionForm({
   detailRows,
   reportRows,
   screenshotFiles,
+  invoiceUploadUrl,
+  invoiceConfirmed,
 }: {
   action: (formData: FormData) => void;
   projectTeamId: string;
@@ -47,6 +54,8 @@ export default function SubmissionForm({
   detailRows: any[];
   reportRows: any[];
   screenshotFiles: any[];
+  invoiceUploadUrl: string;
+  invoiceConfirmed: boolean;
 }) {
   const defaultCompanyName =
     companyInfo?.company_name || profile?.company_name || "";
@@ -102,6 +111,7 @@ export default function SubmissionForm({
   );
 
   const [fileError, setFileError] = useState("");
+  const [taxRate, setTaxRate] = useState(getTaxRateFromRows(detailRows));
 
   const totals = useMemo(() => {
     return details.map((row) => {
@@ -114,7 +124,7 @@ export default function SubmissionForm({
     () => totals.reduce((sum, amount) => sum + amount, 0),
     [totals]
   );
-  const taxAmount = Math.round(subtotalAmount * 0.1);
+  const taxAmount = Math.round(subtotalAmount * taxRate);
   const totalAmount = subtotalAmount + taxAmount;
 
   function getScreenshotForRow(index: number) {
@@ -282,6 +292,8 @@ export default function SubmissionForm({
             label="契約会社名"
             name="company_name"
             defaultValue={defaultCompanyName}
+            placeholder="英語でご入力ください"
+            helpText="英語でご入力ください"
           />
           <Field
             label="銀行名"
@@ -615,7 +627,25 @@ export default function SubmissionForm({
 
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           <AmountCard label="小計" value={subtotalAmount} />
-          <AmountCard label="消費税（10%）" value={taxAmount} />
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <label className="block text-xs text-slate-500">
+              消費税（{formatTaxRate(taxRate)}）
+            </label>
+            <select
+              name="tax_rate"
+              value={String(taxRate)}
+              onChange={(event) =>
+                setTaxRate(normalizeTaxRate(event.target.value))
+              }
+              className="mt-2 w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-emerald-500"
+            >
+              <option value="0">0%</option>
+              <option value="0.1">10%</option>
+            </select>
+            <p className="mt-2 text-xl font-bold">
+              {taxAmount.toLocaleString("ja-JP")}
+            </p>
+          </div>
           <AmountCard label="合計" value={totalAmount} highlight />
         </div>
 
@@ -624,6 +654,40 @@ export default function SubmissionForm({
             {fileError}
           </div>
         ) : null}
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-bold">⑤ 請求書</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          請求書は指定フォルダへアップロードし、完了後にチェックしてください。
+        </p>
+
+        {invoiceUploadUrl ? (
+          <div className="mt-4 flex flex-col gap-4 rounded-lg border border-slate-200 bg-slate-50 p-4 md:flex-row md:items-center md:justify-between">
+            <a
+              href={invoiceUploadUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex w-fit rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+            >
+              請求書アップロードフォルダを開く
+            </a>
+
+            <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+              <input
+                type="checkbox"
+                name="invoice_uploaded"
+                className="h-4 w-4"
+                defaultChecked={invoiceConfirmed}
+              />
+              請求書をアップロードしました
+            </label>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            請求書アップロード先が設定されていません。管理者にご連絡ください。
+          </div>
+        )}
       </section>
 
       <SubmitButtons />
@@ -636,12 +700,14 @@ function Field({
   name,
   defaultValue,
   placeholder,
+  helpText,
   type = "text",
 }: {
   label: string;
   name: string;
   defaultValue?: string;
   placeholder?: string;
+  helpText?: string;
   type?: string;
 }) {
   return (
@@ -654,6 +720,9 @@ function Field({
         placeholder={placeholder}
         className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-emerald-500"
       />
+      {helpText ? (
+        <p className="mt-1 text-[11px] text-slate-500">{helpText}</p>
+      ) : null}
     </div>
   );
 }

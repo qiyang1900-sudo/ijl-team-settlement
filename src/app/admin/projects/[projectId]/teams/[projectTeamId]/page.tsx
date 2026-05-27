@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 import { getAdminStatusLabel } from "@/lib/status-labels";
+import { formatTaxRate, getTaxRateFromRows } from "@/lib/tax-rate";
 import ImagePreview from "./ImagePreview";
 
 async function approveSubmission(formData: FormData) {
@@ -172,6 +173,10 @@ export default async function AdminSubmissionDetailPage({
       );
     });
   }
+  const invoiceFile = files?.find(
+    (file: { file_category?: string }) =>
+      file.file_category === "invoice_confirmation"
+  );
 
   if (projectTeamError || !projectTeam) {
     return (
@@ -202,7 +207,8 @@ export default async function AdminSubmissionDetailPage({
       const amount = Number(row?.amount || 0);
       return sum + (Number.isFinite(amount) ? amount : 0);
     }, 0) || 0;
-  const reportTax = Math.round(reportSubtotal * 0.1);
+  const reportTaxRate = getTaxRateFromRows(detailRows || []);
+  const reportTax = Math.round(reportSubtotal * reportTaxRate);
   const reportTotal = reportSubtotal + reportTax;
 
   return (
@@ -235,7 +241,7 @@ export default async function AdminSubmissionDetailPage({
             {project?.title || "-"} / {team?.name || "-"}
           </p>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-4">
+          <div className="mt-6 grid gap-4 md:grid-cols-5">
             <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
               <p className="text-sm text-slate-500">战队</p>
               <p className="mt-2 font-semibold">{team?.name || "-"}</p>
@@ -260,6 +266,22 @@ export default async function AdminSubmissionDetailPage({
                   ? new Date(projectTeam.submitted_at).toLocaleString("ja-JP")
                   : "-"}
               </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
+              <p className="text-sm text-slate-500">请求书</p>
+              <p className="mt-2 font-semibold">
+                {invoiceFile ? "已上传" : "未确认"}
+              </p>
+              {invoiceFile?.file_url ? (
+                <a
+                  href={invoiceFile.file_url}
+                  target="_blank"
+                  className="mt-2 inline-block text-sm text-sky-300 underline"
+                >
+                  打开文件夹
+                </a>
+              ) : null}
             </div>
           </div>
 
@@ -491,7 +513,10 @@ export default async function AdminSubmissionDetailPage({
 
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <AmountInfo label="小计" value={reportSubtotal} />
-            <AmountInfo label="消费税（10%）" value={reportTax} />
+            <AmountInfo
+              label={`消费税（${formatTaxRate(reportTaxRate)}）`}
+              value={reportTax}
+            />
             <AmountInfo label="合计" value={reportTotal} highlight />
           </div>
         </section>

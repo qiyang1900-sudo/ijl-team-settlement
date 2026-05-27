@@ -39,7 +39,7 @@ export default async function TeamRewardPage({
     return (
       <main className="min-h-screen bg-[#f6f7fb] text-slate-950">
         <div className="mx-auto max-w-4xl px-6 py-12">
-          <h1 className="text-3xl font-bold">コンテンツ奨励</h1>
+          <h1 className="text-3xl font-bold">月データ提出</h1>
           <p className="mt-4 text-rose-600">
             戦隊が選択されていません。ログインページから入り直してください。
           </p>
@@ -68,7 +68,7 @@ export default async function TeamRewardPage({
 
         <div className="mt-4 flex flex-col justify-between gap-4 md:flex-row md:items-end">
           <div>
-            <h1 className="text-3xl font-bold">コンテンツ奨励</h1>
+            <h1 className="text-3xl font-bold">月データ提出</h1>
             <p className="mt-3 text-slate-600">
               {team?.name || "読み込み中"}
               {team?.short_name ? `（${team.short_name}）` : ""} の月別実績を確認できます。
@@ -101,7 +101,7 @@ export default async function TeamRewardPage({
           {rows.length === 0 ? (
             <div className="px-5 py-10 text-center">
               <p className="font-medium text-slate-700">
-                まだコンテンツ奨励データが登録されていません。
+                まだ月データが登録されていません。
               </p>
               <p className="mt-2 text-sm text-slate-500">
                 月次データが登録されると、ここにX、TT、YouTube、スコア、金額が表示されます。

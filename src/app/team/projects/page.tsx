@@ -30,7 +30,7 @@ export default async function TeamProjectsPage({
   if (!supabaseUrl || !supabaseAnonKey) {
     return (
       <main className="min-h-screen bg-[#f6f7fb] p-10 text-slate-950">
-        <h1 className="text-3xl font-bold">提出プロジェクト</h1>
+        <h1 className="text-3xl font-bold">請求書と結案報告書提出</h1>
         <p className="mt-4 text-rose-600">Supabase環境変数が設定されていません。</p>
       </main>
     );
@@ -40,7 +40,7 @@ export default async function TeamProjectsPage({
     return (
       <main className="min-h-screen bg-[#f6f7fb] p-10 text-slate-950">
         <div className="mx-auto max-w-4xl">
-          <h1 className="text-3xl font-bold">提出プロジェクト</h1>
+          <h1 className="text-3xl font-bold">請求書と結案報告書提出</h1>
           <p className="mt-4 text-rose-600">
             戦隊が選択されていません。ログインページから入り直してください。
           </p>
@@ -102,7 +102,7 @@ export default async function TeamProjectsPage({
             ← 戦隊ダッシュボードへ戻る
           </Link>
 
-          <h1 className="mt-4 text-3xl font-bold">提出プロジェクト</h1>
+          <h1 className="mt-4 text-3xl font-bold">請求書と結案報告書提出</h1>
           <p className="mt-2 text-slate-600">
             現在の戦隊：{team?.name || "-"}
             {team?.short_name ? `（${team.short_name}）` : ""}
