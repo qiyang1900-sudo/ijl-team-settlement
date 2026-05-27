@@ -8,7 +8,7 @@ export default function AdminDashboardPage() {
 
         <h1 className="mt-4 text-3xl font-bold">管理员后台</h1>
         <p className="mt-3 text-slate-600">
-          管理项目进度、战队进度、提交审核和奖励金计算。
+          管理项目进度、战队进度、提交审核和月数据审核。
         </p>
 
         <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -56,9 +56,9 @@ export default function AdminDashboardPage() {
             href="/admin/reward"
             className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"
           >
-            <h2 className="text-xl font-semibold">奖励金计算</h2>
+            <h2 className="text-xl font-semibold">月数据审核</h2>
             <p className="mt-2 text-sm text-slate-600">
-              暂未开放，后续用于战队奖励金计算。
+              审核战队提交的选手給与、X、YouTube 和俱乐部活动资料。
             </p>
           </a>
         </div>
