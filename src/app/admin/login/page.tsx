@@ -3,7 +3,7 @@ export default function AdminLoginPage() {
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto max-w-md px-6 py-16">
         <a href="/" className="text-sm text-slate-400 hover:text-white">
-          ← 首页へ戻る
+          ← 返回首页
         </a>
 
         <h1 className="mt-6 text-3xl font-bold">管理员登录</h1>

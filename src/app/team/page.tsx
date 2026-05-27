@@ -1,29 +1,29 @@
 export default function TeamPage() {
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
+    <main className="min-h-screen bg-[#f6f7fb] text-slate-950">
       <div className="mx-auto max-w-4xl px-6 py-12">
-        <a href="/" className="text-sm text-slate-400 hover:text-white">
-          ← 首页へ戻る
+        <a href="/" className="text-sm font-medium text-slate-500 hover:text-slate-900">
+          ← ホームへ戻る
         </a>
 
-        <h1 className="mt-4 text-3xl font-bold">战队提交入口</h1>
+        <h1 className="mt-4 text-3xl font-bold">戦隊提出入口</h1>
 
-        <p className="mt-3 text-slate-400">
-          战队可以在这里查看需要提交的项目、填写结案报告资料、确认审核状态。
+        <p className="mt-3 text-slate-600">
+          提出が必要なプロジェクト、結果報告資料、審査状況を確認できます。
         </p>
 
-        <div className="mt-8 rounded-2xl border border-slate-700 bg-slate-900 p-6">
-          <h2 className="text-xl font-semibold">我的提交项目</h2>
+        <div className="mt-8 rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold">提出プロジェクト</h2>
 
-          <p className="mt-2 text-sm text-slate-400">
-            查看当前需要提交的项目，并进行填写、保存草稿或提交审核。
+          <p className="mt-2 text-sm text-slate-600">
+            現在の提出対象を確認し、下書き保存または審査提出ができます。
           </p>
 
           <a
             href="/team/projects"
-            className="mt-6 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
+            className="mt-6 inline-block rounded-lg bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-500"
           >
-            查看提交项目
+            プロジェクトを見る
           </a>
         </div>
       </div>

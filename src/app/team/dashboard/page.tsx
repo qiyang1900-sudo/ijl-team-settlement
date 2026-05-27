@@ -26,17 +26,17 @@ export default async function TeamDashboardPage({
 
   if (!teamId) {
     return (
-      <main className="min-h-screen bg-slate-950 text-white">
+      <main className="min-h-screen bg-[#f6f7fb] text-slate-950">
         <div className="mx-auto max-w-4xl px-6 py-12">
-          <h1 className="text-3xl font-bold">战队后台</h1>
-          <p className="mt-4 text-red-400">
-            没有选择战队，请先从战队登录页进入。
+          <h1 className="text-3xl font-bold">戦隊ダッシュボード</h1>
+          <p className="mt-4 text-rose-600">
+            戦隊が選択されていません。ログインページから入り直してください。
           </p>
           <a
             href="/team/login"
-            className="mt-6 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950"
+            className="mt-6 inline-block rounded-lg bg-emerald-600 px-5 py-3 text-sm font-semibold text-white"
           >
-            返回战队登录
+            戦隊ログインへ戻る
           </a>
         </div>
       </main>
@@ -44,37 +44,37 @@ export default async function TeamDashboardPage({
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
+    <main className="min-h-screen bg-[#f6f7fb] text-slate-950">
       <div className="mx-auto max-w-5xl px-6 py-12">
-        <a href="/team/login" className="text-sm text-slate-400 hover:text-white">
-          ← 战队登录へ戻る
+        <a href="/team/login" className="text-sm font-medium text-slate-500 hover:text-slate-900">
+          ← 戦隊ログインへ戻る
         </a>
 
-        <h1 className="mt-4 text-3xl font-bold">战队后台</h1>
+        <h1 className="mt-4 text-3xl font-bold">戦隊ダッシュボード</h1>
 
-        <p className="mt-3 text-slate-400">
-          当前战队：{team?.name || "读取中"}
+        <p className="mt-3 text-slate-600">
+          現在の戦隊：{team?.name || "読み込み中"}
           {team?.short_name ? `（${team.short_name}）` : ""}
         </p>
 
         <div className="mt-8 grid gap-6 md:grid-cols-2">
           <a
             href={`/team/projects?teamId=${teamId}`}
-            className="rounded-2xl border border-slate-700 bg-slate-900 p-6 hover:bg-slate-800"
+            className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"
           >
-            <h2 className="text-xl font-semibold">我的提交项目</h2>
-            <p className="mt-2 text-sm text-slate-400">
-              查看需要提交的项目、填写资料、保存草稿、提交审核。
+            <h2 className="text-xl font-semibold">提出プロジェクト</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              提出対象の確認、資料入力、下書き保存、審査提出ができます。
             </p>
           </a>
 
           <a
             href={`/team/reward?teamId=${teamId}`}
-            className="rounded-2xl border border-slate-700 bg-slate-900 p-6 hover:bg-slate-800"
+            className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-sky-300 hover:shadow-md"
           >
-            <h2 className="text-xl font-semibold">我的奖励金</h2>
-            <p className="mt-2 text-sm text-slate-400">
-              暂未开放，后续显示战队奖励金相关内容。
+            <h2 className="text-xl font-semibold">報酬確認</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              現在準備中です。後続で戦隊報酬に関する内容を表示します。
             </p>
           </a>
         </div>

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { getAdminStatusLabel, getStatusTone } from "@/lib/status-labels";
 
 export default async function TeamProgressDetailPage({
   params,
@@ -60,7 +61,7 @@ export default async function TeamProgressDetailPage({
             href="/admin/team-progress"
             className="text-sm text-slate-400 hover:text-white"
           >
-            ← 战队进度へ戻る
+            ← 返回战队进度
           </a>
 
           {teamError || !team ? (
@@ -166,45 +167,9 @@ export default async function TeamProgressDetailPage({
 }
 
 function StatusPill({ status }: { status: string }) {
-  const map: Record<string, { label: string; className: string }> = {
-    not_submitted: {
-      label: "未提交",
-      className: "bg-slate-800 text-slate-300",
-    },
-    draft: {
-      label: "草稿中",
-      className: "bg-blue-950 text-blue-300",
-    },
-    submitted: {
-      label: "待审核",
-      className: "bg-yellow-950 text-yellow-300",
-    },
-    resubmitted: {
-      label: "重新提交",
-      className: "bg-orange-950 text-orange-300",
-    },
-    returned: {
-      label: "退回修改",
-      className: "bg-red-950 text-red-300",
-    },
-    approved: {
-      label: "审核通过",
-      className: "bg-green-950 text-green-300",
-    },
-    exported: {
-      label: "已导出",
-      className: "bg-purple-950 text-purple-300",
-    },
-  };
-
-  const item = map[status] || {
-    label: status,
-    className: "bg-slate-800 text-slate-300",
-  };
-
   return (
-    <span className={`rounded-full px-3 py-1 text-xs ${item.className}`}>
-      {item.label}
+    <span className={`rounded-full px-3 py-1 text-xs ring-1 ${getStatusTone(status)}`}>
+      {getAdminStatusLabel(status)}
     </span>
   );
 }

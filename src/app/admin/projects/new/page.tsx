@@ -16,8 +16,11 @@ async function createProject(formData: FormData) {
   const title = String(formData.get("title") || "");
   const description = String(formData.get("description") || "");
   const templateType = String(formData.get("template_type") || "subsidy_report");
-  const deadlineAt = String(formData.get("deadline_at") || "");
-  const editDeadlineAt = String(formData.get("edit_deadline_at") || "");
+  const deadlineDate = String(formData.get("deadline_date") || "").trim();
+  const deadlineTime = String(formData.get("deadline_time") || "").trim();
+  const deadlineAt = deadlineDate
+    ? `${deadlineDate}T${deadlineTime || "23:59"}`
+    : "";
   const teamIds = formData.getAll("team_ids").map(String);
 
   const { data: project, error: projectError } = await supabase
@@ -27,7 +30,7 @@ async function createProject(formData: FormData) {
       description,
       template_type: templateType,
       deadline_at: deadlineAt || null,
-      edit_deadline_at: editDeadlineAt || null,
+      edit_deadline_at: deadlineAt || null,
       status: "active",
     })
     .select("id")
@@ -82,7 +85,7 @@ export default async function NewProjectPage() {
       <div className="mx-auto max-w-4xl">
         <div className="mb-8">
           <a href="/admin/projects" className="text-sm text-slate-400 hover:text-white">
-            ← 项目管理へ戻る
+            ← 返回项目管理
           </a>
           <h1 className="mt-4 text-3xl font-bold">新建项目</h1>
           <p className="mt-2 text-slate-400">
@@ -107,7 +110,7 @@ export default async function NewProjectPage() {
               <input
                 name="title"
                 required
-                placeholder="例：2025年秋季リーグ補助金"
+                placeholder="例：2025年秋季联赛补助金"
                 className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
               />
             </div>
@@ -119,7 +122,7 @@ export default async function NewProjectPage() {
               <textarea
                 name="description"
                 rows={4}
-                placeholder="例：9-12月分のリーグ補助金結案報告"
+                placeholder="例：9-12月联赛补助金结案报告"
                 className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
               />
             </div>
@@ -133,34 +136,35 @@ export default async function NewProjectPage() {
                 defaultValue="subsidy_report"
                 className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
               >
-                <option value="subsidy_report">補助金結案報告</option>
-                <option value="transportation_report">交通費精算</option>
-                <option value="invoice_report">請求書関連</option>
-                <option value="prize_report">賞金関連</option>
-                <option value="other">その他</option>
+                <option value="subsidy_report">补助金结案报告</option>
+                <option value="transportation_report">交通费精算</option>
+                <option value="invoice_report">请款/发票相关</option>
+                <option value="prize_report">奖金相关</option>
+                <option value="other">其他</option>
               </select>
             </div>
 
-            <div className="grid gap-6 md:grid-cols-2">
-              <div>
-                <label className="block text-sm font-medium text-slate-300">
-                  提交截止时间
-                </label>
-                <input
-                  name="deadline_at"
-                  type="datetime-local"
-                  className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
-                />
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-300">
+                截止时间
+              </label>
+              <p className="mt-1 text-xs text-slate-500">
+                提交和修改共用同一个截止时间。
+              </p>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-300">
-                  修改截止时间
-                </label>
+              <div className="mt-2 grid gap-3 md:grid-cols-[1fr_180px]">
                 <input
-                  name="edit_deadline_at"
-                  type="datetime-local"
-                  className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
+                  name="deadline_date"
+                  type="date"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
+                />
+
+                <input
+                  name="deadline_time"
+                  type="time"
+                  step="60"
+                  defaultValue="23:59"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
                 />
               </div>
             </div>

@@ -1,17 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
+import { SETTLEMENT_REPORT_TEMPLATE_BASE64 } from "@/lib/settlement-report-template";
+import {
+  fillXlsxTemplate,
+  type XlsxCellValue,
+  type XlsxTemplateImage,
+} from "@/lib/xlsx-template";
 
-function csvEscape(value: any) {
-  if (value === null || value === undefined) return "";
-  const text = String(value);
-  return `"${text.replace(/"/g, '""')}"`;
-}
-
-function makeCsv(rows: any[][]) {
-  return rows.map((row) => row.map(csvEscape).join(",")).join("\n");
-}
+type Row = Record<string, any>;
+type SheetUpdates = Record<string, XlsxCellValue>;
 
 export async function GET(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ projectTeamId: string }> }
 ) {
   const { projectTeamId } = await params;
@@ -36,6 +35,7 @@ export async function GET(
       submitted_at,
       returned_at,
       approved_at,
+      exported_at,
       return_reason,
       projects (
         id,
@@ -61,6 +61,12 @@ export async function GET(
   if (projectTeamError || !projectTeam) {
     return new Response("対象データが見つかりません。", {
       status: 404,
+    });
+  }
+
+  if (!["approved", "exported"].includes(projectTeam.status)) {
+    return new Response("承認済みの提出のみExcel出力できます。", {
+      status: 409,
     });
   }
 
@@ -94,144 +100,256 @@ export async function GET(
     .eq("project_team_id", projectTeamId)
     .order("created_at", { ascending: true });
 
-  const project: any = projectTeam.projects;
-  const team: any = projectTeam.teams;
-
-  const rows: any[][] = [];
-
-  rows.push(["基本情報"]);
-  rows.push(["プロジェクト名", project?.title || ""]);
-  rows.push(["プロジェクト説明", project?.description || ""]);
-  rows.push(["テンプレート種別", project?.template_type || ""]);
-  rows.push(["提出期限", project?.deadline_at || ""]);
-  rows.push(["修正期限", project?.edit_deadline_at || ""]);
-  rows.push(["戦隊名", team?.name || ""]);
-  rows.push(["戦隊略称", team?.short_name || ""]);
-  rows.push(["担当者", team?.contact_name || ""]);
-  rows.push(["担当者メール", team?.contact_email || ""]);
-  rows.push(["提出ステータス", projectTeam.status || ""]);
-  rows.push(["提出日時", projectTeam.submitted_at || ""]);
-  rows.push(["承認日時", projectTeam.approved_at || ""]);
-  rows.push(["差し戻し理由", projectTeam.return_reason || ""]);
-  rows.push([]);
-
-  rows.push(["契約・口座情報"]);
-  rows.push(["契約会社名", companyInfo?.company_name || ""]);
-  rows.push(["銀行名", companyInfo?.bank_name || ""]);
-  rows.push(["口座番号", companyInfo?.bank_account_number || ""]);
-  rows.push(["Swift code", companyInfo?.swift_code || ""]);
-  rows.push([]);
-
-  rows.push(["検収総表"]);
-  rows.push([
-    "No.",
-    "今回の支払内容",
-    "納品期日",
-    "契約支払基準",
-    "業務完了基準",
-    "確認",
-    "備考",
-  ]);
-
-  for (const row of summaryRows || []) {
-    rows.push([
-      row.row_number,
-      row.payment_content,
-      row.delivery_due_date,
-      row.contract_payment_standard,
-      row.completion_standard,
-      row.project_team_confirmation,
-      row.note,
-    ]);
-  }
-
-  rows.push([]);
-
-  rows.push(["精算明細"]);
-  rows.push([
-    "No.",
-    "サービス / 内容項目",
-    "数量",
-    "単価",
-    "小計",
-    "金額一致",
-    "備考",
-  ]);
-
-  for (const row of detailRows || []) {
-    rows.push([
-      row.row_number,
-      row.service_item,
-      row.quantity,
-      row.unit_price,
-      row.subtotal,
-      row.amount_match ? "はい" : "いいえ",
-      row.note,
-    ]);
-  }
-
-  rows.push([]);
-
-  rows.push(["結案報告"]);
-  rows.push([
-    "No.",
-    "項目内容",
-    "種別",
-    "金額",
-    "リンク",
-    "実施日",
-    "備考",
-  ]);
-
-  for (const row of reportRows || []) {
-    rows.push([
-      row.row_number,
-      row.item_content,
-      row.category_type,
-      row.amount,
-      row.link_url,
-      row.implementation_date,
-      row.note,
-    ]);
-  }
-
-  rows.push([]);
-
-  rows.push(["提出ファイル"]);
-  rows.push(["カテゴリ", "提出方法", "ファイル名", "URL", "外部URL", "備考"]);
-
-  for (const file of files || []) {
-    rows.push([
-      file.file_category,
-      file.submit_method,
-      file.file_name,
-      file.file_url,
-      file.external_url,
-      file.note,
-    ]);
-  }
-
-  const csv = "\uFEFF" + makeCsv(rows);
-
-  const safeTeamName = String(team?.short_name || team?.name || "team").replace(
-    /[^a-zA-Z0-9ぁ-んァ-ヶ一-龠_-]/g,
-    "_"
+  const template = Buffer.from(SETTLEMENT_REPORT_TEMPLATE_BASE64, "base64");
+  const reportSheetImages = await buildReportSheetImages(files || []);
+  const workbook = fillXlsxTemplate(
+    template,
+    {
+      "xl/worksheets/sheet1.xml": buildSummarySheetUpdates({
+        companyInfo,
+        summaryRows: summaryRows || [],
+        detailRows: detailRows || [],
+      }),
+      "xl/worksheets/sheet2.xml": buildReportSheetUpdates({
+        reportRows: reportRows || [],
+        detailRows: detailRows || [],
+      }),
+    },
+    reportSheetImages
   );
 
-  const safeProjectTitle = String(project?.title || "project").replace(
-    /[^a-zA-Z0-9ぁ-んァ-ヶ一-龠_-]/g,
-    "_"
-  );
+  if (projectTeam.status === "approved") {
+    await supabase
+      .from("project_teams")
+      .update({
+        status: "exported",
+        exported_at: new Date().toISOString(),
+      })
+      .eq("id", projectTeamId);
+  }
 
-  const fileName = `${safeTeamName}_${safeProjectTitle}_export.csv`;
+  const project = projectTeam.projects as Row | null;
+  const team = projectTeam.teams as Row | null;
+  const fileName = `${safeFilePart(team?.short_name || team?.name || "team")}_${safeFilePart(
+    project?.title || "project"
+  )}_export.xlsx`;
 
-  return new Response(csv, {
+  return new Response(new Uint8Array(workbook), {
     status: 200,
     headers: {
-      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Type":
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(
         fileName
       )}`,
     },
   });
+}
+
+function buildSummarySheetUpdates({
+  companyInfo,
+  summaryRows,
+  detailRows,
+}: {
+  companyInfo: Row | null;
+  summaryRows: Row[];
+  detailRows: Row[];
+}): SheetUpdates {
+  const totalAmount = detailRows.reduce((sum, row) => sum + subtotal(row), 0);
+  const taxAmount = Math.round(totalAmount * 0.1);
+  const updates: SheetUpdates = {
+    B9: companyInfo?.company_name || "",
+    B10: companyInfo?.bank_name || "",
+    B11: companyInfo?.bank_account_number || "",
+    B12: companyInfo?.swift_code || "",
+    E30: taxAmount,
+    E31: totalAmount + taxAmount,
+  };
+
+  for (let index = 0; index < 3; index++) {
+    const row = summaryRows[index];
+    const sheetRow = 16 + index;
+
+    updates[`B${sheetRow}`] = row?.payment_content || "";
+    updates[`C${sheetRow}`] = formatDate(row?.delivery_due_date);
+  }
+
+  for (let index = 0; index < 7; index++) {
+    const row = detailRows[index];
+    const sheetRow = 22 + index;
+
+    updates[`B${sheetRow}`] = row?.service_item || "";
+    updates[`C${sheetRow}`] = row ? toNumber(row.quantity) : "";
+    updates[`D${sheetRow}`] = row ? toNumber(row.unit_price) : "";
+    updates[`E${sheetRow}`] = row ? subtotal(row) : "";
+  }
+
+  return updates;
+}
+
+function buildReportSheetUpdates({
+  reportRows,
+  detailRows,
+}: {
+  reportRows: Row[];
+  detailRows: Row[];
+}): SheetUpdates {
+  const updates: SheetUpdates = {};
+
+  for (let index = 0; index < 21; index++) {
+    const row = reportRows[index];
+    const detail = detailRows[index];
+    const sheetRow = 9 + index;
+
+    updates[`B${sheetRow}`] = row?.item_content || detail?.service_item || "";
+    updates[`C${sheetRow}`] = row?.category_type || "";
+    updates[`D${sheetRow}`] = row ? toNumber(row.amount) : "";
+    updates[`E${sheetRow}`] = row?.link_url || "";
+    updates[`F${sheetRow}`] = "";
+    updates[`G${sheetRow}`] = formatDate(row?.implementation_date);
+  }
+
+  return updates;
+}
+
+async function buildReportSheetImages(files: Row[]): Promise<XlsxTemplateImage[]> {
+  const images: XlsxTemplateImage[] = [];
+
+  for (let index = 0; index < 21; index++) {
+    const rowNumber = index + 1;
+    const screenshot = findScreenshot(files, rowNumber);
+    const image = await fetchScreenshotImage(screenshot);
+
+    if (!image) {
+      continue;
+    }
+
+    images.push({
+      worksheet: "xl/worksheets/sheet2.xml",
+      cell: `F${9 + index}`,
+      data: image.data,
+      extension: image.extension,
+      contentType: image.contentType,
+      altText: screenshot?.file_name || `結果報告 No.${rowNumber}`,
+    });
+  }
+
+  return images;
+}
+
+async function fetchScreenshotImage(file?: Row) {
+  const fileUrl = file?.file_url ? String(file.file_url) : "";
+
+  if (!fileUrl) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(fileUrl);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const responseContentType = String(
+      response.headers.get("content-type") || ""
+    )
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+    const contentType = String(file?.mime_type || responseContentType)
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+    const extension =
+      imageExtensionFromContentType(contentType) ||
+      imageExtensionFromFileName(String(file?.file_name || fileUrl));
+
+    if (!extension) {
+      return null;
+    }
+
+    return {
+      data: Buffer.from(await response.arrayBuffer()),
+      extension,
+      contentType: extension === "png" ? "image/png" : "image/jpeg",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function findScreenshot(files: Row[], rowNumber: number) {
+  return files.find((file) => {
+    return (
+      file.file_category === "report_screenshot" &&
+      String(file.note || "").includes(`No.${rowNumber}`)
+    );
+  });
+}
+
+function subtotal(row: Row) {
+  const storedSubtotal = toNumber(row.subtotal);
+
+  if (storedSubtotal) {
+    return storedSubtotal;
+  }
+
+  return toNumber(row.quantity) * toNumber(row.unit_price);
+}
+
+function toNumber(value: unknown) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatDate(value: unknown) {
+  if (!value) {
+    return "";
+  }
+
+  const date = value instanceof Date ? value : new Date(String(value));
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+
+  return `${year}/${month}/${day}`;
+}
+
+function safeFilePart(value: string) {
+  return String(value || "file").replace(
+    /[^a-zA-Z0-9ぁ-んァ-ヶ一-龠_-]/g,
+    "_"
+  );
+}
+
+function imageExtensionFromContentType(contentType: string) {
+  if (contentType === "image/png") {
+    return "png";
+  }
+
+  if (contentType === "image/jpeg" || contentType === "image/jpg") {
+    return "jpg";
+  }
+
+  return "";
+}
+
+function imageExtensionFromFileName(fileName: string) {
+  const extension = fileName.split(".").pop()?.toLowerCase();
+
+  if (extension === "png") {
+    return "png";
+  }
+
+  if (extension === "jpg" || extension === "jpeg") {
+    return "jpg";
+  }
+
+  return "";
 }

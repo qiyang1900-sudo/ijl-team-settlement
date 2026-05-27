@@ -19,31 +19,31 @@ export default async function TeamLoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
+    <main className="min-h-screen bg-[#f6f7fb] text-slate-950">
       <div className="mx-auto max-w-md px-6 py-16">
-        <a href="/" className="text-sm text-slate-400 hover:text-white">
-          ← 首页へ戻る
+        <a href="/" className="text-sm font-medium text-slate-500 hover:text-slate-900">
+          ← ホームへ戻る
         </a>
 
-        <h1 className="mt-6 text-3xl font-bold">战队登录</h1>
-        <p className="mt-3 text-slate-400">
-          选择战队并输入密码，进入自己的提交页面。
+        <h1 className="mt-6 text-3xl font-bold">戦隊ログイン</h1>
+        <p className="mt-3 text-slate-600">
+          戦隊を選択し、パスワードを入力して提出ページへ進みます。
         </p>
 
         <form
           action="/team/dashboard"
           method="GET"
-          className="mt-8 space-y-5 rounded-2xl border border-slate-700 bg-slate-900 p-6"
+          className="mt-8 space-y-5 rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
         >
           <div>
-            <label className="block text-sm text-slate-300">战队</label>
+            <label className="block text-sm font-medium text-slate-700">戦隊</label>
             <select
               name="teamId"
               required
-              className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
+              className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-slate-950 outline-none focus:border-emerald-500"
             >
               {teams.length === 0 ? (
-                <option value="">暂无战队</option>
+                <option value="">登録済みの戦隊がありません</option>
               ) : (
                 teams.map((team) => (
                   <option key={team.id} value={team.id}>
@@ -56,25 +56,27 @@ export default async function TeamLoginPage() {
           </div>
 
           <div>
-            <label className="block text-sm text-slate-300">密码</label>
+            <label className="block text-sm font-medium text-slate-700">
+              パスワード
+            </label>
             <input
               name="password"
               type="password"
               placeholder="password"
-              className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
+              className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-slate-950 outline-none focus:border-emerald-500"
             />
           </div>
 
           <button
             type="submit"
-            className="block w-full rounded-xl bg-white px-5 py-3 text-center text-sm font-semibold text-slate-950 hover:bg-slate-200"
+            className="block w-full rounded-lg bg-emerald-600 px-5 py-3 text-center text-sm font-semibold text-white hover:bg-emerald-500"
           >
-            登录
+            ログイン
           </button>
         </form>
 
         <p className="mt-4 text-sm text-slate-500">
-          ※现在是框架版，后续会接入真实战队密码验证。
+          ※現在は仮ログインです。正式な戦隊パスワード認証は後続で接続します。
         </p>
       </div>
     </main>

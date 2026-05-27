@@ -1,4 +1,54 @@
 import { createClient } from "@supabase/supabase-js";
+import { redirect } from "next/navigation";
+import { TeamEditDialog } from "./TeamEditDialog";
+
+async function updateTeam(formData: FormData) {
+  "use server";
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Supabase 环境变量没有设置成功");
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+  const teamId = String(formData.get("team_id") || "");
+  const name = String(formData.get("name") || "").trim();
+  const shortName = String(formData.get("short_name") || "").trim();
+  const contactName = String(formData.get("contact_name") || "").trim();
+  const contactEmail = String(formData.get("contact_email") || "").trim();
+  const discordWebhookUrl = String(
+    formData.get("discord_webhook_url") || ""
+  ).trim();
+  const discordMentionText = String(
+    formData.get("discord_mention_text") || ""
+  ).trim();
+
+  if (!teamId || !name) {
+    throw new Error("战队名不能为空");
+  }
+
+  const { error } = await supabase
+    .from("teams")
+    .update({
+      name,
+      short_name: shortName || null,
+      contact_name: contactName || null,
+      contact_email: contactEmail || null,
+      discord_webhook_url: discordWebhookUrl || null,
+      discord_mention_text: discordMentionText || null,
+      is_active: formData.get("is_active") === "on",
+    })
+    .eq("id", teamId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  redirect("/admin/teams");
+}
 
 export default async function AdminTeamsPage() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -17,7 +67,9 @@ export default async function AdminTeamsPage() {
 
   const { data: teams, error } = await supabase
     .from("teams")
-    .select("id, name, short_name, contact_name, contact_email, is_active")
+    .select(
+      "id, name, short_name, contact_name, contact_email, discord_webhook_url, discord_mention_text, is_active"
+    )
     .order("created_at", { ascending: false });
 
   return (
@@ -61,6 +113,7 @@ export default async function AdminTeamsPage() {
                   <th className="px-4 py-3">负责人</th>
                   <th className="px-4 py-3">邮箱</th>
                   <th className="px-4 py-3">状态</th>
+                  <th className="px-4 py-3">编辑</th>
                 </tr>
               </thead>
               <tbody>
@@ -86,6 +139,12 @@ export default async function AdminTeamsPage() {
                           停用
                         </span>
                       )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <TeamEditDialog
+                        team={team}
+                        updateTeamAction={updateTeam}
+                      />
                     </td>
                   </tr>
                 ))}

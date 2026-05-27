@@ -1,4 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  getAdminStatusLabel,
+  getStatusTone,
+  isApprovedLike,
+} from "@/lib/status-labels";
 
 export default async function AdminReviewsPage() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -45,9 +50,10 @@ export default async function AdminReviewsPage() {
   const submitted = allRows.filter((row) => row.status === "submitted");
   const resubmitted = allRows.filter((row) => row.status === "resubmitted");
   const returned = allRows.filter((row) => row.status === "returned");
-  const approved = allRows.filter((row) => row.status === "approved");
-  const notSubmitted = allRows.filter((row) => row.status === "not_submitted");
-  const draft = allRows.filter((row) => row.status === "draft");
+  const approved = allRows.filter((row) => isApprovedLike(row.status));
+  const notSubmitted = allRows.filter((row) =>
+    ["not_submitted", "draft"].includes(row.status)
+  );
 
   return (
     <main className="min-h-screen bg-slate-950 p-10 text-white">
@@ -57,7 +63,7 @@ export default async function AdminReviewsPage() {
             href="/admin/dashboard"
             className="text-sm text-slate-400 hover:text-white"
           >
-            ← 管理员后台へ戻る
+            ← 返回管理员后台
           </a>
 
           <h1 className="mt-4 text-3xl font-bold">提交审核</h1>
@@ -73,22 +79,20 @@ export default async function AdminReviewsPage() {
           </div>
         ) : (
           <>
-            <div className="mb-8 grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+            <div className="mb-8 grid gap-4 md:grid-cols-2 lg:grid-cols-5">
               <StatCard label="待审核" count={submitted.length} color="yellow" />
-              <StatCard label="重新提交" count={resubmitted.length} color="orange" />
-              <StatCard label="退回修改" count={returned.length} color="red" />
+              <StatCard label="待再次提交" count={returned.length} color="red" />
+              <StatCard label="再次提交待审核" count={resubmitted.length} color="orange" />
               <StatCard label="审核通过" count={approved.length} color="green" />
               <StatCard label="未提交" count={notSubmitted.length} color="slate" />
-              <StatCard label="草稿" count={draft.length} color="blue" />
             </div>
 
             <div className="space-y-8">
               <ReviewSection title="待审核" rows={submitted} color="yellow" />
-              <ReviewSection title="重新提交" rows={resubmitted} color="orange" />
-              <ReviewSection title="退回修改" rows={returned} color="red" />
+              <ReviewSection title="再次提交待审核" rows={resubmitted} color="orange" />
+              <ReviewSection title="待再次提交" rows={returned} color="red" />
               <ReviewSection title="审核通过" rows={approved} color="green" />
               <ReviewSection title="未提交" rows={notSubmitted} color="slate" />
-              <ReviewSection title="草稿" rows={draft} color="blue" />
             </div>
           </>
         )}
@@ -235,45 +239,9 @@ function ReviewSection({
 }
 
 function StatusPill({ status }: { status: string }) {
-  const map: Record<string, { label: string; className: string }> = {
-    not_submitted: {
-      label: "未提交",
-      className: "bg-slate-800 text-slate-300",
-    },
-    draft: {
-      label: "草稿中",
-      className: "bg-blue-950 text-blue-300",
-    },
-    submitted: {
-      label: "待审核",
-      className: "bg-yellow-950 text-yellow-300",
-    },
-    resubmitted: {
-      label: "重新提交",
-      className: "bg-orange-950 text-orange-300",
-    },
-    returned: {
-      label: "退回修改",
-      className: "bg-red-950 text-red-300",
-    },
-    approved: {
-      label: "审核通过",
-      className: "bg-green-950 text-green-300",
-    },
-    exported: {
-      label: "已导出",
-      className: "bg-purple-950 text-purple-300",
-    },
-  };
-
-  const item = map[status] || {
-    label: status,
-    className: "bg-slate-800 text-slate-300",
-  };
-
   return (
-    <span className={`rounded-full px-3 py-1 text-xs ${item.className}`}>
-      {item.label}
+    <span className={`rounded-full px-3 py-1 text-xs ring-1 ${getStatusTone(status)}`}>
+      {getAdminStatusLabel(status)}
     </span>
   );
 }

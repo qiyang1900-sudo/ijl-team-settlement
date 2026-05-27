@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { getAdminStatusLabel, getStatusTone } from "@/lib/status-labels";
 
 export default async function ProjectDetailPage({
   params,
@@ -57,7 +58,7 @@ export default async function ProjectDetailPage({
             href="/admin/projects"
             className="text-sm text-slate-400 hover:text-white"
           >
-            ← 项目管理へ戻る
+            ← 返回项目管理
           </a>
 
           {projectError || !project ? (
@@ -74,28 +75,19 @@ export default async function ProjectDetailPage({
                 {project.description || "-"}
               </p>
 
-              <div className="mt-6 grid gap-4 md:grid-cols-4">
+              <div className="mt-6 grid gap-4 md:grid-cols-3">
                 <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
                   <p className="text-sm text-slate-500">模板类型</p>
                   <p className="mt-2 font-semibold">{project.template_type}</p>
                 </div>
 
                 <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
-                  <p className="text-sm text-slate-500">提交截止时间</p>
+                  <p className="text-sm text-slate-500">截止时间</p>
                   <p className="mt-2 font-semibold">
-                    {project.deadline_at
-                      ? new Date(project.deadline_at).toLocaleString("ja-JP")
-                      : "-"}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
-                  <p className="text-sm text-slate-500">修改截止时间</p>
-                  <p className="mt-2 font-semibold">
-                    {project.edit_deadline_at
-                      ? new Date(project.edit_deadline_at).toLocaleString(
-                          "ja-JP"
-                        )
+                    {project.deadline_at || project.edit_deadline_at
+                      ? new Date(
+                          project.deadline_at || project.edit_deadline_at
+                        ).toLocaleString("ja-JP")
                       : "-"}
                   </p>
                 </div>
@@ -148,8 +140,8 @@ export default async function ProjectDetailPage({
                       </td>
 
                       <td className="px-4 py-3">
-                        <span className="rounded-full bg-slate-800 px-3 py-1 text-slate-300">
-                          {row.status}
+                        <span className={`rounded-full px-3 py-1 text-xs ring-1 ${getStatusTone(row.status)}`}>
+                          {getAdminStatusLabel(row.status)}
                         </span>
                       </td>
 

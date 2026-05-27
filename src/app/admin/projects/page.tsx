@@ -28,7 +28,7 @@ export default async function AdminProjectsPage() {
             href="/admin/dashboard"
             className="text-sm text-slate-400 hover:text-white"
           >
-            ← 管理员后台へ戻る
+            ← 返回管理员后台
           </a>
 
           <div className="mt-4 flex items-center justify-between">

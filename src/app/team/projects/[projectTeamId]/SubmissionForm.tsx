@@ -3,19 +3,21 @@
 import { useMemo, useState } from "react";
 import SubmitButtons from "./SubmitButtons";
 
+type SummaryRow = {
+  payment_content: string;
+  delivery_due_date: string;
+};
+
 type DetailRow = {
   service_item: string;
   quantity: number;
   unit_price: number;
-  amount_match: boolean;
-  note: string;
 };
 
 type ReportRow = {
   category_type: string;
   link_url: string;
   implementation_date: string;
-  note: string;
 };
 
 function getScreenshotRowNumber(note?: string | null) {
@@ -30,7 +32,7 @@ export default function SubmissionForm({
   currentStatus,
   companyInfo,
   profile,
-  summaryRow,
+  summaryRows,
   detailRows,
   reportRows,
   screenshotFiles,
@@ -41,7 +43,7 @@ export default function SubmissionForm({
   currentStatus: string;
   companyInfo: any;
   profile: any;
-  summaryRow: any;
+  summaryRows: any[];
   detailRows: any[];
   reportRows: any[];
   screenshotFiles: any[];
@@ -53,40 +55,48 @@ export default function SubmissionForm({
     companyInfo?.bank_account_number || profile?.bank_account_number || "";
   const defaultSwiftCode = companyInfo?.swift_code || profile?.swift_code || "";
 
+  const [summaries, setSummaries] = useState<SummaryRow[]>(
+    summaryRows && summaryRows.length > 0
+      ? summaryRows.slice(0, 3).map((row) => ({
+          payment_content: row.payment_content || "",
+          delivery_due_date: row.delivery_due_date || "",
+        }))
+      : [
+          {
+            payment_content: "",
+            delivery_due_date: "",
+          },
+        ]
+  );
+
   const [details, setDetails] = useState<DetailRow[]>(
     detailRows && detailRows.length > 0
-      ? detailRows.map((row) => ({
+      ? detailRows.slice(0, 7).map((row) => ({
           service_item: row.service_item || "",
           quantity: Number(row.quantity || 1),
           unit_price: Number(row.unit_price || 0),
-          amount_match: row.amount_match !== false,
-          note: row.note || "",
         }))
       : [
           {
             service_item: "",
             quantity: 1,
             unit_price: 0,
-            amount_match: true,
-            note: "",
           },
         ]
   );
 
   const [reports, setReports] = useState<ReportRow[]>(
     reportRows && reportRows.length > 0
-      ? reportRows.map((row) => ({
+      ? reportRows.slice(0, 21).map((row) => ({
           category_type: row.category_type || "",
           link_url: row.link_url || "",
           implementation_date: row.implementation_date || "",
-          note: row.note || "",
         }))
       : [
           {
             category_type: "",
             link_url: "",
             implementation_date: "",
-            note: "",
           },
         ]
   );
@@ -100,6 +110,12 @@ export default function SubmissionForm({
       return quantity * unitPrice;
     });
   }, [details]);
+  const subtotalAmount = useMemo(
+    () => totals.reduce((sum, amount) => sum + amount, 0),
+    [totals]
+  );
+  const taxAmount = Math.round(subtotalAmount * 0.1);
+  const totalAmount = subtotalAmount + taxAmount;
 
   function getScreenshotForRow(index: number) {
     const rowNumber = index + 1;
@@ -110,6 +126,39 @@ export default function SubmissionForm({
         getScreenshotRowNumber(file.note) === rowNumber
       );
     });
+  }
+
+  function updateSummary(index: number, key: keyof SummaryRow, value: string) {
+    const nextSummaries = [...summaries];
+    nextSummaries[index] = {
+      ...nextSummaries[index],
+      [key]: value,
+    };
+    setSummaries(nextSummaries);
+  }
+
+  function addSummaryRow() {
+    if (summaries.length >= 3) {
+      alert("最大3項目まで追加できます。");
+      return;
+    }
+
+    setSummaries([
+      ...summaries,
+      {
+        payment_content: "",
+        delivery_due_date: "",
+      },
+    ]);
+  }
+
+  function removeSummaryRow(index: number) {
+    if (summaries.length <= 1) {
+      alert("最低1項目は必要です。");
+      return;
+    }
+
+    setSummaries(summaries.filter((_, i) => i !== index));
   }
 
   function updateDetail(index: number, key: keyof DetailRow, value: any) {
@@ -126,7 +175,6 @@ export default function SubmissionForm({
         category_type: "",
         link_url: "",
         implementation_date: "",
-        note: "",
       };
       setReports(nextReports);
     }
@@ -142,8 +190,8 @@ export default function SubmissionForm({
   }
 
   function addRow() {
-    if (details.length >= 10) {
-      alert("最大10項目まで追加できます。");
+    if (details.length >= 7) {
+      alert("最大7項目まで追加できます。");
       return;
     }
 
@@ -153,8 +201,6 @@ export default function SubmissionForm({
         service_item: "",
         quantity: 1,
         unit_price: 0,
-        amount_match: true,
-        note: "",
       },
     ]);
 
@@ -164,7 +210,6 @@ export default function SubmissionForm({
         category_type: "",
         link_url: "",
         implementation_date: "",
-        note: "",
       },
     ]);
   }
@@ -223,11 +268,12 @@ export default function SubmissionForm({
       <input type="hidden" name="project_team_id" value={projectTeamId} />
       <input type="hidden" name="team_id" value={teamId} />
       <input type="hidden" name="current_status" value={currentStatus} />
+      <input type="hidden" name="summary_count" value={summaries.length} />
       <input type="hidden" name="detail_count" value={details.length} />
 
-      <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-bold">① 契約・口座情報</h2>
-        <p className="mt-1 text-xs text-slate-400">
+        <p className="mt-1 text-xs text-slate-500">
           今後も同じ情報を使用する場合は、「次回以降も使用する」を選択してください。
         </p>
 
@@ -254,7 +300,7 @@ export default function SubmissionForm({
           />
         </div>
 
-        <label className="mt-3 flex items-center gap-2 text-xs text-slate-300">
+        <label className="mt-3 flex items-center gap-2 text-xs text-slate-700">
           <input
             type="checkbox"
             name="save_profile"
@@ -265,50 +311,80 @@ export default function SubmissionForm({
         </label>
       </section>
 
-      <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
-        <h2 className="text-lg font-bold">② 検収総表</h2>
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-bold">② 検収総表</h2>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <Field
-            label="今回の支払内容"
-            name="payment_content"
-            defaultValue={summaryRow?.payment_content || ""}
-            placeholder="例：2025年秋季リーグ補助金"
-          />
-          <Field
-            label="契約上の納品期日"
-            name="delivery_due_date"
-            defaultValue={summaryRow?.delivery_due_date || ""}
-            placeholder="例：2025-12-31"
-          />
-          <Field
-            label="契約支払基準"
-            name="contract_payment_standard"
-            defaultValue={summaryRow?.contract_payment_standard || "時間通り"}
-          />
-          <Field
-            label="業務完了基準"
-            name="completion_standard"
-            defaultValue={summaryRow?.completion_standard || "時間通り"}
-          />
-          <Field
-            label="プロジェクトチーム確認"
-            name="project_team_confirmation"
-            defaultValue={summaryRow?.project_team_confirmation || "確認"}
-          />
-          <Field
-            label="備考"
-            name="summary_note"
-            defaultValue={summaryRow?.note || "全額支払い"}
-          />
+          <button
+            type="button"
+            onClick={addSummaryRow}
+            className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500"
+          >
+            ＋項目追加
+          </button>
+        </div>
+
+        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+          <table className="min-w-[760px] w-full border-collapse text-left text-xs">
+            <thead className="bg-slate-100 text-slate-600">
+              <tr>
+                <th className="w-12 px-3 py-2">No.</th>
+                <th className="px-3 py-2">今回の支払内容</th>
+                <th className="w-48 px-3 py-2">契約上の納品期日</th>
+                <th className="w-20 px-3 py-2">削除</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {summaries.map((row, index) => (
+                <tr key={index} className="border-t border-slate-100">
+                  <td className="px-3 py-2 text-slate-500">{index + 1}</td>
+
+                  <td className="px-3 py-2">
+                    <input
+                      name={`payment_content_${index}`}
+                      value={row.payment_content}
+                      onChange={(e) =>
+                        updateSummary(index, "payment_content", e.target.value)
+                      }
+                      placeholder="例：2025年秋季リーグ補助金"
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
+                    />
+                  </td>
+
+                  <td className="px-3 py-2">
+                    <input
+                      name={`delivery_due_date_${index}`}
+                      value={row.delivery_due_date}
+                      onChange={(e) =>
+                        updateSummary(index, "delivery_due_date", e.target.value)
+                      }
+                      placeholder="2025-12-31"
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
+                    />
+                  </td>
+
+                  <td className="px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={() => removeSummaryRow(index)}
+                      className="rounded-md border border-rose-300 px-2 py-1 text-rose-700 hover:bg-rose-50"
+                    >
+                      削除
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-bold">③ 精算明細</h2>
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-xs text-slate-500">
               必要に応じて項目を追加してください。小計は自動計算されます。
             </p>
           </div>
@@ -316,31 +392,29 @@ export default function SubmissionForm({
           <button
             type="button"
             onClick={addRow}
-            className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-slate-200"
+            className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500"
           >
             ＋項目追加
           </button>
         </div>
 
-        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-700">
-          <table className="min-w-[1100px] w-full border-collapse text-left text-xs">
-            <thead className="bg-slate-800 text-slate-300">
+        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+          <table className="min-w-[860px] w-full border-collapse text-left text-xs">
+            <thead className="bg-slate-100 text-slate-600">
               <tr>
                 <th className="w-12 px-3 py-2">No.</th>
                 <th className="px-3 py-2">サービス / 内容項目</th>
                 <th className="w-24 px-3 py-2">数量</th>
                 <th className="w-32 px-3 py-2">単価</th>
                 <th className="w-32 px-3 py-2">小計</th>
-                <th className="w-32 px-3 py-2">金額一致</th>
-                <th className="px-3 py-2">備考</th>
                 <th className="w-20 px-3 py-2">削除</th>
               </tr>
             </thead>
 
             <tbody>
               {details.map((row, index) => (
-                <tr key={index} className="border-t border-slate-700">
-                  <td className="px-3 py-2 text-slate-400">{index + 1}</td>
+                <tr key={index} className="border-t border-slate-100">
+                  <td className="px-3 py-2 text-slate-500">{index + 1}</td>
 
                   <td className="px-3 py-2">
                     <input
@@ -349,7 +423,7 @@ export default function SubmissionForm({
                       onChange={(e) =>
                         updateDetail(index, "service_item", e.target.value)
                       }
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
                     />
                   </td>
 
@@ -361,7 +435,7 @@ export default function SubmissionForm({
                       onChange={(e) =>
                         updateDetail(index, "quantity", Number(e.target.value))
                       }
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
                     />
                   </td>
 
@@ -377,7 +451,7 @@ export default function SubmissionForm({
                           Number(e.target.value)
                         )
                       }
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
                     />
                   </td>
 
@@ -386,36 +460,7 @@ export default function SubmissionForm({
                       name={`subtotal_${index}`}
                       value={totals[index]}
                       readOnly
-                      className="w-full rounded-md border border-slate-700 bg-slate-800 px-2 py-2 text-slate-300"
-                    />
-                  </td>
-
-                  <td className="px-3 py-2">
-                    <select
-                      name={`amount_match_${index}`}
-                      value={row.amount_match ? "true" : "false"}
-                      onChange={(e) =>
-                        updateDetail(
-                          index,
-                          "amount_match",
-                          e.target.value === "true"
-                        )
-                      }
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
-                    >
-                      <option value="true">はい</option>
-                      <option value="false">いいえ</option>
-                    </select>
-                  </td>
-
-                  <td className="px-3 py-2">
-                    <input
-                      name={`detail_note_${index}`}
-                      value={row.note}
-                      onChange={(e) =>
-                        updateDetail(index, "note", e.target.value)
-                      }
-                      className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                      className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-slate-700"
                     />
                   </td>
 
@@ -423,7 +468,7 @@ export default function SubmissionForm({
                     <button
                       type="button"
                       onClick={() => removeRow(index)}
-                      className="rounded-md border border-red-500 px-2 py-1 text-red-300 hover:bg-red-950"
+                      className="rounded-md border border-rose-300 px-2 py-1 text-rose-700 hover:bg-rose-50"
                     >
                       削除
                     </button>
@@ -435,19 +480,16 @@ export default function SubmissionForm({
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
-        <h2 className="text-lg font-bold">④ 結案報告・証憑提出</h2>
-        <p className="mt-1 text-xs text-slate-400">
-          精算明細の項目数に合わせて自動生成されます。リンク欄には、出演費関連の場合の出演当日リンク、または資料が多い場合のGoogle Driveリンクをご記入ください。
-        </p>
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-bold">④ 結果報告</h2>
 
-        <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950 p-3 text-xs text-slate-300">
+        <div className="mt-3 rounded-lg border border-slate-300 bg-white p-3 text-xs text-slate-700">
           ※1項目につき、リンクは1つ、スクリーンショットは1枚までです。新しい画像を選択した場合、現在のスクリーンショットを差し替えます。新しい画像を選択しない場合、現在のスクリーンショットは保持されます。
         </div>
 
-        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-700">
-          <table className="min-w-[1250px] w-full border-collapse text-left text-xs">
-            <thead className="bg-slate-800 text-slate-300">
+        <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
+          <table className="min-w-[1200px] w-full border-collapse text-left text-xs">
+            <thead className="bg-slate-100 text-slate-600">
               <tr>
                 <th className="w-12 px-3 py-2">No.</th>
                 <th className="px-3 py-2">項目内容</th>
@@ -456,7 +498,6 @@ export default function SubmissionForm({
                 <th className="px-3 py-2">リンク</th>
                 <th className="w-36 px-3 py-2">実施日</th>
                 <th className="w-64 px-3 py-2">スクリーンショット</th>
-                <th className="px-3 py-2">備考</th>
               </tr>
             </thead>
 
@@ -466,21 +507,20 @@ export default function SubmissionForm({
                   category_type: "",
                   link_url: "",
                   implementation_date: "",
-                  note: "",
                 };
 
                 const uploadedScreenshot = getScreenshotForRow(index);
 
                 return (
-                  <tr key={index} className="border-t border-slate-700">
-                    <td className="px-3 py-2 text-slate-400">{index + 1}</td>
+                  <tr key={index} className="border-t border-slate-100">
+                    <td className="px-3 py-2 text-slate-500">{index + 1}</td>
 
                     <td className="px-3 py-2">
                       <input
                         name={`item_content_${index}`}
                         value={detail.service_item}
                         readOnly
-                        className="w-full rounded-md border border-slate-700 bg-slate-800 px-2 py-2 text-slate-300"
+                        className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-slate-700"
                       />
                     </td>
 
@@ -491,7 +531,7 @@ export default function SubmissionForm({
                         onChange={(e) =>
                           updateReport(index, "category_type", e.target.value)
                         }
-                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
                       />
                     </td>
 
@@ -500,7 +540,7 @@ export default function SubmissionForm({
                         name={`report_amount_${index}`}
                         value={totals[index]}
                         readOnly
-                        className="w-full rounded-md border border-slate-700 bg-slate-800 px-2 py-2 text-slate-300"
+                        className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-2 text-slate-700"
                       />
                     </td>
 
@@ -512,7 +552,7 @@ export default function SubmissionForm({
                           updateReport(index, "link_url", e.target.value)
                         }
                         placeholder="出演リンクまたはGoogle Driveリンク"
-                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
                       />
                     </td>
 
@@ -528,21 +568,21 @@ export default function SubmissionForm({
                           )
                         }
                         placeholder="2025-12-31"
-                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
                       />
                     </td>
 
                     <td className="px-3 py-2">
                       {uploadedScreenshot?.file_name ? (
-                        <div className="mb-2 rounded-md border border-slate-700 bg-slate-950 p-2">
-                          <p className="text-[11px] text-slate-400">
+                        <div className="mb-2 rounded-md border border-slate-300 bg-white p-2">
+                          <p className="text-[11px] text-slate-500">
                             現在のファイル：
-                            <span className="text-slate-200">
+                            <span className="text-slate-700">
                               {uploadedScreenshot.file_name}
                             </span>
                           </p>
 
-                          <label className="mt-2 flex items-center gap-2 text-[11px] text-red-300">
+                          <label className="mt-2 flex items-center gap-2 text-[11px] text-rose-700">
                             <input
                               type="checkbox"
                               name={`delete_screenshot_${index}`}
@@ -559,23 +599,12 @@ export default function SubmissionForm({
                         name={`report_screenshot_${index}`}
                         accept="image/*"
                         onChange={validateSingleImage}
-                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2"
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-2"
                       />
 
                       <p className="mt-1 text-[11px] text-slate-500">
                         新しい画像を選択した場合のみ差し替えます。
                       </p>
-                    </td>
-
-                    <td className="px-3 py-2">
-                      <input
-                        name={`report_note_${index}`}
-                        value={report.note}
-                        onChange={(e) =>
-                          updateReport(index, "note", e.target.value)
-                        }
-                        className="w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 outline-none focus:border-white"
-                      />
                     </td>
                   </tr>
                 );
@@ -584,8 +613,14 @@ export default function SubmissionForm({
           </table>
         </div>
 
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <AmountCard label="小計" value={subtotalAmount} />
+          <AmountCard label="消費税（10%）" value={taxAmount} />
+          <AmountCard label="合計" value={totalAmount} highlight />
+        </div>
+
         {fileError ? (
-          <div className="mt-3 rounded-lg border border-red-500 bg-red-950 p-3 text-xs text-red-200">
+          <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
             {fileError}
           </div>
         ) : null}
@@ -611,14 +646,41 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-slate-300">{label}</label>
+      <label className="block text-xs font-medium text-slate-700">{label}</label>
       <input
         name={name}
         type={type}
         defaultValue={defaultValue}
         placeholder={placeholder}
-        className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-2 py-2 text-sm outline-none focus:border-white"
+        className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-2 text-sm text-slate-950 outline-none focus:border-emerald-500"
       />
+    </div>
+  );
+}
+
+function AmountCard({
+  label,
+  value,
+  highlight = false,
+}: {
+  label: string;
+  value: number;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      className={
+        highlight
+          ? "rounded-lg border border-emerald-200 bg-emerald-50 p-4"
+          : "rounded-lg border border-slate-200 bg-slate-50 p-4"
+      }
+    >
+      <p className={highlight ? "text-xs text-emerald-700" : "text-xs text-slate-500"}>
+        {label}
+      </p>
+      <p className="mt-1 text-xl font-bold">
+        {value.toLocaleString("ja-JP")}
+      </p>
     </div>
   );
 }

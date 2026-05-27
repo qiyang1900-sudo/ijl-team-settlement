@@ -24,7 +24,7 @@ export default function ImagePreview({
           className="h-20 w-32 rounded-lg border border-slate-700 object-cover hover:opacity-80"
         />
         <span className="mt-1 block text-xs text-slate-400 underline">
-          画像を確認
+          查看图片
         </span>
       </button>
 

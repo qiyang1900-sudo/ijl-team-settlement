@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
+import { getAdminStatusLabel } from "@/lib/status-labels";
 import ImagePreview from "./ImagePreview";
 
 async function approveSubmission(formData: FormData) {
@@ -180,7 +181,7 @@ export default async function AdminSubmissionDetailPage({
             href="/admin/reviews"
             className="text-sm text-slate-400 hover:text-white"
           >
-            ← 提交审核へ戻る
+            ← 返回提交审核
           </a>
 
           <div className="mt-6 rounded-xl border border-red-500 bg-red-950 p-5">
@@ -196,6 +197,13 @@ export default async function AdminSubmissionDetailPage({
 
   const project: any = projectTeam.projects;
   const team: any = projectTeam.teams;
+  const reportSubtotal =
+    reportRows?.reduce((sum: number, row: any) => {
+      const amount = Number(row?.amount || 0);
+      return sum + (Number.isFinite(amount) ? amount : 0);
+    }, 0) || 0;
+  const reportTax = Math.round(reportSubtotal * 0.1);
+  const reportTotal = reportSubtotal + reportTax;
 
   return (
     <main className="min-h-screen bg-slate-950 p-10 text-white">
@@ -205,17 +213,23 @@ export default async function AdminSubmissionDetailPage({
             href="/admin/reviews"
             className="text-sm text-slate-400 hover:text-white"
           >
-            ← 提交审核へ戻る
+            ← 返回提交审核
           </a>
 
           <h1 className="mt-4 text-3xl font-bold">提交详情</h1>
 
-          <a
-            href={`/api/admin/project-teams/${projectTeamId}/export`}
-            className="mt-4 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
-          >
-            导出 CSV
-          </a>
+          {["approved", "exported"].includes(projectTeam.status) ? (
+            <a
+              href={`/api/admin/project-teams/${projectTeamId}/export`}
+              className="mt-4 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
+            >
+              导出 Excel
+            </a>
+          ) : (
+            <p className="mt-4 text-sm text-slate-500">
+              审核通过后可导出指定模版 Excel。
+            </p>
+          )}
 
           <p className="mt-4 text-slate-400">
             {project?.title || "-"} / {team?.name || "-"}
@@ -234,7 +248,9 @@ export default async function AdminSubmissionDetailPage({
 
             <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
               <p className="text-sm text-slate-500">提交状态</p>
-              <p className="mt-2 font-semibold">{projectTeam.status}</p>
+              <p className="mt-2 font-semibold">
+                {getAdminStatusLabel(projectTeam.status)}
+              </p>
             </div>
 
             <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
@@ -300,7 +316,7 @@ export default async function AdminSubmissionDetailPage({
               <textarea
                 name="return_reason"
                 rows={5}
-                placeholder="例：スクリーンショットに対象選手の出演状況が確認できないため、再提出をお願いいたします。"
+                placeholder="例：截图中无法确认对应选手的出演情况，请补充后再次提交。"
                 className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-white outline-none focus:border-white"
               />
 
@@ -315,22 +331,22 @@ export default async function AdminSubmissionDetailPage({
         </section>
 
         <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
-          <h2 className="text-2xl font-bold">契約・口座情報</h2>
+          <h2 className="text-2xl font-bold">合同/账户信息</h2>
 
           {!companyInfo ? (
             <p className="mt-4 text-slate-400">暂无提交资料。</p>
           ) : (
             <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <Info label="契約会社名" value={companyInfo.company_name} />
-              <Info label="銀行名" value={companyInfo.bank_name} />
-              <Info label="口座番号" value={companyInfo.bank_account_number} />
+              <Info label="合同公司名" value={companyInfo.company_name} />
+              <Info label="银行名" value={companyInfo.bank_name} />
+              <Info label="口座号码" value={companyInfo.bank_account_number} />
               <Info label="Swift code" value={companyInfo.swift_code} />
             </div>
           )}
         </section>
 
         <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
-          <h2 className="text-2xl font-bold">検収総表</h2>
+          <h2 className="text-2xl font-bold">验收总表</h2>
 
           {!summaryRows || summaryRows.length === 0 ? (
             <p className="mt-4 text-slate-400">暂无提交资料。</p>
@@ -339,11 +355,8 @@ export default async function AdminSubmissionDetailPage({
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-800 text-slate-300">
                   <tr>
-                    <th className="px-4 py-3">今回の支払内容</th>
-                    <th className="px-4 py-3">納品期日</th>
-                    <th className="px-4 py-3">支払基準</th>
-                    <th className="px-4 py-3">完了基準</th>
-                    <th className="px-4 py-3">備考</th>
+                    <th className="px-4 py-3">本次支付内容</th>
+                    <th className="px-4 py-3">合同交付日期</th>
                   </tr>
                 </thead>
 
@@ -356,13 +369,6 @@ export default async function AdminSubmissionDetailPage({
                       <td className="px-4 py-3">
                         {row.delivery_due_date || "-"}
                       </td>
-                      <td className="px-4 py-3">
-                        {row.contract_payment_standard || "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        {row.completion_standard || "-"}
-                      </td>
-                      <td className="px-4 py-3">{row.note || "-"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -372,7 +378,7 @@ export default async function AdminSubmissionDetailPage({
         </section>
 
         <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
-          <h2 className="text-2xl font-bold">精算明細</h2>
+          <h2 className="text-2xl font-bold">结算明细</h2>
 
           {!detailRows || detailRows.length === 0 ? (
             <p className="mt-4 text-slate-400">暂无提交资料。</p>
@@ -382,12 +388,10 @@ export default async function AdminSubmissionDetailPage({
                 <thead className="bg-slate-800 text-slate-300">
                   <tr>
                     <th className="px-4 py-3">No.</th>
-                    <th className="px-4 py-3">サービス / 内容項目</th>
+                    <th className="px-4 py-3">服务/内容项目</th>
                     <th className="px-4 py-3">数量</th>
-                    <th className="px-4 py-3">単価</th>
-                    <th className="px-4 py-3">小計</th>
-                    <th className="px-4 py-3">一致</th>
-                    <th className="px-4 py-3">備考</th>
+                    <th className="px-4 py-3">单价</th>
+                    <th className="px-4 py-3">小计</th>
                   </tr>
                 </thead>
 
@@ -400,11 +404,7 @@ export default async function AdminSubmissionDetailPage({
                       <td className="px-4 py-3">{row.service_item || "-"}</td>
                       <td className="px-4 py-3">{row.quantity || "-"}</td>
                       <td className="px-4 py-3">{row.unit_price || "-"}</td>
-                      <td className="px-4 py-3">{row.subtotal || "-"}</td>
-                      <td className="px-4 py-3">
-                        {row.amount_match ? "はい" : "いいえ"}
-                      </td>
-                      <td className="px-4 py-3">{row.note || "-"}</td>
+                      <td className="px-4 py-3">{formatSubtotal(row)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -414,23 +414,22 @@ export default async function AdminSubmissionDetailPage({
         </section>
 
         <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
-          <h2 className="text-2xl font-bold">結案報告・証憑</h2>
+          <h2 className="text-2xl font-bold">结果报告</h2>
 
           {!reportRows || reportRows.length === 0 ? (
             <p className="mt-4 text-slate-400">暂无提交资料。</p>
           ) : (
             <div className="mt-4 overflow-x-auto rounded-xl border border-slate-700">
-              <table className="min-w-[1200px] w-full text-left text-sm">
+              <table className="min-w-[1100px] w-full text-left text-sm">
                 <thead className="bg-slate-800 text-slate-300">
                   <tr>
                     <th className="px-4 py-3">No.</th>
-                    <th className="px-4 py-3">項目内容</th>
-                    <th className="px-4 py-3">種別</th>
-                    <th className="px-4 py-3">金額</th>
-                    <th className="px-4 py-3">リンク</th>
-                    <th className="px-4 py-3">スクリーンショット</th>
-                    <th className="px-4 py-3">実施日</th>
-                    <th className="px-4 py-3">備考</th>
+                    <th className="px-4 py-3">项目内容</th>
+                    <th className="px-4 py-3">类型</th>
+                    <th className="px-4 py-3">金额</th>
+                    <th className="px-4 py-3">链接</th>
+                    <th className="px-4 py-3">截图</th>
+                    <th className="px-4 py-3">实施日期</th>
                   </tr>
                 </thead>
 
@@ -482,8 +481,6 @@ export default async function AdminSubmissionDetailPage({
                         <td className="px-4 py-3">
                           {row.implementation_date || "-"}
                         </td>
-
-                        <td className="px-4 py-3">{row.note || "-"}</td>
                       </tr>
                     );
                   })}
@@ -491,6 +488,12 @@ export default async function AdminSubmissionDetailPage({
               </table>
             </div>
           )}
+
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <AmountInfo label="小计" value={reportSubtotal} />
+            <AmountInfo label="消费税（10%）" value={reportTax} />
+            <AmountInfo label="合计" value={reportTotal} highlight />
+          </div>
         </section>
 
         <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
@@ -535,4 +538,43 @@ function Info({ label, value }: { label: string; value?: string | null }) {
       <p className="mt-2 font-semibold">{value || "-"}</p>
     </div>
   );
+}
+
+function AmountInfo({
+  label,
+  value,
+  highlight = false,
+}: {
+  label: string;
+  value: number;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      className={
+        highlight
+          ? "rounded-xl border border-green-500 bg-green-950 p-4"
+          : "rounded-xl border border-slate-700 bg-slate-950 p-4"
+      }
+    >
+      <p className={highlight ? "text-sm text-green-200" : "text-sm text-slate-500"}>
+        {label}
+      </p>
+      <p className="mt-2 text-xl font-bold">{value.toLocaleString("zh-CN")}</p>
+    </div>
+  );
+}
+
+function formatSubtotal(row: any) {
+  const storedSubtotal = Number(row?.subtotal);
+
+  if (Number.isFinite(storedSubtotal) && storedSubtotal !== 0) {
+    return storedSubtotal;
+  }
+
+  const quantity = Number(row?.quantity || 0);
+  const unitPrice = Number(row?.unit_price || 0);
+  const subtotal = quantity * unitPrice;
+
+  return Number.isFinite(subtotal) ? subtotal : "-";
 }
