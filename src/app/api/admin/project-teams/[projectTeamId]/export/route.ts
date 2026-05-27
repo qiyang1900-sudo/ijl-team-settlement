@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { SETTLEMENT_REPORT_TEMPLATE_BASE64 } from "@/lib/settlement-report-template";
 import {
   fillXlsxTemplate,
+  trimWorksheetToMaxColumn,
   type XlsxCellValue,
   type XlsxTemplateImage,
 } from "@/lib/xlsx-template";
@@ -102,7 +103,7 @@ export async function GET(
 
   const template = Buffer.from(SETTLEMENT_REPORT_TEMPLATE_BASE64, "base64");
   const reportSheetImages = await buildReportSheetImages(files || []);
-  const workbook = fillXlsxTemplate(
+  const filledWorkbook = fillXlsxTemplate(
     template,
     {
       "xl/worksheets/sheet1.xml": buildSummarySheetUpdates({
@@ -116,6 +117,11 @@ export async function GET(
       }),
     },
     reportSheetImages
+  );
+  const workbook = trimWorksheetToMaxColumn(
+    filledWorkbook,
+    "xl/worksheets/sheet1.xml",
+    "G"
   );
 
   if (projectTeam.status === "approved") {
