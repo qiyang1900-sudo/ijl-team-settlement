@@ -1,5 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
+import Link from "next/link";
+import { formatDateTime } from "@/lib/date-format";
 import { getStatusTone, getTeamStatusLabel } from "@/lib/status-labels";
+
+export const dynamic = "force-dynamic";
 
 export default async function TeamProjectsPage({
   searchParams,
@@ -28,12 +32,12 @@ export default async function TeamProjectsPage({
           <p className="mt-4 text-rose-600">
             戦隊が選択されていません。ログインページから入り直してください。
           </p>
-          <a
+          <Link
             href="/team/login"
             className="mt-6 inline-block rounded-lg bg-emerald-600 px-5 py-3 text-sm font-semibold text-white"
           >
             戦隊ログインへ戻る
-          </a>
+          </Link>
         </div>
       </main>
     );
@@ -79,12 +83,12 @@ export default async function TeamProjectsPage({
     <main className="min-h-screen bg-[#f6f7fb] p-10 text-slate-950">
       <div className="mx-auto max-w-6xl">
         <div className="mb-8">
-          <a
+          <Link
             href={`/team/dashboard?teamId=${teamId}`}
             className="text-sm font-medium text-slate-500 hover:text-slate-900"
           >
             ← 戦隊ダッシュボードへ戻る
-          </a>
+          </Link>
 
           <h1 className="mt-4 text-3xl font-bold">提出プロジェクト</h1>
           <p className="mt-2 text-slate-600">
@@ -103,60 +107,57 @@ export default async function TeamProjectsPage({
             <p className="text-slate-600">現在、提出が必要なプロジェクトはありません。</p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-            <table className="w-full border-collapse text-left text-sm">
-              <thead className="bg-slate-100 text-slate-600">
-                <tr>
-                  <th className="px-4 py-3">プロジェクト名</th>
-                  <th className="px-4 py-3">締切</th>
-                  <th className="px-4 py-3">審査ステータス</th>
-                  <th className="px-4 py-3">差し戻し理由</th>
-                  <th className="px-4 py-3">操作</th>
-                </tr>
-              </thead>
+          <div className="space-y-4">
+            {projectTeams.map((row: any) => (
+              <article
+                key={row.id}
+                className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
+              >
+                <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(420px,0.8fr)] lg:items-center">
+                  <div className="min-w-0">
+                    <h2 className="text-lg font-bold text-slate-950">
+                      {row.projects?.title || "-"}
+                    </h2>
+                    <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7 text-slate-600">
+                      {row.projects?.description || "-"}
+                    </p>
+                  </div>
 
-              <tbody>
-                {projectTeams.map((row: any) => (
-                  <tr key={row.id} className="border-t border-slate-100">
-                    <td className="px-4 py-3">
-                      <div className="font-medium">
-                        {row.projects?.title || "-"}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <InfoBlock
+                      label="締切"
+                      value={formatDateTime(row.projects?.deadline_at)}
+                    />
+
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500">
+                        審査ステータス
+                      </p>
+                      <div className="mt-2">
+                        <StatusPill status={row.status} />
                       </div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        {row.projects?.description || "-"}
-                      </div>
-                    </td>
+                    </div>
 
-                    <td className="px-4 py-3 text-slate-600">
-                      {row.projects?.deadline_at
-                        ? new Date(row.projects.deadline_at).toLocaleString(
-                            "ja-JP"
-                          )
-                        : "-"}
-                    </td>
+                    <InfoBlock
+                      label="差し戻し理由"
+                      value={row.return_reason || "-"}
+                    />
 
-                    <td className="px-4 py-3">
-                      <StatusPill status={row.status} />
-                    </td>
-
-                    <td className="max-w-xs px-4 py-3 text-slate-600">
-                      <div className="line-clamp-2 text-slate-600">
-                        {row.return_reason || "-"}
-                      </div>
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <a
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500">
+                        操作
+                      </p>
+                      <Link
                         href={`/team/projects/${row.id}?teamId=${teamId}`}
-                        className="font-medium text-emerald-700 underline hover:text-emerald-600"
+                        className="mt-2 inline-flex whitespace-nowrap font-medium text-emerald-700 underline hover:text-emerald-600"
                       >
                         入力 / 確認
-                      </a>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            ))}
           </div>
         )}
       </div>
@@ -166,8 +167,23 @@ export default async function TeamProjectsPage({
 
 function StatusPill({ status }: { status: string }) {
   return (
-    <span className={`rounded-full px-3 py-1 text-xs ring-1 ${getStatusTone(status)}`}>
+    <span
+      className={`inline-flex whitespace-nowrap rounded-full px-3 py-1 text-xs ring-1 ${getStatusTone(
+        status
+      )}`}
+    >
       {getTeamStatusLabel(status)}
     </span>
+  );
+}
+
+function InfoBlock({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs font-semibold text-slate-500">{label}</p>
+      <p className="mt-2 break-words text-sm leading-6 text-slate-700">
+        {value}
+      </p>
+    </div>
   );
 }
