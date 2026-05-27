@@ -1,6 +1,107 @@
 import { createClient } from "@supabase/supabase-js";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import DeleteProjectButton from "./DeleteProjectButton";
 
-export default async function AdminProjectsPage() {
+function throwIfError(error: { message: string } | null) {
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+async function deleteProject(formData: FormData) {
+  "use server";
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Supabase 环境变量没有设置成功");
+  }
+
+  const supabase =
+    serviceRoleKey && supabaseUrl
+      ? createClient(supabaseUrl, serviceRoleKey)
+      : createClient(supabaseUrl, supabaseAnonKey);
+
+  const projectId = String(formData.get("project_id") || "");
+
+  if (!projectId) {
+    throw new Error("项目 ID 为空，无法删除。");
+  }
+
+  const { data: projectTeams, error: projectTeamsError } = await supabase
+    .from("project_teams")
+    .select("id")
+    .eq("project_id", projectId);
+
+  throwIfError(projectTeamsError);
+
+  const projectTeamIds =
+    projectTeams?.map((row) => row.id).filter(Boolean) || [];
+
+  if (projectTeamIds.length > 0) {
+    const { data: files, error: filesError } = await supabase
+      .from("submission_files")
+      .select("id, storage_path")
+      .in("project_team_id", projectTeamIds);
+
+    throwIfError(filesError);
+
+    const storagePaths =
+      files?.map((file) => file.storage_path).filter(Boolean) || [];
+
+    if (storagePaths.length > 0) {
+      const { error: storageError } = await supabase.storage
+        .from("screenshots")
+        .remove(storagePaths);
+
+      throwIfError(storageError);
+    }
+
+    const tablesWithProjectTeamId = [
+      "review_logs",
+      "submission_files",
+      "report_rows",
+      "settlement_detail_rows",
+      "settlement_summary_rows",
+      "submission_company_info",
+    ];
+
+    for (const table of tablesWithProjectTeamId) {
+      const { error } = await supabase
+        .from(table)
+        .delete()
+        .in("project_team_id", projectTeamIds);
+
+      throwIfError(error);
+    }
+
+    const { error: deleteProjectTeamsError } = await supabase
+      .from("project_teams")
+      .delete()
+      .eq("project_id", projectId);
+
+    throwIfError(deleteProjectTeamsError);
+  }
+
+  const { error: deleteProjectError } = await supabase
+    .from("projects")
+    .delete()
+    .eq("id", projectId);
+
+  throwIfError(deleteProjectError);
+
+  redirect("/admin/projects?deleted=1");
+}
+
+export default async function AdminProjectsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ deleted?: string }>;
+}) {
+  const { deleted } = await searchParams;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -17,19 +118,21 @@ export default async function AdminProjectsPage() {
 
   const { data: projects, error } = await supabase
     .from("projects")
-    .select("id, title, description, template_type, deadline_at, status, created_at")
+    .select(
+      "id, title, description, template_type, deadline_at, status, created_at"
+    )
     .order("created_at", { ascending: false });
 
   return (
     <main className="min-h-screen bg-slate-950 p-10 text-white">
       <div className="mx-auto max-w-6xl">
         <div className="mb-8">
-          <a
+          <Link
             href="/admin/dashboard"
             className="text-sm text-slate-400 hover:text-white"
           >
             ← 返回管理员后台
-          </a>
+          </Link>
 
           <div className="mt-4 flex items-center justify-between">
             <div>
@@ -39,14 +142,20 @@ export default async function AdminProjectsPage() {
               </p>
             </div>
 
-            <a
+            <Link
               href="/admin/projects/new"
               className="rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
             >
               新建项目
-            </a>
+            </Link>
           </div>
         </div>
+
+        {deleted === "1" ? (
+          <div className="mb-4 rounded-xl border border-emerald-500/40 bg-emerald-950/70 p-4 text-sm text-emerald-100">
+            项目已删除，相关提交资料和截图文件也已清理。
+          </div>
+        ) : null}
 
         {error ? (
           <div className="rounded-xl border border-red-500 bg-red-950 p-5">
@@ -100,12 +209,19 @@ export default async function AdminProjectsPage() {
                     </td>
 
                     <td className="px-4 py-3">
-                      <a
-                        href={`/admin/projects/${project.id}`}
-                        className="text-slate-300 underline hover:text-white"
-                      >
-                        查看进度
-                      </a>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Link
+                          href={`/admin/projects/${project.id}`}
+                          className="text-slate-300 underline hover:text-white"
+                        >
+                          查看进度
+                        </Link>
+                        <DeleteProjectButton
+                          projectId={project.id}
+                          projectTitle={project.title}
+                          deleteProjectAction={deleteProject}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}
