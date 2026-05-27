@@ -1,5 +1,36 @@
 import { createClient } from "@supabase/supabase-js";
+import Link from "next/link";
 import { redirect } from "next/navigation";
+
+function normalizeDeadlineDate(value: string) {
+  const normalized = value.trim().replace(/[/.]/g, "-");
+  const match = normalized.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+
+  if (!match) {
+    return "";
+  }
+
+  const [, year, month, day] = match;
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+function normalizeDeadlineTime(value: string) {
+  const normalized = value.trim();
+  const match = normalized.match(/^(\d{1,2}):(\d{2})$/);
+
+  if (!match) {
+    return "23:59";
+  }
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return "23:59";
+  }
+
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
 
 async function createProject(formData: FormData) {
   "use server";
@@ -16,10 +47,14 @@ async function createProject(formData: FormData) {
   const title = String(formData.get("title") || "");
   const description = String(formData.get("description") || "");
   const templateType = String(formData.get("template_type") || "subsidy_report");
-  const deadlineDate = String(formData.get("deadline_date") || "").trim();
-  const deadlineTime = String(formData.get("deadline_time") || "").trim();
+  const deadlineDate = normalizeDeadlineDate(
+    String(formData.get("deadline_date") || "")
+  );
+  const deadlineTime = normalizeDeadlineTime(
+    String(formData.get("deadline_time") || "")
+  );
   const deadlineAt = deadlineDate
-    ? `${deadlineDate}T${deadlineTime || "23:59"}`
+    ? `${deadlineDate}T${deadlineTime}`
     : "";
   const teamIds = formData.getAll("team_ids").map(String);
 
@@ -84,9 +119,9 @@ export default async function NewProjectPage() {
     <main className="min-h-screen bg-slate-950 p-10 text-white">
       <div className="mx-auto max-w-4xl">
         <div className="mb-8">
-          <a href="/admin/projects" className="text-sm text-slate-400 hover:text-white">
+          <Link href="/admin/projects" className="text-sm text-slate-400 hover:text-white">
             ← 返回项目管理
-          </a>
+          </Link>
           <h1 className="mt-4 text-3xl font-bold">新建项目</h1>
           <p className="mt-2 text-slate-400">
             创建结算/结案报告项目，并选择需要参与的战队。
@@ -149,21 +184,30 @@ export default async function NewProjectPage() {
                 截止时间
               </label>
               <p className="mt-1 text-xs text-slate-500">
-                提交和修改共用同一个截止时间。
+                提交和修改共用同一个截止时间。日期可输入 2026-05-31 或 2026/05/31。
               </p>
 
               <div className="mt-2 grid gap-3 md:grid-cols-[1fr_180px]">
                 <input
                   name="deadline_date"
-                  type="date"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="YYYY-MM-DD"
+                  pattern="\d{4}[-/.]\d{1,2}[-/.]\d{1,2}"
+                  title="请输入日期，例如 2026-05-31 或 2026/05/31"
+                  autoComplete="off"
                   className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
                 />
 
                 <input
                   name="deadline_time"
-                  type="time"
-                  step="60"
+                  type="text"
+                  inputMode="numeric"
                   defaultValue="23:59"
+                  placeholder="23:59"
+                  pattern="\d{1,2}:\d{2}"
+                  title="请输入时间，例如 23:59"
+                  autoComplete="off"
                   className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
                 />
               </div>
@@ -206,12 +250,12 @@ export default async function NewProjectPage() {
             </div>
 
             <div className="flex justify-end gap-3">
-              <a
+              <Link
                 href="/admin/projects"
                 className="rounded-xl border border-slate-700 px-5 py-3 text-sm font-semibold text-slate-300 hover:bg-slate-800"
               >
                 取消
-              </a>
+              </Link>
               <button
                 type="submit"
                 className="rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
