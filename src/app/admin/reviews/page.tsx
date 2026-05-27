@@ -1,9 +1,38 @@
 import { createClient } from "@supabase/supabase-js";
+import Link from "next/link";
+import { formatDateTime } from "@/lib/date-format";
 import {
   getAdminStatusLabel,
   getStatusTone,
   isApprovedLike,
 } from "@/lib/status-labels";
+
+export const dynamic = "force-dynamic";
+
+function isResubmittedStatus(status: string) {
+  return status === "resubmitted";
+}
+
+function isReturnedStatus(status: string) {
+  return status === "returned";
+}
+
+function isSubmittedReviewRow(row: any) {
+  const status = String(row.status || "");
+  const submittedLikeStatuses = ["submitted", "pending", "pending_review"];
+
+  if (submittedLikeStatuses.includes(status)) {
+    return true;
+  }
+
+  return Boolean(
+    row.submitted_at &&
+      !isResubmittedStatus(status) &&
+      !isReturnedStatus(status) &&
+      !isApprovedLike(status) &&
+      !["not_submitted", "draft"].includes(status)
+  );
+}
 
 export default async function AdminReviewsPage() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -47,24 +76,26 @@ export default async function AdminReviewsPage() {
 
   const allRows = rows || [];
 
-  const submitted = allRows.filter((row) => row.status === "submitted");
-  const resubmitted = allRows.filter((row) => row.status === "resubmitted");
-  const returned = allRows.filter((row) => row.status === "returned");
+  const submitted = allRows.filter((row) => isSubmittedReviewRow(row));
+  const resubmitted = allRows.filter((row) =>
+    isResubmittedStatus(row.status)
+  );
+  const returned = allRows.filter((row) => isReturnedStatus(row.status));
   const approved = allRows.filter((row) => isApprovedLike(row.status));
   const notSubmitted = allRows.filter((row) =>
-    ["not_submitted", "draft"].includes(row.status)
+    ["not_submitted", "draft"].includes(row.status) && !row.submitted_at
   );
 
   return (
     <main className="min-h-screen bg-slate-950 p-10 text-white">
       <div className="mx-auto max-w-7xl">
         <div className="mb-8">
-          <a
+          <Link
             href="/admin/dashboard"
             className="text-sm text-slate-400 hover:text-white"
           >
             ← 返回管理员后台
-          </a>
+          </Link>
 
           <h1 className="mt-4 text-3xl font-bold">提交审核</h1>
           <p className="mt-2 text-slate-400">
@@ -199,13 +230,13 @@ function ReviewSection({
 
                     <td className="px-4 py-3 text-slate-300">
                       {row.submitted_at
-                        ? new Date(row.submitted_at).toLocaleString("ja-JP")
+                        ? formatDateTime(row.submitted_at)
                         : "-"}
                     </td>
 
                     <td className="px-4 py-3 text-slate-300">
                       {project?.deadline_at
-                        ? new Date(project.deadline_at).toLocaleString("ja-JP")
+                        ? formatDateTime(project.deadline_at)
                         : "-"}
                     </td>
 
@@ -217,12 +248,12 @@ function ReviewSection({
 
                     <td className="px-4 py-3">
                       {project?.id ? (
-                        <a
+                        <Link
                           href={`/admin/projects/${project.id}/teams/${row.id}`}
                           className="text-slate-300 underline hover:text-white"
                         >
                           查看提交
-                        </a>
+                        </Link>
                       ) : (
                         "-"
                       )}
