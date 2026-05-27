@@ -347,9 +347,6 @@ export default async function AdminSubmissionDetailPage({
                   <tr>
                     <th className="px-4 py-3">今回の支払内容</th>
                     <th className="px-4 py-3">納品期日</th>
-                    <th className="px-4 py-3">支払基準</th>
-                    <th className="px-4 py-3">完了基準</th>
-                    <th className="px-4 py-3">備考</th>
                   </tr>
                 </thead>
 
@@ -362,13 +359,6 @@ export default async function AdminSubmissionDetailPage({
                       <td className="px-4 py-3">
                         {row.delivery_due_date || "-"}
                       </td>
-                      <td className="px-4 py-3">
-                        {row.contract_payment_standard || "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        {row.completion_standard || "-"}
-                      </td>
-                      <td className="px-4 py-3">{row.note || "-"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -392,8 +382,6 @@ export default async function AdminSubmissionDetailPage({
                     <th className="px-4 py-3">数量</th>
                     <th className="px-4 py-3">単価</th>
                     <th className="px-4 py-3">小計</th>
-                    <th className="px-4 py-3">一致</th>
-                    <th className="px-4 py-3">備考</th>
                   </tr>
                 </thead>
 
@@ -406,11 +394,7 @@ export default async function AdminSubmissionDetailPage({
                       <td className="px-4 py-3">{row.service_item || "-"}</td>
                       <td className="px-4 py-3">{row.quantity || "-"}</td>
                       <td className="px-4 py-3">{row.unit_price || "-"}</td>
-                      <td className="px-4 py-3">{row.subtotal || "-"}</td>
-                      <td className="px-4 py-3">
-                        {row.amount_match ? "はい" : "いいえ"}
-                      </td>
-                      <td className="px-4 py-3">{row.note || "-"}</td>
+                      <td className="px-4 py-3">{formatSubtotal(row)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -420,13 +404,13 @@ export default async function AdminSubmissionDetailPage({
         </section>
 
         <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
-          <h2 className="text-2xl font-bold">結案報告・証憑</h2>
+          <h2 className="text-2xl font-bold">結果報告</h2>
 
           {!reportRows || reportRows.length === 0 ? (
             <p className="mt-4 text-slate-400">暂无提交资料。</p>
           ) : (
             <div className="mt-4 overflow-x-auto rounded-xl border border-slate-700">
-              <table className="min-w-[1300px] w-full text-left text-sm">
+              <table className="min-w-[1100px] w-full text-left text-sm">
                 <thead className="bg-slate-800 text-slate-300">
                   <tr>
                     <th className="px-4 py-3">No.</th>
@@ -436,8 +420,6 @@ export default async function AdminSubmissionDetailPage({
                     <th className="px-4 py-3">リンク</th>
                     <th className="px-4 py-3">スクリーンショット</th>
                     <th className="px-4 py-3">実施日</th>
-                    <th className="px-4 py-3">掲載チャネル</th>
-                    <th className="px-4 py-3">備考</th>
                   </tr>
                 </thead>
 
@@ -489,12 +471,6 @@ export default async function AdminSubmissionDetailPage({
                         <td className="px-4 py-3">
                           {row.implementation_date || "-"}
                         </td>
-
-                        <td className="px-4 py-3">
-                          {row.publish_channel || "-"}
-                        </td>
-
-                        <td className="px-4 py-3">{row.note || "-"}</td>
                       </tr>
                     );
                   })}
@@ -546,4 +522,18 @@ function Info({ label, value }: { label: string; value?: string | null }) {
       <p className="mt-2 font-semibold">{value || "-"}</p>
     </div>
   );
+}
+
+function formatSubtotal(row: any) {
+  const storedSubtotal = Number(row?.subtotal);
+
+  if (Number.isFinite(storedSubtotal) && storedSubtotal !== 0) {
+    return storedSubtotal;
+  }
+
+  const quantity = Number(row?.quantity || 0);
+  const unitPrice = Number(row?.unit_price || 0);
+  const subtotal = quantity * unitPrice;
+
+  return Number.isFinite(subtotal) ? subtotal : "-";
 }

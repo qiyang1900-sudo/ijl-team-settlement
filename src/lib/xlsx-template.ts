@@ -2,6 +2,17 @@ import { deflateRawSync, inflateRawSync } from "node:zlib";
 
 export type XlsxCellValue = string | number | boolean | null | undefined;
 
+export type XlsxTemplateImage = {
+  worksheet: string;
+  cell: string;
+  data: Buffer;
+  extension: string;
+  contentType: string;
+  width?: number;
+  height?: number;
+  altText?: string;
+};
+
 type ZipEntry = {
   name: string;
   data: Buffer;
@@ -10,9 +21,31 @@ type ZipEntry = {
   externalAttributes: number;
 };
 
+type DrawingImage = {
+  id: number;
+  cell: string;
+  relId: string;
+  name: string;
+  altText: string;
+  width: number;
+  height: number;
+  relationshipTarget: string;
+};
+
 const LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
 const CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
 const END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
+const RELATIONSHIPS_NAMESPACE =
+  "http://schemas.openxmlformats.org/package/2006/relationships";
+const DRAWING_RELATIONSHIP_TYPE =
+  "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing";
+const IMAGE_RELATIONSHIP_TYPE =
+  "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image";
+const DRAWING_CONTENT_TYPE =
+  "application/vnd.openxmlformats-officedocument.drawing+xml";
+const EMU_PER_PIXEL = 9525;
+const DEFAULT_IMAGE_MAX_WIDTH = 200;
+const DEFAULT_IMAGE_MAX_HEIGHT = 68;
 
 const crcTable = new Uint32Array(256);
 
@@ -28,7 +61,8 @@ for (let i = 0; i < 256; i++) {
 
 export function fillXlsxTemplate(
   template: Buffer,
-  worksheetUpdates: Record<string, Record<string, XlsxCellValue>>
+  worksheetUpdates: Record<string, Record<string, XlsxCellValue>>,
+  worksheetImages: XlsxTemplateImage[] = []
 ) {
   const entries = readZipEntries(template);
 
@@ -48,7 +82,486 @@ export function fillXlsxTemplate(
     entry.data = Buffer.from(xml, "utf8");
   }
 
+  if (worksheetImages.length > 0) {
+    addWorksheetImages(entries, worksheetImages);
+  }
+
   return writeZipEntries(entries);
+}
+
+function addWorksheetImages(entries: ZipEntry[], worksheetImages: XlsxTemplateImage[]) {
+  const contentTypesEntry = findEntry(entries, "[Content_Types].xml");
+
+  if (!contentTypesEntry) {
+    throw new Error("Invalid XLSX content types.");
+  }
+
+  let contentTypesXml = contentTypesEntry.data.toString("utf8");
+  let nextDrawingNumber = getNextPartNumber(entries, /^xl\/drawings\/drawing(\d+)\.xml$/);
+  let nextImageNumber = getNextPartNumber(entries, /^xl\/media\/image(\d+)\.[^.]+$/);
+  const imagesByWorksheet = new Map<string, XlsxTemplateImage[]>();
+
+  for (const image of worksheetImages) {
+    const normalizedExtension = normalizeImageExtension(image.extension);
+
+    if (!normalizedExtension || !image.data.length) {
+      continue;
+    }
+
+    const normalizedImage = {
+      ...image,
+      extension: normalizedExtension,
+      contentType: normalizeImageContentType(
+        image.contentType,
+        normalizedExtension
+      ),
+    };
+    const existingImages = imagesByWorksheet.get(image.worksheet) || [];
+    existingImages.push(normalizedImage);
+    imagesByWorksheet.set(image.worksheet, existingImages);
+  }
+
+  for (const [worksheetPath, images] of imagesByWorksheet.entries()) {
+    const worksheetEntry = findEntry(entries, worksheetPath);
+
+    if (!worksheetEntry) {
+      continue;
+    }
+
+    const drawingNumber = nextDrawingNumber++;
+    const drawingPath = `xl/drawings/drawing${drawingNumber}.xml`;
+    const drawingRelsPath = `xl/drawings/_rels/drawing${drawingNumber}.xml.rels`;
+    const worksheetRelsPath = getWorksheetRelationshipsPath(worksheetPath);
+    const worksheetRelsEntry =
+      findEntry(entries, worksheetRelsPath) ||
+      addEntry(entries, worksheetRelsPath, emptyRelationshipsXml(), worksheetEntry);
+
+    const drawingRelationshipId = getNextRelationshipId(
+      worksheetRelsEntry.data.toString("utf8")
+    );
+    worksheetRelsEntry.data = Buffer.from(
+      appendRelationship(
+        worksheetRelsEntry.data.toString("utf8"),
+        drawingRelationshipId,
+        DRAWING_RELATIONSHIP_TYPE,
+        `../drawings/drawing${drawingNumber}.xml`
+      ),
+      "utf8"
+    );
+
+    let worksheetXml = worksheetEntry.data.toString("utf8");
+    worksheetXml = ensureWorksheetDrawing(worksheetXml, drawingRelationshipId);
+
+    const drawingImages = images.map((image, index) => {
+      const imageNumber = nextImageNumber++;
+      const imagePath = `xl/media/image${imageNumber}.${image.extension}`;
+      const relId = `rId${index + 1}`;
+      const size = fitImageSize(image);
+
+      addEntry(entries, imagePath, image.data, worksheetEntry);
+      contentTypesXml = ensureDefaultContentType(
+        contentTypesXml,
+        image.extension,
+        image.contentType
+      );
+      worksheetXml = setRowHeight(worksheetXml, getCellRowNumber(image.cell), 72);
+
+      return {
+        id: index + 1,
+        cell: image.cell,
+        relId,
+        name: `Screenshot ${index + 1}`,
+        altText: image.altText || `Screenshot ${index + 1}`,
+        width: image.width || size.width,
+        height: image.height || size.height,
+        relationshipTarget: `../media/image${imageNumber}.${image.extension}`,
+      };
+    });
+
+    worksheetEntry.data = Buffer.from(worksheetXml, "utf8");
+    addEntry(
+      entries,
+      drawingPath,
+      Buffer.from(renderDrawingXml(drawingImages), "utf8"),
+      worksheetEntry
+    );
+    addEntry(
+      entries,
+      drawingRelsPath,
+      Buffer.from(renderDrawingRelationshipsXml(drawingImages), "utf8"),
+      worksheetEntry
+    );
+    contentTypesXml = ensureOverrideContentType(
+      contentTypesXml,
+      `/${drawingPath}`,
+      DRAWING_CONTENT_TYPE
+    );
+  }
+
+  contentTypesEntry.data = Buffer.from(contentTypesXml, "utf8");
+}
+
+function findEntry(entries: ZipEntry[], name: string) {
+  return entries.find((entry) => entry.name === name);
+}
+
+function addEntry(
+  entries: ZipEntry[],
+  name: string,
+  data: Buffer | string,
+  referenceEntry?: ZipEntry
+) {
+  const existingEntry = findEntry(entries, name);
+  const entryData = Buffer.isBuffer(data) ? data : Buffer.from(data, "utf8");
+
+  if (existingEntry) {
+    existingEntry.data = entryData;
+    return existingEntry;
+  }
+
+  const entry: ZipEntry = {
+    name,
+    data: entryData,
+    modTime: referenceEntry?.modTime || 0,
+    modDate: referenceEntry?.modDate || 0,
+    externalAttributes: 0,
+  };
+
+  entries.push(entry);
+  return entry;
+}
+
+function getNextPartNumber(entries: ZipEntry[], pattern: RegExp) {
+  let highestNumber = 0;
+
+  for (const entry of entries) {
+    const match = entry.name.match(pattern);
+
+    if (match) {
+      highestNumber = Math.max(highestNumber, Number(match[1]));
+    }
+  }
+
+  return highestNumber + 1;
+}
+
+function getWorksheetRelationshipsPath(worksheetPath: string) {
+  const fileName = worksheetPath.split("/").pop();
+  return worksheetPath.replace(
+    /\/([^/]+)$/,
+    `/_rels/${fileName}.rels`
+  );
+}
+
+function emptyRelationshipsXml() {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${RELATIONSHIPS_NAMESPACE}"></Relationships>`;
+}
+
+function getNextRelationshipId(xml: string) {
+  let highestNumber = 0;
+
+  for (const match of xml.matchAll(/\bId="rId(\d+)"/g)) {
+    highestNumber = Math.max(highestNumber, Number(match[1]));
+  }
+
+  return `rId${highestNumber + 1}`;
+}
+
+function appendRelationship(
+  xml: string,
+  id: string,
+  type: string,
+  target: string
+) {
+  if (xml.includes(`Id="${id}"`)) {
+    return xml;
+  }
+
+  const relationshipXml = `<Relationship Id="${escapeXmlAttribute(
+    id
+  )}" Type="${escapeXmlAttribute(type)}" Target="${escapeXmlAttribute(
+    target
+  )}"/>`;
+
+  return xml.replace("</Relationships>", `${relationshipXml}</Relationships>`);
+}
+
+function ensureWorksheetDrawing(xml: string, relationshipId: string) {
+  const drawingPattern = /<drawing\b[^>]*\/>/;
+  const drawingXml = `<drawing r:id="${escapeXmlAttribute(relationshipId)}"/>`;
+
+  if (drawingPattern.test(xml)) {
+    return xml.replace(drawingPattern, drawingXml);
+  }
+
+  return xml.replace("</worksheet>", `${drawingXml}</worksheet>`);
+}
+
+function ensureDefaultContentType(
+  xml: string,
+  extension: string,
+  contentType: string
+) {
+  const escapedExtension = escapeRegExp(extension);
+  const defaultPattern = new RegExp(
+    `<Default\\b(?=[^>]*\\bExtension="${escapedExtension}")[^>]*/>`
+  );
+
+  if (defaultPattern.test(xml)) {
+    return xml;
+  }
+
+  const defaultXml = `<Default Extension="${escapeXmlAttribute(
+    extension
+  )}" ContentType="${escapeXmlAttribute(contentType)}"/>`;
+
+  if (xml.includes("<Override")) {
+    return xml.replace("<Override", `${defaultXml}<Override`);
+  }
+
+  return xml.replace("</Types>", `${defaultXml}</Types>`);
+}
+
+function ensureOverrideContentType(
+  xml: string,
+  partName: string,
+  contentType: string
+) {
+  const escapedPartName = escapeRegExp(partName);
+  const overridePattern = new RegExp(
+    `<Override\\b(?=[^>]*\\bPartName="${escapedPartName}")[^>]*/>`
+  );
+
+  if (overridePattern.test(xml)) {
+    return xml;
+  }
+
+  const overrideXml = `<Override PartName="${escapeXmlAttribute(
+    partName
+  )}" ContentType="${escapeXmlAttribute(contentType)}"/>`;
+
+  return xml.replace("</Types>", `${overrideXml}</Types>`);
+}
+
+function renderDrawingXml(images: DrawingImage[]) {
+  const anchors = images.map((image) => renderDrawingAnchorXml(image)).join("");
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${anchors}</xdr:wsDr>`;
+}
+
+function renderDrawingAnchorXml(image: DrawingImage) {
+  const cell = parseCellAddress(image.cell);
+  const width = Math.max(1, Math.round(image.width * EMU_PER_PIXEL));
+  const height = Math.max(1, Math.round(image.height * EMU_PER_PIXEL));
+
+  return `<xdr:oneCellAnchor editAs="oneCell"><xdr:from><xdr:col>${cell.col}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${cell.row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="${width}" cy="${height}"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${image.id}" name="${escapeXmlAttribute(
+    image.name
+  )}" descr="${escapeXmlAttribute(
+    image.altText
+  )}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="${escapeXmlAttribute(
+    image.relId
+  )}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${width}" cy="${height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>`;
+}
+
+function renderDrawingRelationshipsXml(images: DrawingImage[]) {
+  const relationships = images
+    .map((image) => {
+      return `<Relationship Id="${escapeXmlAttribute(
+        image.relId
+      )}" Type="${IMAGE_RELATIONSHIP_TYPE}" Target="${escapeXmlAttribute(
+        image.relationshipTarget
+      )}"/>`;
+    })
+    .join("");
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="${RELATIONSHIPS_NAMESPACE}">${relationships}</Relationships>`;
+}
+
+function setRowHeight(xml: string, rowNumber: number, height: number) {
+  if (!rowNumber) {
+    return xml;
+  }
+
+  const rowPattern = new RegExp(
+    `<row\\b(?=[^>]*\\br="${rowNumber}")[^>]*>`
+  );
+
+  return xml.replace(rowPattern, (rowTag) => {
+    return setTagAttribute(
+      setTagAttribute(rowTag, "ht", String(height)),
+      "customHeight",
+      "1"
+    );
+  });
+}
+
+function setTagAttribute(tag: string, name: string, value: string) {
+  const attributePattern = new RegExp(`\\s${name}="[^"]*"`);
+
+  if (attributePattern.test(tag)) {
+    return tag.replace(
+      attributePattern,
+      ` ${name}="${escapeXmlAttribute(value)}"`
+    );
+  }
+
+  return tag.replace(/>$/, ` ${name}="${escapeXmlAttribute(value)}">`);
+}
+
+function parseCellAddress(cellRef: string) {
+  const match = cellRef.match(/^([A-Z]+)(\d+)$/i);
+
+  if (!match) {
+    return { col: 0, row: 0 };
+  }
+
+  return {
+    col: columnNameToIndex(match[1].toUpperCase()),
+    row: Number(match[2]) - 1,
+  };
+}
+
+function getCellRowNumber(cellRef: string) {
+  const row = Number(cellRef.match(/\d+$/)?.[0] || 0);
+  return Number.isFinite(row) ? row : 0;
+}
+
+function columnNameToIndex(columnName: string) {
+  let index = 0;
+
+  for (const char of columnName) {
+    index = index * 26 + (char.charCodeAt(0) - 64);
+  }
+
+  return Math.max(index - 1, 0);
+}
+
+function normalizeImageExtension(extension: string) {
+  const normalizedExtension = String(extension || "")
+    .toLowerCase()
+    .replace(/^\./, "");
+
+  if (normalizedExtension === "jpg" || normalizedExtension === "jpeg") {
+    return normalizedExtension;
+  }
+
+  if (normalizedExtension === "png") {
+    return normalizedExtension;
+  }
+
+  return "";
+}
+
+function normalizeImageContentType(contentType: string, extension: string) {
+  if (extension === "png") {
+    return "image/png";
+  }
+
+  if (extension === "jpg" || extension === "jpeg") {
+    return "image/jpeg";
+  }
+
+  return contentType || "application/octet-stream";
+}
+
+function fitImageSize(image: XlsxTemplateImage) {
+  const explicitWidth = Number(image.width || 0);
+  const explicitHeight = Number(image.height || 0);
+
+  if (explicitWidth > 0 && explicitHeight > 0) {
+    return {
+      width: explicitWidth,
+      height: explicitHeight,
+    };
+  }
+
+  const imageSize = getImageSize(image.data);
+  const scale = Math.min(
+    DEFAULT_IMAGE_MAX_WIDTH / imageSize.width,
+    DEFAULT_IMAGE_MAX_HEIGHT / imageSize.height
+  );
+
+  return {
+    width: Math.max(1, Math.round(imageSize.width * scale)),
+    height: Math.max(1, Math.round(imageSize.height * scale)),
+  };
+}
+
+function getImageSize(data: Buffer) {
+  const pngSize = getPngSize(data);
+
+  if (pngSize) {
+    return pngSize;
+  }
+
+  const jpegSize = getJpegSize(data);
+
+  if (jpegSize) {
+    return jpegSize;
+  }
+
+  return {
+    width: DEFAULT_IMAGE_MAX_WIDTH,
+    height: DEFAULT_IMAGE_MAX_HEIGHT,
+  };
+}
+
+function getPngSize(data: Buffer) {
+  const pngSignature = "89504e470d0a1a0a";
+
+  if (data.length < 24 || data.subarray(0, 8).toString("hex") !== pngSignature) {
+    return null;
+  }
+
+  return {
+    width: data.readUInt32BE(16),
+    height: data.readUInt32BE(20),
+  };
+}
+
+function getJpegSize(data: Buffer) {
+  if (data.length < 4 || data[0] !== 0xff || data[1] !== 0xd8) {
+    return null;
+  }
+
+  let offset = 2;
+
+  while (offset < data.length) {
+    while (data[offset] === 0xff) {
+      offset++;
+    }
+
+    const marker = data[offset++];
+
+    if (marker === 0xd9 || marker === 0xda) {
+      break;
+    }
+
+    if (offset + 2 > data.length) {
+      break;
+    }
+
+    const blockLength = data.readUInt16BE(offset);
+
+    if (blockLength < 2 || offset + blockLength > data.length) {
+      break;
+    }
+
+    if (
+      marker >= 0xc0 &&
+      marker <= 0xcf &&
+      ![0xc4, 0xc8, 0xcc].includes(marker)
+    ) {
+      return {
+        height: data.readUInt16BE(offset + 3),
+        width: data.readUInt16BE(offset + 5),
+      };
+    }
+
+    offset += blockLength;
+  }
+
+  return null;
 }
 
 function readZipEntries(input: Buffer): ZipEntry[] {
@@ -212,12 +725,6 @@ function setCellValue(xml: string, cellRef: string, value: XlsxCellValue) {
     `<c\\b(?=[^>]*\\br="${escapedRef}")[^>]*/>`
   );
 
-  const fullMatch = xml.match(fullCellPattern);
-
-  if (fullMatch) {
-    return xml.replace(fullCellPattern, () => renderCell(fullMatch[0], value));
-  }
-
   const selfClosingMatch = xml.match(selfClosingCellPattern);
 
   if (selfClosingMatch) {
@@ -225,6 +732,12 @@ function setCellValue(xml: string, cellRef: string, value: XlsxCellValue) {
       selfClosingCellPattern,
       () => renderCell(selfClosingMatch[0], value)
     );
+  }
+
+  const fullMatch = xml.match(fullCellPattern);
+
+  if (fullMatch) {
+    return xml.replace(fullCellPattern, () => renderCell(fullMatch[0], value));
   }
 
   return insertCell(xml, cellRef, value);

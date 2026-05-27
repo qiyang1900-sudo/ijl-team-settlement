@@ -3,6 +3,7 @@ import { SETTLEMENT_REPORT_TEMPLATE_BASE64 } from "@/lib/settlement-report-templ
 import {
   fillXlsxTemplate,
   type XlsxCellValue,
+  type XlsxTemplateImage,
 } from "@/lib/xlsx-template";
 
 type Row = Record<string, any>;
@@ -99,20 +100,23 @@ export async function GET(
     .eq("project_team_id", projectTeamId)
     .order("created_at", { ascending: true });
 
-  const template = Buffer.from(getTemplateBase64(), "base64");
-  const workbook = fillXlsxTemplate(template, {
-    "xl/worksheets/sheet1.xml": buildSummarySheetUpdates({
-      projectTeam,
-      companyInfo,
-      summaryRows: summaryRows || [],
-      detailRows: detailRows || [],
-    }),
-    "xl/worksheets/sheet2.xml": buildReportSheetUpdates({
-      reportRows: reportRows || [],
-      detailRows: detailRows || [],
-      files: files || [],
-    }),
-  });
+  const template = Buffer.from(SETTLEMENT_REPORT_TEMPLATE_BASE64, "base64");
+  const reportSheetImages = await buildReportSheetImages(files || []);
+  const workbook = fillXlsxTemplate(
+    template,
+    {
+      "xl/worksheets/sheet1.xml": buildSummarySheetUpdates({
+        companyInfo,
+        summaryRows: summaryRows || [],
+        detailRows: detailRows || [],
+      }),
+      "xl/worksheets/sheet2.xml": buildReportSheetUpdates({
+        reportRows: reportRows || [],
+        detailRows: detailRows || [],
+      }),
+    },
+    reportSheetImages
+  );
 
   if (projectTeam.status === "approved") {
     await supabase
@@ -142,82 +146,42 @@ export async function GET(
   });
 }
 
-function getTemplateBase64() {
-  const chars = SETTLEMENT_REPORT_TEMPLATE_BASE64.split("");
-  // Repair the PR branch's text-uploaded template if the known bad bytes appear.
-  const corrections = [
-    { index: 7359, bad: "K", fixed: "S" },
-    { index: 7710, bad: "G", fixed: "F" },
-    { index: 7711, bad: "f", fixed: "v" },
-  ];
-
-  for (const correction of corrections) {
-    if (chars[correction.index] === correction.bad) {
-      chars[correction.index] = correction.fixed;
-    }
-  }
-
-  return chars.join("");
-}
-
 function buildSummarySheetUpdates({
-  projectTeam,
   companyInfo,
   summaryRows,
   detailRows,
 }: {
-  projectTeam: Row;
   companyInfo: Row | null;
   summaryRows: Row[];
   detailRows: Row[];
 }): SheetUpdates {
-  const project = projectTeam.projects as Row | null;
   const totalAmount = detailRows.reduce((sum, row) => sum + subtotal(row), 0);
-  const allAmountsMatch = detailRows.every((row) => row.amount_match !== false);
+  const taxAmount = 0;
   const updates: SheetUpdates = {
-    B5: project?.title || "",
-    E5: projectTeam.id || "",
-    B8: project?.id || "",
     B9: companyInfo?.company_name || "",
     B10: companyInfo?.bank_name || "",
     B11: companyInfo?.bank_account_number || "",
     B12: companyInfo?.swift_code || "",
-    E10:
-      project?.description ||
-      summaryRows[0]?.payment_content ||
-      project?.title ||
-      "",
-    E12: totalAmount || "",
-    E31: totalAmount || "",
-    E32: totalAmount || "",
-    F32: yesNo(allAmountsMatch),
-    E36: `精算日：${formatDate(projectTeam.approved_at || new Date())}`,
+    E30: taxAmount,
+    E31: totalAmount + taxAmount,
   };
 
   for (let index = 0; index < 3; index++) {
     const row = summaryRows[index];
     const sheetRow = 16 + index;
 
-    updates[`A${sheetRow}`] = index + 1;
     updates[`B${sheetRow}`] = row?.payment_content || "";
     updates[`C${sheetRow}`] = formatDate(row?.delivery_due_date);
-    updates[`D${sheetRow}`] = row?.contract_payment_standard || "";
-    updates[`E${sheetRow}`] = row?.completion_standard || "";
-    updates[`F${sheetRow}`] = row?.project_team_confirmation || "";
-    updates[`G${sheetRow}`] = row?.note || "";
   }
 
   for (let index = 0; index < 7; index++) {
     const row = detailRows[index];
     const sheetRow = 22 + index;
 
-    updates[`A${sheetRow}`] = index + 1;
     updates[`B${sheetRow}`] = row?.service_item || "";
     updates[`C${sheetRow}`] = row ? toNumber(row.quantity) : "";
     updates[`D${sheetRow}`] = row ? toNumber(row.unit_price) : "";
     updates[`E${sheetRow}`] = row ? subtotal(row) : "";
-    updates[`F${sheetRow}`] = row ? yesNo(row.amount_match !== false) : "";
-    updates[`G${sheetRow}`] = row?.note || "";
   }
 
   return updates;
@@ -226,34 +190,93 @@ function buildSummarySheetUpdates({
 function buildReportSheetUpdates({
   reportRows,
   detailRows,
-  files,
 }: {
   reportRows: Row[];
   detailRows: Row[];
-  files: Row[];
 }): SheetUpdates {
   const updates: SheetUpdates = {};
 
   for (let index = 0; index < 21; index++) {
     const row = reportRows[index];
     const detail = detailRows[index];
-    const rowNumber = index + 1;
     const sheetRow = 9 + index;
-    const screenshot = findScreenshot(files, rowNumber);
 
-    updates[`A${sheetRow}`] = row ? rowNumber : "";
     updates[`B${sheetRow}`] = row?.item_content || detail?.service_item || "";
     updates[`C${sheetRow}`] = row?.category_type || "";
     updates[`D${sheetRow}`] = row ? toNumber(row.amount) : "";
     updates[`E${sheetRow}`] = row?.link_url || "";
-    updates[`F${sheetRow}`] = formatFileCell(screenshot);
+    updates[`F${sheetRow}`] = "";
     updates[`G${sheetRow}`] = formatDate(row?.implementation_date);
-    updates[`H${sheetRow}`] = row?.publish_channel || "";
-    updates[`I${sheetRow}`] = row ? "可" : "";
-    updates[`J${sheetRow}`] = row?.note || "";
   }
 
   return updates;
+}
+
+async function buildReportSheetImages(files: Row[]): Promise<XlsxTemplateImage[]> {
+  const images: XlsxTemplateImage[] = [];
+
+  for (let index = 0; index < 21; index++) {
+    const rowNumber = index + 1;
+    const screenshot = findScreenshot(files, rowNumber);
+    const image = await fetchScreenshotImage(screenshot);
+
+    if (!image) {
+      continue;
+    }
+
+    images.push({
+      worksheet: "xl/worksheets/sheet2.xml",
+      cell: `F${9 + index}`,
+      data: image.data,
+      extension: image.extension,
+      contentType: image.contentType,
+      altText: screenshot?.file_name || `結果報告 No.${rowNumber}`,
+    });
+  }
+
+  return images;
+}
+
+async function fetchScreenshotImage(file?: Row) {
+  const fileUrl = file?.file_url ? String(file.file_url) : "";
+
+  if (!fileUrl) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(fileUrl);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const responseContentType = String(
+      response.headers.get("content-type") || ""
+    )
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+    const contentType = String(file?.mime_type || responseContentType)
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+    const extension =
+      imageExtensionFromContentType(contentType) ||
+      imageExtensionFromFileName(String(file?.file_name || fileUrl));
+
+    if (!extension) {
+      return null;
+    }
+
+    return {
+      data: Buffer.from(await response.arrayBuffer()),
+      extension,
+      contentType: extension === "png" ? "image/png" : "image/jpeg",
+    };
+  } catch {
+    return null;
+  }
 }
 
 function findScreenshot(files: Row[], rowNumber: number) {
@@ -263,21 +286,6 @@ function findScreenshot(files: Row[], rowNumber: number) {
       String(file.note || "").includes(`No.${rowNumber}`)
     );
   });
-}
-
-function formatFileCell(file?: Row) {
-  if (!file) {
-    return "";
-  }
-
-  const name = file.file_name ? String(file.file_name) : "";
-  const url = file.file_url ? String(file.file_url) : "";
-
-  if (name && url) {
-    return `${name}\n${url}`;
-  }
-
-  return url || name;
 }
 
 function subtotal(row: Row) {
@@ -293,10 +301,6 @@ function subtotal(row: Row) {
 function toNumber(value: unknown) {
   const number = Number(value || 0);
   return Number.isFinite(number) ? number : 0;
-}
-
-function yesNo(value: boolean) {
-  return value ? "はい" : "いいえ";
 }
 
 function formatDate(value: unknown) {
@@ -322,4 +326,30 @@ function safeFilePart(value: string) {
     /[^a-zA-Z0-9ぁ-んァ-ヶ一-龠_-]/g,
     "_"
   );
+}
+
+function imageExtensionFromContentType(contentType: string) {
+  if (contentType === "image/png") {
+    return "png";
+  }
+
+  if (contentType === "image/jpeg" || contentType === "image/jpg") {
+    return "jpg";
+  }
+
+  return "";
+}
+
+function imageExtensionFromFileName(fileName: string) {
+  const extension = fileName.split(".").pop()?.toLowerCase();
+
+  if (extension === "png") {
+    return "png";
+  }
+
+  if (extension === "jpg" || extension === "jpeg") {
+    return "jpg";
+  }
+
+  return "";
 }

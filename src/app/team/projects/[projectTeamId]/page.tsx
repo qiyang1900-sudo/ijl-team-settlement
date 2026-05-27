@@ -34,26 +34,20 @@ async function saveSubmission(formData: FormData) {
   const teamId = String(formData.get("team_id") || "");
   const currentStatus = String(formData.get("current_status") || "");
   const actionType = String(formData.get("action_type") || "draft");
-  const detailCount = Number(formData.get("detail_count") || 1);
+  const rawSummaryCount = Number(formData.get("summary_count") || 1);
+  const rawDetailCount = Number(formData.get("detail_count") || 1);
+  const summaryCount = Number.isFinite(rawSummaryCount)
+    ? Math.min(Math.max(rawSummaryCount, 1), 3)
+    : 1;
+  const detailCount = Number.isFinite(rawDetailCount)
+    ? Math.min(Math.max(rawDetailCount, 1), 7)
+    : 1;
 
   const companyName = String(formData.get("company_name") || "");
   const bankName = String(formData.get("bank_name") || "");
   const bankAccountNumber = String(formData.get("bank_account_number") || "");
   const swiftCode = String(formData.get("swift_code") || "");
   const saveProfile = formData.get("save_profile") === "on";
-
-  const paymentContent = String(formData.get("payment_content") || "");
-  const deliveryDueDate = String(formData.get("delivery_due_date") || "");
-  const contractPaymentStandard = String(
-    formData.get("contract_payment_standard") || "時間通り"
-  );
-  const completionStandard = String(
-    formData.get("completion_standard") || "時間通り"
-  );
-  const projectTeamConfirmation = String(
-    formData.get("project_team_confirmation") || "確認"
-  );
-  const summaryNote = String(formData.get("summary_note") || "全額支払い");
 
   await supabase.from("submission_company_info").upsert(
     {
@@ -91,16 +85,21 @@ async function saveSubmission(formData: FormData) {
     .delete()
     .eq("project_team_id", projectTeamId);
 
-  await supabase.from("settlement_summary_rows").insert({
-    project_team_id: projectTeamId,
-    row_number: 1,
-    payment_content: paymentContent,
-    delivery_due_date: deliveryDueDate || null,
-    contract_payment_standard: contractPaymentStandard,
-    completion_standard: completionStandard,
-    project_team_confirmation: projectTeamConfirmation,
-    note: summaryNote,
-  });
+  const summaryRowsToInsert = Array.from({ length: summaryCount }).map(
+    (_, index) => ({
+      project_team_id: projectTeamId,
+      row_number: index + 1,
+      payment_content: String(formData.get(`payment_content_${index}`) || ""),
+      delivery_due_date:
+        String(formData.get(`delivery_due_date_${index}`) || "") || null,
+      contract_payment_standard: "時間通り",
+      completion_standard: "時間通り",
+      project_team_confirmation: "確認",
+      note: "",
+    })
+  );
+
+  await supabase.from("settlement_summary_rows").insert(summaryRowsToInsert);
 
   await supabase
     .from("settlement_detail_rows")
@@ -149,19 +148,12 @@ async function saveSubmission(formData: FormData) {
     const quantity = Number(formData.get(`quantity_${index}`) || 1);
     const unitPrice = Number(formData.get(`unit_price_${index}`) || 0);
     const subtotal = quantity * unitPrice;
-    const amountMatch =
-      String(formData.get(`amount_match_${index}`) || "true") === "true";
-    const detailNote = String(formData.get(`detail_note_${index}`) || "");
 
     const categoryType = String(formData.get(`category_type_${index}`) || "");
     const linkUrl = String(formData.get(`link_url_${index}`) || "");
     const implementationDate = String(
       formData.get(`implementation_date_${index}`) || ""
     );
-    const publishChannel = String(
-      formData.get(`publish_channel_${index}`) || ""
-    );
-    const reportNote = String(formData.get(`report_note_${index}`) || "");
 
     await supabase.from("settlement_detail_rows").insert({
       project_team_id: projectTeamId,
@@ -169,8 +161,8 @@ async function saveSubmission(formData: FormData) {
       service_item: serviceItem,
       quantity,
       unit_price: unitPrice,
-      amount_match: amountMatch,
-      note: detailNote,
+      amount_match: true,
+      note: "",
     });
 
     await supabase.from("report_rows").insert({
@@ -181,8 +173,8 @@ async function saveSubmission(formData: FormData) {
       amount: subtotal,
       link_url: linkUrl || null,
       implementation_date: implementationDate || null,
-      publish_channel: publishChannel,
-      note: reportNote,
+      publish_channel: "",
+      note: "",
     });
 
     const oldFilesForThisRow =
@@ -276,7 +268,7 @@ async function saveSubmission(formData: FormData) {
         file_url: publicUrlData.publicUrl,
         storage_path: storagePath,
         mime_type: reportScreenshot.type,
-        note: `結案報告 No.${rowNumber} スクリーンショット`,
+        note: `結果報告 No.${rowNumber} スクリーンショット`,
       });
     }
   }
@@ -387,13 +379,11 @@ export default async function TeamSubmissionPage({
     .eq("project_team_id", projectTeamId)
     .maybeSingle();
 
-  const { data: summaryRow } = await supabase
+  const { data: summaryRows } = await supabase
     .from("settlement_summary_rows")
     .select("*")
     .eq("project_team_id", projectTeamId)
-    .order("row_number", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .order("row_number", { ascending: true });
 
   const { data: detailRows } = await supabase
     .from("settlement_detail_rows")
@@ -498,7 +488,7 @@ export default async function TeamSubmissionPage({
           currentStatus={projectTeam.status}
           companyInfo={companyInfo}
           profile={profile}
-          summaryRow={summaryRow}
+          summaryRows={summaryRows || []}
           detailRows={detailRows || []}
           reportRows={reportRows || []}
           screenshotFiles={screenshotFiles || []}
