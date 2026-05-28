@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { getPlayerDisplayName } from "@/lib/player-display";
 import PlayerTeamSelect from "./PlayerTeamSelect";
 
+export const dynamic = "force-dynamic";
+
 type TeamRow = {
   id: string;
   name: string;

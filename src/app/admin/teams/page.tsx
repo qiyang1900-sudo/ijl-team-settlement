@@ -3,6 +3,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { TeamEditDialog } from "./TeamEditDialog";
 
+export const dynamic = "force-dynamic";
+
 async function updateTeam(formData: FormData) {
   "use server";
 
