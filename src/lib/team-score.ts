@@ -21,9 +21,64 @@ export type TeamScoreSubmission = {
   player_rows: unknown;
 };
 
+export type TeamScoreReviewStatus = "draft" | "finalized";
+
+export type TeamScoreReview = {
+  team_id: string;
+  target_month: string;
+  status?: string | null;
+  player_management_score?: number | string | null;
+  player_management_note?: string | null;
+  team_management_score?: number | string | null;
+  team_management_note?: string | null;
+  youtube_manual_deduction?: number | string | null;
+  youtube_manual_note?: string | null;
+  tiktok_manual_deduction?: number | string | null;
+  tiktok_manual_note?: string | null;
+  x_manual_deduction?: number | string | null;
+  x_manual_note?: string | null;
+  reviewer_note?: string | null;
+  finalized_score?: number | string | null;
+  finalized_grade?: string | null;
+  finalized_at?: string | null;
+};
+
 export type TeamScoreDeduction = {
   reason: string;
   points: number;
+};
+
+export type TeamScoreSectionKey =
+  | "playerManagement"
+  | "teamManagement"
+  | "youtube"
+  | "tiktok"
+  | "x";
+
+export type TeamScoreSection = {
+  key: TeamScoreSectionKey;
+  label: string;
+  maxPoints: number;
+  score: number;
+  autoScore: number | null;
+  deductions: TeamScoreDeduction[];
+  note: string | null;
+};
+
+export type TeamScoreReviewValues = {
+  status: TeamScoreReviewStatus;
+  playerManagementScore: number;
+  playerManagementNote: string;
+  teamManagementScore: number;
+  teamManagementNote: string;
+  youtubeManualDeduction: number;
+  youtubeManualNote: string;
+  tiktokManualDeduction: number;
+  tiktokManualNote: string;
+  xManualDeduction: number;
+  xManualNote: string;
+  reviewerNote: string;
+  finalizedAt: string | null;
 };
 
 export type TeamMonthlyScore = {
@@ -35,6 +90,8 @@ export type TeamMonthlyScore = {
   grade: string;
   displayScore: string;
   deductions: TeamScoreDeduction[];
+  sections: TeamScoreSection[];
+  review: TeamScoreReviewValues;
   metrics: {
     totalTweets: number;
     totalImpressions: number;
@@ -50,16 +107,28 @@ export type TeamMonthlyScore = {
 };
 
 export const manualTeamScoreNotes = [
-  "选手简介格式统一、指定投稿转发、视频内容质量、官方指定主题、直播时长40小时、TikTok账号开设这些项目目前没有表单字段，先作为人工确认项。",
+  "選手管理和チーム管理默认按满分录入，管理员可以在审核时人工减分并保存。",
+  "コンテンツ按 YouTube 30分、TikTok 15分、X 15分分别封顶计算；自动减分和人工减分都不会让单个板块低于0分。",
   "自动计算只使用审核通过的月数据；未审核通过的草稿、已提交、审核中、已驳回数据不会进入积分。",
+  "选手简介格式统一、指定投稿转发、视频内容质量、官方指定主题、直播时长40小时、TikTok账号开设这些项目仍作为人工确认项。",
 ];
+
+const sectionMaximums = {
+  playerManagement: 15,
+  teamManagement: 25,
+  youtube: 30,
+  tiktok: 15,
+  x: 15,
+} as const;
 
 export function buildTeamMonthlyScores(
   teams: TeamScoreTeam[],
   submissions: TeamScoreSubmission[],
-  month: string
+  month: string,
+  reviews: TeamScoreReview[] = []
 ): TeamMonthlyScore[] {
   const submissionsByTeam = new Map<string, TeamScoreSubmission[]>();
+  const reviewsByTeam = new Map<string, TeamScoreReview>();
 
   for (const submission of submissions) {
     if (submission.target_month !== month || submission.status !== "approved") {
@@ -72,6 +141,12 @@ export function buildTeamMonthlyScores(
     ]);
   }
 
+  for (const review of reviews) {
+    if (review.target_month === month) {
+      reviewsByTeam.set(review.team_id, review);
+    }
+  }
+
   return [...teams]
     .sort((left, right) =>
       getTeamShortName(left).localeCompare(getTeamShortName(right))
@@ -80,7 +155,8 @@ export function buildTeamMonthlyScores(
       calculateTeamMonthlyScore(
         team,
         submissionsByTeam.get(team.id) || [],
-        month
+        month,
+        reviewsByTeam.get(team.id)
       )
     );
 }
@@ -88,12 +164,16 @@ export function buildTeamMonthlyScores(
 function calculateTeamMonthlyScore(
   team: TeamScoreTeam,
   submissions: TeamScoreSubmission[],
-  month: string
+  month: string,
+  review: TeamScoreReview | undefined
 ): TeamMonthlyScore {
   const teamName = team.name || getTeamShortName(team);
   const shortName = getTeamShortName(team);
+  const reviewValues = normalizeReviewValues(review);
 
   if (submissions.length === 0) {
+    const sections = buildEmptySections(reviewValues);
+
     return {
       teamId: team.id,
       teamName,
@@ -103,6 +183,8 @@ function calculateTeamMonthlyScore(
       grade: "未提交",
       displayScore: "0（未提交）",
       deductions: [{ reason: "该月没有审核通过月数据", points: 100 }],
+      sections,
+      review: reviewValues,
       metrics: emptyMetrics(),
       hasApprovedData: false,
     };
@@ -141,11 +223,10 @@ function calculateTeamMonthlyScore(
       summary.total.youtubeStreamCount,
     totalShortPosts: summary.total.youtubeShortPostCount,
   };
-  const deductions = buildDeductions(metrics);
-  const score = Math.max(
-    0,
-    100 - deductions.reduce((sum, deduction) => sum + deduction.points, 0)
-  );
+
+  const sections = buildSections(metrics, reviewValues);
+  const deductions = sections.flatMap((section) => section.deductions);
+  const score = sections.reduce((sum, section) => sum + section.score, 0);
   const grade = getScoreGrade(score);
 
   return {
@@ -157,12 +238,196 @@ function calculateTeamMonthlyScore(
     grade,
     displayScore: `${score}（${grade}）`,
     deductions,
+    sections,
+    review: reviewValues,
     metrics,
     hasApprovedData: true,
   };
 }
 
-function buildDeductions(metrics: TeamMonthlyScore["metrics"]) {
+function buildSections(
+  metrics: TeamMonthlyScore["metrics"],
+  review: TeamScoreReviewValues
+): TeamScoreSection[] {
+  const youtubeAutoDeductions = buildYoutubeDeductions(metrics);
+  const tiktokAutoDeductions = buildTiktokDeductions(metrics);
+  const xAutoDeductions = buildXDeductions(metrics);
+
+  const youtube = buildContentSection({
+    key: "youtube",
+    label: "YouTube",
+    maxPoints: sectionMaximums.youtube,
+    autoDeductions: youtubeAutoDeductions,
+    manualDeduction: review.youtubeManualDeduction,
+    manualNote: review.youtubeManualNote,
+  });
+  const tiktok = buildContentSection({
+    key: "tiktok",
+    label: "TikTok / Shorts",
+    maxPoints: sectionMaximums.tiktok,
+    autoDeductions: tiktokAutoDeductions,
+    manualDeduction: review.tiktokManualDeduction,
+    manualNote: review.tiktokManualNote,
+  });
+  const x = buildContentSection({
+    key: "x",
+    label: "X",
+    maxPoints: sectionMaximums.x,
+    autoDeductions: xAutoDeductions,
+    manualDeduction: review.xManualDeduction,
+    manualNote: review.xManualNote,
+  });
+
+  return [
+    buildManualSection({
+      key: "playerManagement",
+      label: "選手管理",
+      maxPoints: sectionMaximums.playerManagement,
+      score: review.playerManagementScore,
+      note: review.playerManagementNote,
+    }),
+    buildManualSection({
+      key: "teamManagement",
+      label: "チーム管理",
+      maxPoints: sectionMaximums.teamManagement,
+      score: review.teamManagementScore,
+      note: review.teamManagementNote,
+    }),
+    youtube,
+    tiktok,
+    x,
+  ];
+}
+
+function buildManualSection({
+  key,
+  label,
+  maxPoints,
+  score,
+  note,
+}: {
+  key: TeamScoreSectionKey;
+  label: string;
+  maxPoints: number;
+  score: number;
+  note: string;
+}): TeamScoreSection {
+  const safeScore = clampNumber(score, 0, maxPoints);
+  const deductedPoints = maxPoints - safeScore;
+
+  return {
+    key,
+    label,
+    maxPoints,
+    score: safeScore,
+    autoScore: null,
+    note: note || null,
+    deductions:
+      deductedPoints > 0
+        ? [
+            {
+              reason: `${label}人工确认扣分${note ? `：${note}` : ""}`,
+              points: deductedPoints,
+            },
+          ]
+        : [],
+  };
+}
+
+function buildContentSection({
+  key,
+  label,
+  maxPoints,
+  autoDeductions,
+  manualDeduction,
+  manualNote,
+}: {
+  key: TeamScoreSectionKey;
+  label: string;
+  maxPoints: number;
+  autoDeductions: TeamScoreDeduction[];
+  manualDeduction: number;
+  manualNote: string;
+}): TeamScoreSection {
+  const cappedAutoDeduction = Math.min(
+    maxPoints,
+    autoDeductions.reduce((sum, deduction) => sum + deduction.points, 0)
+  );
+  const autoScore = Math.max(0, maxPoints - cappedAutoDeduction);
+  const effectiveManualDeduction = Math.min(
+    autoScore,
+    clampNumber(manualDeduction, 0, maxPoints)
+  );
+  const score = Math.max(0, autoScore - effectiveManualDeduction);
+  const deductions = [...autoDeductions];
+
+  if (effectiveManualDeduction > 0) {
+    deductions.push({
+      reason: `${label}人工确认扣分${manualNote ? `：${manualNote}` : ""}`,
+      points: effectiveManualDeduction,
+    });
+  }
+
+  return {
+    key,
+    label,
+    maxPoints,
+    score,
+    autoScore,
+    deductions,
+    note: manualNote || null,
+  };
+}
+
+function buildYoutubeDeductions(metrics: TeamMonthlyScore["metrics"]) {
+  const deductions: TeamScoreDeduction[] = [];
+
+  if (metrics.officialVideoPosts < 1) {
+    deductions.push({
+      reason: `チーム公式／部門アカウントの動画投稿未達（${formatMonthlyNumber(
+        metrics.officialVideoPosts
+      )}）`,
+      points: 10,
+    });
+  }
+
+  if (metrics.playerVideoPosters < 2 || metrics.totalVideosWithArchives < 22) {
+    deductions.push({
+      reason: `動画制作基準未達（2名以上選手投稿 ${formatMonthlyNumber(
+        metrics.playerVideoPosters
+      )}名 / 全体22本 ${formatMonthlyNumber(metrics.totalVideosWithArchives)}本）`,
+      points: 10,
+    });
+  }
+
+  if (metrics.playerStreamers < 3 || metrics.totalStreams < 20) {
+    deductions.push({
+      reason: `YouTube配信基準未達（3名以上配信 ${formatMonthlyNumber(
+        metrics.playerStreamers
+      )}名 / 全体20回 ${formatMonthlyNumber(metrics.totalStreams)}回）`,
+      points: 10,
+    });
+  }
+
+  return deductions;
+}
+
+function buildTiktokDeductions(metrics: TeamMonthlyScore["metrics"]) {
+  const deductions: TeamScoreDeduction[] = [];
+
+  if (metrics.totalShortPosts < 5) {
+    deductions.push({
+      reason: `ショート／TikTok投稿5本未満（${formatMonthlyNumber(
+        metrics.totalShortPosts
+      )}）`,
+      points: 10,
+    });
+  }
+
+  return deductions;
+}
+
+function buildXDeductions(metrics: TeamMonthlyScore["metrics"]) {
   const deductions: TeamScoreDeduction[] = [];
 
   if (metrics.totalTweets < 170 && metrics.totalImpressions < 4_000_000) {
@@ -176,62 +441,8 @@ function buildDeductions(metrics: TeamMonthlyScore["metrics"]) {
 
   if (metrics.officialTweets < 15) {
     deductions.push({
-      reason: `チームアカウントで月15本以上ツイート未満（${formatMonthlyNumber(
+      reason: `チーム公式アカウント月15本以上投稿未満（${formatMonthlyNumber(
         metrics.officialTweets
-      )}）`,
-      points: 5,
-    });
-  }
-
-  if (metrics.officialVideoPosts < 1) {
-    deductions.push({
-      reason: `部門アカウントは月1本以上の動画を投稿未満（${formatMonthlyNumber(
-        metrics.officialVideoPosts
-      )}）`,
-      points: 5,
-    });
-  }
-
-  if (metrics.playerVideoPosters < 2) {
-    deductions.push({
-      reason: `2名以上選手の動画投稿未満（${formatMonthlyNumber(
-        metrics.playerVideoPosters
-      )}名）`,
-      points: 5,
-    });
-  }
-
-  if (metrics.playerStreamers < 3) {
-    deductions.push({
-      reason: `3名以上選手の配信未満（${formatMonthlyNumber(
-        metrics.playerStreamers
-      )}名）`,
-      points: 5,
-    });
-  }
-
-  if (metrics.totalStreams < 20) {
-    deductions.push({
-      reason: `チーム全体で月20回以上の配信未満（${formatMonthlyNumber(
-        metrics.totalStreams
-      )}）`,
-      points: 10,
-    });
-  }
-
-  if (metrics.totalVideosWithArchives < 22) {
-    deductions.push({
-      reason: `チーム全体22本以上動画未満（${formatMonthlyNumber(
-        metrics.totalVideosWithArchives
-      )}）`,
-      points: 10,
-    });
-  }
-
-  if (metrics.totalShortPosts < 5) {
-    deductions.push({
-      reason: `ショート／TikTok投稿5本未満（${formatMonthlyNumber(
-        metrics.totalShortPosts
       )}）`,
       points: 5,
     });
@@ -249,15 +460,127 @@ function getScoreGrade(score: number) {
     return "A";
   }
 
-  if (score >= 80) {
+  if (score >= 75) {
     return "B";
   }
 
-  if (score >= 70) {
+  if (score >= 65) {
     return "C";
   }
 
   return "D";
+}
+
+function normalizeReviewValues(
+  review: TeamScoreReview | undefined
+): TeamScoreReviewValues {
+  return {
+    status: review?.status === "finalized" ? "finalized" : "draft",
+    playerManagementScore: boundedReviewNumber(
+      review?.player_management_score,
+      sectionMaximums.playerManagement,
+      sectionMaximums.playerManagement
+    ),
+    playerManagementNote: String(review?.player_management_note || ""),
+    teamManagementScore: boundedReviewNumber(
+      review?.team_management_score,
+      sectionMaximums.teamManagement,
+      sectionMaximums.teamManagement
+    ),
+    teamManagementNote: String(review?.team_management_note || ""),
+    youtubeManualDeduction: boundedReviewNumber(
+      review?.youtube_manual_deduction,
+      0,
+      sectionMaximums.youtube
+    ),
+    youtubeManualNote: String(review?.youtube_manual_note || ""),
+    tiktokManualDeduction: boundedReviewNumber(
+      review?.tiktok_manual_deduction,
+      0,
+      sectionMaximums.tiktok
+    ),
+    tiktokManualNote: String(review?.tiktok_manual_note || ""),
+    xManualDeduction: boundedReviewNumber(
+      review?.x_manual_deduction,
+      0,
+      sectionMaximums.x
+    ),
+    xManualNote: String(review?.x_manual_note || ""),
+    reviewerNote: String(review?.reviewer_note || ""),
+    finalizedAt: review?.finalized_at || null,
+  };
+}
+
+function boundedReviewNumber(
+  value: number | string | null | undefined,
+  defaultValue: number,
+  maxValue: number
+) {
+  const rawValue = String(value ?? "").trim();
+
+  if (!rawValue) {
+    return defaultValue;
+  }
+
+  return clampNumber(Number(rawValue), 0, maxValue);
+}
+
+function buildEmptySections(review: TeamScoreReviewValues): TeamScoreSection[] {
+  return [
+    {
+      key: "playerManagement",
+      label: "選手管理",
+      maxPoints: sectionMaximums.playerManagement,
+      score: 0,
+      autoScore: null,
+      deductions: [{ reason: "该月没有审核通过月数据", points: sectionMaximums.playerManagement }],
+      note: review.playerManagementNote || null,
+    },
+    {
+      key: "teamManagement",
+      label: "チーム管理",
+      maxPoints: sectionMaximums.teamManagement,
+      score: 0,
+      autoScore: null,
+      deductions: [{ reason: "该月没有审核通过月数据", points: sectionMaximums.teamManagement }],
+      note: review.teamManagementNote || null,
+    },
+    {
+      key: "youtube",
+      label: "YouTube",
+      maxPoints: sectionMaximums.youtube,
+      score: 0,
+      autoScore: 0,
+      deductions: [{ reason: "该月没有审核通过月数据", points: sectionMaximums.youtube }],
+      note: review.youtubeManualNote || null,
+    },
+    {
+      key: "tiktok",
+      label: "TikTok / Shorts",
+      maxPoints: sectionMaximums.tiktok,
+      score: 0,
+      autoScore: 0,
+      deductions: [{ reason: "该月没有审核通过月数据", points: sectionMaximums.tiktok }],
+      note: review.tiktokManualNote || null,
+    },
+    {
+      key: "x",
+      label: "X",
+      maxPoints: sectionMaximums.x,
+      score: 0,
+      autoScore: 0,
+      deductions: [{ reason: "该月没有审核通过月数据", points: sectionMaximums.x }],
+      note: review.xManualNote || null,
+    },
+  ];
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+
+  return Math.min(max, Math.max(min, Math.round(value)));
 }
 
 function emptyMetrics(): TeamMonthlyScore["metrics"] {

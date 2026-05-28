@@ -136,7 +136,7 @@ function XTotalPanel({ summary }: { summary: MonthlySummary }) {
       </div>
       <details className="border-t border-slate-700 bg-slate-950/50">
         <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-300">
-          查看本月 X 明细
+          查看期间 X 明细
         </summary>
         <MonthlyXDetailRows summary={summary} />
       </details>
@@ -157,7 +157,7 @@ function YoutubeTotalPanel({ summary }: { summary: MonthlySummary }) {
       </div>
       <details className="border-t border-slate-700 bg-slate-950/50">
         <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-300">
-          查看本月 YouTube 明细
+          查看期间 YouTube 明细
         </summary>
         <MonthlyYoutubeDetailRows summary={summary} />
       </details>

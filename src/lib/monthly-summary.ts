@@ -96,6 +96,45 @@ export function buildMonthlySummary(
   };
 }
 
+export function combineMonthlySummariesForPeriod(
+  month: string,
+  summaries: MonthlySummary[],
+  submissionCount = summaries.reduce((sum, summary) => sum + summary.submissionCount, 0)
+): MonthlySummary {
+  const summary = buildMonthlySummary(
+    month,
+    summaries.flatMap((item) => item.officialRows),
+    summaries.flatMap((item) => item.playerRows),
+    submissionCount
+  );
+  const latestSummary = [...summaries]
+    .sort((left, right) => left.month.localeCompare(right.month))
+    .at(-1);
+
+  if (!latestSummary) {
+    return summary;
+  }
+
+  return {
+    ...summary,
+    official: {
+      ...summary.official,
+      xFollowerCount: latestSummary.official.xFollowerCount,
+      youtubeSubscriberCount: latestSummary.official.youtubeSubscriberCount,
+    },
+    players: {
+      ...summary.players,
+      xFollowerCount: latestSummary.players.xFollowerCount,
+      youtubeSubscriberCount: latestSummary.players.youtubeSubscriberCount,
+    },
+    total: {
+      ...summary.total,
+      xFollowerCount: latestSummary.total.xFollowerCount,
+      youtubeSubscriberCount: latestSummary.total.youtubeSubscriberCount,
+    },
+  };
+}
+
 export function summarizeRows(rows: MonthlyPlayerRow[]): MonthlyAccountSummary {
   const xImpressions = sumRows(rows, "xImpressions");
   const xEngagements = sumRows(rows, "xEngagements");

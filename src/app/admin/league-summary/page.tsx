@@ -15,6 +15,7 @@ import type { MonthOption } from "@/lib/month-options";
 import {
   MonthlySummary,
   buildMonthlySummary,
+  combineMonthlySummariesForPeriod,
   formatMonthlyPercent,
   summarizeMonthlySubmissions,
 } from "@/lib/monthly-summary";
@@ -116,10 +117,9 @@ export default async function LeagueSummaryPage({
   const monthlySummaries = allMonthlySummaries.filter(
     (summary) => summary.month >= fromMonth && summary.month <= toMonth
   );
-  const periodSummary = buildMonthlySummary(
+  const periodSummary = combineMonthlySummariesForPeriod(
     "period",
-    monthlySummaries.flatMap((summary) => summary.officialRows),
-    monthlySummaries.flatMap((summary) => summary.playerRows),
+    monthlySummaries,
     rows.length
   );
   const byTeam = summarizeByTeam(rows);
@@ -297,9 +297,7 @@ function summarizeByTeam(rows: MonthlySubmissionRow[]): TeamSummaryRow[] {
     {
       team: string;
       shortName: string;
-      officialRows: MonthlySummary["officialRows"];
-      playerRows: MonthlySummary["playerRows"];
-      submissionCount: number;
+      summariesByMonth: Map<string, MonthlySummary>;
     }
   >();
 
@@ -308,32 +306,41 @@ function summarizeByTeam(rows: MonthlySubmissionRow[]): TeamSummaryRow[] {
     const current = groups.get(key) || {
       team: submission.teams?.name || "-",
       shortName: submission.teams?.short_name || "-",
-      officialRows: [],
-      playerRows: [],
-      submissionCount: 0,
+      summariesByMonth: new Map<string, MonthlySummary>(),
     };
     const splitRows = splitMonthlyRows(parseMonthlyPlayerRows(submission.player_rows));
+    const monthSummary = buildMonthlySummary(
+      submission.target_month,
+      splitRows.officialRow ? [splitRows.officialRow] : [],
+      splitRows.playerRows,
+      1
+    );
+    const existingSummary = current.summariesByMonth.get(submission.target_month);
 
-    if (splitRows.officialRow) {
-      current.officialRows.push(splitRows.officialRow);
-    }
-
-    current.playerRows.push(...splitRows.playerRows);
-    current.submissionCount += 1;
+    current.summariesByMonth.set(
+      submission.target_month,
+      existingSummary
+        ? combineMonthlySummariesForPeriod(submission.target_month, [
+            existingSummary,
+            monthSummary,
+          ])
+        : monthSummary
+    );
     groups.set(key, current);
   }
 
   return Array.from(groups.values())
-    .map((row) => ({
-      team: row.team,
-      shortName: row.shortName,
-      summary: buildMonthlySummary(
-        row.shortName,
-        row.officialRows,
-        row.playerRows,
-        row.submissionCount
-      ),
-    }))
+    .map((row) => {
+      const summaries = Array.from(row.summariesByMonth.values()).sort((left, right) =>
+        left.month.localeCompare(right.month)
+      );
+
+      return {
+        team: row.team,
+        shortName: row.shortName,
+        summary: combineMonthlySummariesForPeriod(row.shortName, summaries),
+      };
+    })
     .sort((left, right) => left.shortName.localeCompare(right.shortName));
 }
 
