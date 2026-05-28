@@ -58,6 +58,8 @@ async function runDiscordReminders(request: Request) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const url = new URL(request.url);
+  const dryRun = isDryRunRequest(url);
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -144,6 +146,7 @@ async function runDiscordReminders(request: Request) {
 
   const results = {
     sent: 0,
+    wouldSend: 0,
     skipped: 0,
     failed: 0,
     missingWebhookTeams:
@@ -181,6 +184,7 @@ async function runDiscordReminders(request: Request) {
         targetMonth: setting.target_month,
         reminderKey: schedule.reminderKey,
         content,
+        dryRun,
       });
 
       results[result] += 1;
@@ -221,13 +225,14 @@ async function runDiscordReminders(request: Request) {
         targetMonth: null,
         reminderKey: schedule.reminderKey,
         content,
+        dryRun,
       });
 
       results[result] += 1;
     }
   }
 
-  return Response.json({ ok: true, today: todayKey, ...results });
+  return Response.json({ ok: true, dryRun, today: todayKey, ...results });
 }
 
 async function loadMonthlySubmissions(
@@ -276,6 +281,7 @@ async function sendReminderOnce({
   targetMonth,
   reminderKey,
   content,
+  dryRun,
 }: {
   supabase: SupabaseClient;
   team: TeamRow;
@@ -284,7 +290,8 @@ async function sendReminderOnce({
   targetMonth: string | null;
   reminderKey: string;
   content: string;
-}): Promise<"sent" | "skipped" | "failed"> {
+  dryRun: boolean;
+}): Promise<"sent" | "wouldSend" | "skipped" | "failed"> {
   const { data: existing, error: existingError } = await supabase
     .from("discord_reminder_logs")
     .select("id")
@@ -300,6 +307,10 @@ async function sendReminderOnce({
 
   if (existing) {
     return "skipped";
+  }
+
+  if (dryRun) {
+    return "wouldSend";
   }
 
   let ok = false;
@@ -467,6 +478,14 @@ function isAuthorized(request: Request) {
     request.headers.get("authorization") === `Bearer ${secret}` ||
     url.searchParams.get("secret") === secret
   );
+}
+
+function isDryRunRequest(url: URL) {
+  const value = (url.searchParams.get("dry_run") || url.searchParams.get("dryRun") || "")
+    .trim()
+    .toLowerCase();
+
+  return value === "1" || value === "true" || value === "yes";
 }
 
 function formatTeamName(team: TeamRow) {
