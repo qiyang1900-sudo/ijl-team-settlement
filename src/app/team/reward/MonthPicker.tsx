@@ -84,7 +84,7 @@ export default function MonthPicker({
       </div>
 
       <p className="mt-3 text-xs text-slate-500">
-        表示される選手名单は管理者側の選手管理と連動します。
+        表示される選手リストは管理者側の選手管理と連動します。
       </p>
     </section>
   );
