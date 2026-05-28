@@ -19,6 +19,10 @@ function buildMonthOptions(selectedMonth: string) {
   const currentMonth = getCurrentMonth();
   const months = new Set<string>([selectedMonth, currentMonth]);
 
+  for (let index = 1; index <= 6; index += 1) {
+    months.add(addMonths(currentMonth, index));
+  }
+
   for (let index = 0; index < 12; index += 1) {
     months.add(addMonths(currentMonth, -index));
   }
@@ -60,7 +64,8 @@ export default function MonthPicker({
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="text-sm font-bold">対象月を選択</h2>
       <p className="mt-1 text-xs leading-5 text-slate-500">
-        毎月1日に当月分の入力枠が自動で表示されます。未提出の過去月もここから補足できます。
+        管理者が月別選手リストを先に発行した月は、未来月もここから入力できます。
+        未提出の過去月も補足できます。
       </p>
 
       <div className="mt-3 flex gap-2">

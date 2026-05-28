@@ -133,88 +133,11 @@ export default function MonthlyDataForm({
         </div>
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h2 className="text-lg font-bold">① 選手・選手給与</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              選手一覧は管理者が設定した当月の選手リストから自動反映されます。
-            </p>
-          </div>
-        </div>
-
-        {players.length === 0 ? (
-          <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-            この月の選手リストがまだ設定されていません。管理者に確認してください。
-          </div>
-        ) : null}
-
-        <div className="mt-5 space-y-4">
-          {players.map((player, index) => (
-            <div
-              key={player.id}
-              className="rounded-lg border border-slate-200 bg-slate-50 p-4"
-            >
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] md:items-end">
-                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                  <p className="text-xs font-semibold text-slate-500">
-                    選手名 {index + 1}
-                  </p>
-                  <p className="mt-1 font-semibold text-slate-950">
-                    {player.playerName || "-"}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {[
-                      player.playerReading,
-                      toJapanesePlayerMeta(player.playerPosition),
-                      toJapanesePlayerMeta(player.playerRole),
-                    ]
-                      .filter(Boolean)
-                      .join(" / ") || "管理者設定"}
-                  </p>
-                </div>
-                <Field
-                  label="選手給与"
-                  value={player.salaryAmount}
-                  onChange={(value) =>
-                    updatePlayer(index, "salaryAmount", value)
-                  }
-                  disabled={isLocked}
-                  type="number"
-                  min="0"
-                />
-                <label className="block">
-                  <span className="text-xs font-semibold text-slate-500">
-                    給与スクリーンショット
-                  </span>
-                  <input
-                    type="file"
-                    name={`salary_screenshot_${index}`}
-                    accept="image/*"
-                    disabled={isLocked}
-                    className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
-                  />
-                  {player.salaryScreenshotName ? (
-                    player.salaryScreenshotUrl ? (
-                      <a
-                        href={player.salaryScreenshotUrl}
-                        target="_blank"
-                        className="mt-1 block text-xs font-semibold text-sky-700 underline"
-                      >
-                        登録済み画像を開く
-                      </a>
-                    ) : (
-                      <span className="mt-1 block text-xs text-slate-500">
-                        登録済み：{player.salaryScreenshotName}
-                      </span>
-                    )
-                  ) : null}
-                </label>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+      <SalarySection
+        players={players}
+        updatePlayer={updatePlayer}
+        disabled={isLocked}
+      />
 
       <MetricSection
         title="② X"
@@ -381,32 +304,112 @@ function MetricSection({
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
+function SalarySection({
+  players,
+  updatePlayer,
   disabled,
-  type = "text",
-  min,
 }: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
+  players: MonthlyPlayerRow[];
+  updatePlayer: (index: number, key: PlayerField, value: string) => void;
   disabled: boolean;
-  type?: string;
-  min?: string;
 }) {
   return (
-    <label className="block">
-      <span className="text-xs font-semibold text-slate-500">{label}</span>
-      <input
-        type={type}
-        min={min}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        disabled={disabled}
-        className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900 disabled:bg-slate-100"
-      />
-    </label>
+    <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-bold">① 選手・選手給与</h2>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            選手一覧は管理者が設定した当月の選手リストから自動反映されます。
+          </p>
+        </div>
+        <span className="text-xs font-semibold text-slate-400">
+          {players.length}名
+        </span>
+      </div>
+
+      {players.length === 0 ? (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          この月の選手リストがまだ設定されていません。管理者に確認してください。
+        </div>
+      ) : null}
+
+      {players.length > 0 ? (
+        <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+            <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
+              <tr>
+                <th className="sticky left-0 z-10 w-44 min-w-44 border-r border-slate-200 bg-slate-50 px-3 py-2">
+                  選手
+                </th>
+                <th className="w-36 px-2 py-2">給与</th>
+                <th className="w-64 px-2 py-2">給与スクリーンショット</th>
+                <th className="w-44 px-2 py-2">登録済み画像</th>
+              </tr>
+            </thead>
+            <tbody>
+              {players.map((player, index) => (
+                <tr key={player.id} className="border-t border-slate-200">
+                  <th className="sticky left-0 z-10 w-44 min-w-44 border-r border-slate-200 bg-white px-3 py-2 align-middle">
+                    <span className="block truncate text-sm font-semibold text-slate-950">
+                      {player.playerName || `選手 ${index + 1}`}
+                    </span>
+                    <span className="block truncate text-xs font-normal text-slate-400">
+                      {[
+                        player.playerReading,
+                        toJapanesePlayerMeta(player.playerPosition),
+                        toJapanesePlayerMeta(player.playerRole),
+                      ]
+                        .filter(Boolean)
+                        .join(" / ") || "管理者設定"}
+                    </span>
+                  </th>
+                  <td className="w-36 px-2 py-2">
+                    <input
+                      type="number"
+                      min="0"
+                      value={player.salaryAmount}
+                      onChange={(event) =>
+                        updatePlayer(index, "salaryAmount", event.target.value)
+                      }
+                      disabled={disabled}
+                      aria-label={`${player.playerName || `選手 ${index + 1}`} 選手給与`}
+                      className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm outline-none focus:border-slate-900 disabled:bg-slate-100"
+                    />
+                  </td>
+                  <td className="w-64 px-2 py-2">
+                    <input
+                      type="file"
+                      name={`salary_screenshot_${index}`}
+                      accept="image/*"
+                      disabled={disabled}
+                      className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs disabled:bg-slate-100"
+                    />
+                  </td>
+                  <td className="w-44 px-2 py-2 text-xs">
+                    {player.salaryScreenshotName ? (
+                      player.salaryScreenshotUrl ? (
+                        <a
+                          href={player.salaryScreenshotUrl}
+                          target="_blank"
+                          className="font-semibold text-sky-700 underline"
+                        >
+                          画像を開く
+                        </a>
+                      ) : (
+                        <span className="text-slate-500">
+                          {player.salaryScreenshotName}
+                        </span>
+                      )
+                    ) : (
+                      <span className="text-slate-400">-</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </section>
   );
 }

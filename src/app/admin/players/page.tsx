@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getPlayerDisplayName } from "@/lib/player-display";
 import PlayerTeamSelect from "./PlayerTeamSelect";
+import RosterSyncPanel from "./RosterSyncPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,48 @@ type PlayerRow = {
   is_active: boolean | null;
   teams: TeamRow | null;
 };
+
+type MonthOption = {
+  value: string;
+  label: string;
+};
+
+function getCurrentMonthValue() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function addMonths(monthValue: string, offset: number) {
+  const [year, month] = monthValue.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1 + offset, 1));
+  const nextYear = date.getUTCFullYear();
+  const nextMonth = String(date.getUTCMonth() + 1).padStart(2, "0");
+
+  return `${nextYear}-${nextMonth}`;
+}
+
+function formatMonthLabel(monthValue: string) {
+  const [year, month] = monthValue.split("-");
+
+  return `${year}年${month}月`;
+}
+
+function buildMonthOptions(): MonthOption[] {
+  const currentMonth = getCurrentMonthValue();
+  const months = new Set<string>([currentMonth]);
+
+  for (let index = 1; index <= 12; index += 1) {
+    months.add(addMonths(currentMonth, index));
+  }
+
+  for (let index = 1; index <= 6; index += 1) {
+    months.add(addMonths(currentMonth, -index));
+  }
+
+  return Array.from(months)
+    .sort()
+    .reverse()
+    .map((value) => ({ value, label: formatMonthLabel(value) }));
+}
 
 async function updatePlayerTeam(formData: FormData) {
   "use server";
@@ -118,10 +161,15 @@ async function syncCurrentRosterToMonth(formData: FormData) {
     }
   }
 
-  redirect("/admin/players");
+  redirect(`/admin/players?synced_month=${encodeURIComponent(targetMonth)}`);
 }
 
-export default async function AdminPlayersPage() {
+export default async function AdminPlayersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ synced_month?: string }>;
+}) {
+  const { synced_month: syncedMonth } = await searchParams;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -170,6 +218,8 @@ export default async function AdminPlayersPage() {
     players: safePlayers.filter((player) => player.current_team_id === team.id),
   }));
   const freePlayers = safePlayers.filter((player) => !player.current_team_id);
+  const currentMonth = getCurrentMonthValue();
+  const monthOptions = buildMonthOptions();
 
   return (
     <main className="min-h-screen bg-slate-950 p-8 text-white">
@@ -211,32 +261,22 @@ export default async function AdminPlayersPage() {
               <Stat label="战队数" value={safeTeams.length} />
             </div>
 
-            <section className="mt-6 rounded-xl border border-slate-700 bg-slate-900 p-5">
-              <h2 className="text-xl font-bold">月别名单生成</h2>
-              <p className="mt-2 text-sm text-slate-400">
-                转会期后先用下拉框调整选手所属俱乐部，再把当前名单同步为指定月份名单。
-              </p>
-              <form
-                action={syncCurrentRosterToMonth}
-                className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end"
-              >
-                <label className="block text-sm text-slate-300">
-                  目标月份
-                  <input
-                    type="month"
-                    name="target_month"
-                    defaultValue={new Date().toISOString().slice(0, 7)}
-                    className="mt-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white"
-                  />
-                </label>
-                <button className="rounded-lg bg-indigo-400 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-indigo-300">
-                  按当前所属生成本月名单
-                </button>
-              </form>
-            </section>
+            <RosterSyncPanel
+              action={syncCurrentRosterToMonth}
+              monthOptions={monthOptions}
+              defaultMonth={currentMonth}
+              syncedMonth={syncedMonth}
+            />
 
-            <section className="mt-6 overflow-hidden rounded-xl border border-slate-700">
-              <table className="w-full min-w-[900px] border-collapse bg-slate-900 text-left text-sm">
+            <section className="mt-6 rounded-xl border border-slate-700 bg-slate-900">
+              <div className="flex items-center justify-between gap-3 border-b border-slate-700 px-4 py-3">
+                <h2 className="text-xl font-bold">选手大名单</h2>
+                <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">
+                  {safePlayers.length} 名
+                </span>
+              </div>
+              <div className="max-h-[560px] overflow-auto">
+                <table className="w-full min-w-[900px] border-collapse bg-slate-900 text-left text-sm">
                 <thead className="bg-slate-800 text-slate-300">
                   <tr>
                     <th className="px-4 py-3">选手名</th>
@@ -278,9 +318,14 @@ export default async function AdminPlayersPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </section>
 
-            <section className="mt-6 grid gap-4 lg:grid-cols-2">
+            <details className="mt-6 rounded-xl border border-slate-700 bg-slate-900 p-4">
+              <summary className="cursor-pointer select-none text-lg font-bold">
+                按俱乐部分组查看
+              </summary>
+              <section className="mt-4 grid gap-4 lg:grid-cols-2">
               {groupedPlayers.map(({ team, players: teamPlayers }) => (
                 <div
                   key={team.id}
@@ -310,7 +355,8 @@ export default async function AdminPlayersPage() {
                   </div>
                 </div>
               ))}
-            </section>
+              </section>
+            </details>
           </>
         )}
       </div>
