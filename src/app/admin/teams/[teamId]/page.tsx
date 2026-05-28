@@ -5,8 +5,15 @@ import {
   formatMonthLabel,
   getMonthlyAdminStatusLabel,
 } from "@/lib/monthly-data";
-import { buildMonthOptions } from "@/lib/month-options";
-import { summarizeMonthlySubmissions } from "@/lib/monthly-summary";
+import {
+  buildMonthOptions,
+  getCurrentMonthValue,
+  normalizeMonthRange,
+} from "@/lib/month-options";
+import {
+  combineMonthlySummariesForPeriod,
+  summarizeMonthlySubmissions,
+} from "@/lib/monthly-summary";
 import { getPlayerDisplayName } from "@/lib/player-display";
 import { getAdminStatusLabel, isApprovedLike, isWaitingReview } from "@/lib/status-labels";
 import PlayerTeamSelect from "../../players/PlayerTeamSelect";
@@ -104,10 +111,10 @@ export default async function AdminTeamDetailPage({
   searchParams,
 }: {
   params: Promise<{ teamId: string }>;
-  searchParams: Promise<{ month?: string; year?: string }>;
+  searchParams: Promise<{ from?: string; to?: string }>;
 }) {
   const { teamId } = await params;
-  const { month, year } = await searchParams;
+  const { from, to } = await searchParams;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -190,8 +197,8 @@ export default async function AdminTeamDetailPage({
   const safePlayers = (players || []) as unknown as PlayerRow[];
   const safeSubmissions = (submissions || []) as MonthlySubmissionRow[];
   const safeProjectTeams = (projectTeams || []) as unknown as ProjectTeamRow[];
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  const currentYear = new Date().getFullYear().toString();
+  const currentMonth = getCurrentMonthValue();
+  const currentYear = currentMonth.slice(0, 4);
   const currentSubmission = safeSubmissions.find(
     (submission) => submission.target_month === currentMonth
   );
@@ -204,28 +211,30 @@ export default async function AdminTeamDetailPage({
     (submission) => submission.status === "approved"
   );
   const monthlyStats = summarizeMonthlySubmissions(approvedSubmissions);
-  const yearOptions = buildYearOptions(monthlyStats.map((row) => row.month), currentYear);
-  const selectedYear =
-    year && yearOptions.includes(year)
-      ? year
-      : yearOptions.includes(currentYear)
-        ? currentYear
-        : yearOptions.at(-1) || currentYear;
-  const yearlyMonthlyStats = monthlyStats.filter((row) =>
-    row.month.startsWith(selectedYear)
+  const { fromMonth, toMonth } = normalizeMonthRange({
+    from,
+    to,
+    availableMonths: monthlyStats.map((row) => row.month),
+    maxMonth: currentMonth,
+  });
+  const filteredMonthlyStats = monthlyStats.filter(
+    (row) => row.month >= fromMonth && row.month <= toMonth
   );
-  const selectedMonth =
-    month && yearlyMonthlyStats.some((row) => row.month === month)
-      ? month
-      : yearlyMonthlyStats.some((row) => row.month === currentMonth)
-        ? currentMonth
-        : yearlyMonthlyStats.at(-1)?.month ||
-          `${selectedYear}-${selectedYear === currentYear ? currentMonth.slice(5) : "12"}`;
   const selectedSummary =
-    yearlyMonthlyStats.find((row) => row.month === selectedMonth) || null;
+    filteredMonthlyStats.length > 0
+      ? combineMonthlySummariesForPeriod(
+          "period",
+          filteredMonthlyStats,
+          filteredMonthlyStats.reduce((sum, row) => sum + row.submissionCount, 0)
+        )
+      : null;
   const monthOptions = buildMonthOptions(
-    yearlyMonthlyStats.map((row) => row.month),
-    { includeRelativeMonths: false, includeCurrentMonth: false }
+    monthlyStats.map((row) => row.month),
+    {
+      includeRelativeMonths: false,
+      includeCurrentMonth: false,
+      maxMonth: currentMonth,
+    }
   );
 
   return (
@@ -346,24 +355,10 @@ export default async function AdminTeamDetailPage({
             </div>
             <form className="flex flex-col gap-2 sm:flex-row sm:items-end">
               <label className="text-sm text-slate-300">
-                查看年份
+                开始月份
                 <select
-                  name="year"
-                  defaultValue={selectedYear}
-                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white sm:w-32"
-                >
-                  {yearOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}年
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-sm text-slate-300">
-                查看月份
-                <select
-                  name="month"
-                  defaultValue={selectedMonth}
+                  name="from"
+                  defaultValue={fromMonth}
                   className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white sm:w-44"
                 >
                   {monthOptions.length > 0 ? (
@@ -373,8 +368,28 @@ export default async function AdminTeamDetailPage({
                       </option>
                     ))
                   ) : (
-                    <option value={selectedMonth}>
-                      {formatMonthLabel(selectedMonth)}
+                    <option value={fromMonth}>
+                      {formatMonthLabel(fromMonth)}
+                    </option>
+                  )}
+                </select>
+              </label>
+              <label className="text-sm text-slate-300">
+                结束月份
+                <select
+                  name="to"
+                  defaultValue={toMonth}
+                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white sm:w-44"
+                >
+                  {monthOptions.length > 0 ? (
+                    monthOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))
+                  ) : (
+                    <option value={toMonth}>
+                      {formatMonthLabel(toMonth)}
                     </option>
                   )}
                 </select>
@@ -387,7 +402,7 @@ export default async function AdminTeamDetailPage({
 
           <TeamMonthlyDataTabs
             selectedSummary={selectedSummary}
-            monthlyStats={yearlyMonthlyStats}
+            monthlyStats={filteredMonthlyStats}
           />
         </section>
 
@@ -498,17 +513,4 @@ function summarizeMonthlyRows(rows: MonthlySubmissionRow[], currentMonth: string
       ? getMonthlyAdminStatusLabel(currentSubmission.status)
       : "未提交",
   };
-}
-
-function buildYearOptions(months: string[], currentYear: string) {
-  const years = Array.from(
-    new Set([
-      currentYear,
-      ...months
-        .map((month) => month.slice(0, 4))
-        .filter((year) => /^\d{4}$/.test(year)),
-    ])
-  ).sort();
-
-  return years;
 }

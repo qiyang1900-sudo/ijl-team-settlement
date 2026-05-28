@@ -11,7 +11,7 @@ import {
 import { getCurrentMonthValue } from "@/lib/month-options";
 import {
   MonthlySummary,
-  buildMonthlySummary,
+  combineMonthlySummariesForPeriod,
   formatMonthlyPercent,
   summarizeMonthlySubmissions,
 } from "@/lib/monthly-summary";
@@ -236,10 +236,9 @@ function buildSummarySheet(
 }
 
 function buildPeriodTotalRows(monthlySummaries: MonthlySummary[]): SheetRow[] {
-  const summary = buildMonthlySummary(
+  const summary = combineMonthlySummariesForPeriod(
     "period",
-    monthlySummaries.flatMap((row) => row.officialRows),
-    monthlySummaries.flatMap((row) => row.playerRows),
+    monthlySummaries,
     monthlySummaries.reduce((sum, row) => sum + row.submissionCount, 0)
   );
   const metrics = [
