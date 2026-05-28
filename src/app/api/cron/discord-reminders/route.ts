@@ -1,9 +1,12 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getMonthlyStatusLabel, normalizeMonthlyStatus } from "@/lib/monthly-data";
 import {
-  formatMonthLabel,
-  getMonthlyStatusLabel,
-  normalizeMonthlyStatus,
-} from "@/lib/monthly-data";
+  buildSubmissionReminderMessage,
+  formatReminderMonth,
+  getTokyoDateKey,
+  getTokyoDayDiff,
+  sendDiscordReminderOnce,
+} from "@/lib/discord-reminders";
 
 export const dynamic = "force-dynamic";
 
@@ -149,6 +152,7 @@ async function runDiscordReminders(request: Request) {
     wouldSend: 0,
     skipped: 0,
     failed: 0,
+    missingWebhook: 0,
     missingWebhookTeams:
       ((teams || []) as TeamRow[]).filter(
         (team) => team.is_active !== false && !team.discord_webhook_url
@@ -173,10 +177,9 @@ async function runDiscordReminders(request: Request) {
       const content = buildMonthlyReminderMessage({
         team,
         setting,
-        schedule,
         status,
       });
-      const result = await sendReminderOnce({
+      const result = await sendDiscordReminderOnce({
         supabase,
         team,
         reminderType: "monthly_data",
@@ -214,10 +217,9 @@ async function runDiscordReminders(request: Request) {
       const content = buildProjectReminderMessage({
         team,
         project,
-        schedule,
         status,
       });
-      const result = await sendReminderOnce({
+      const result = await sendDiscordReminderOnce({
         supabase,
         team,
         reminderType: "project_submission",
@@ -273,134 +275,42 @@ async function loadProjectTeams(
   return (data || []) as ProjectTeamRow[];
 }
 
-async function sendReminderOnce({
-  supabase,
-  team,
-  reminderType,
-  itemId,
-  targetMonth,
-  reminderKey,
-  content,
-  dryRun,
-}: {
-  supabase: SupabaseClient;
-  team: TeamRow;
-  reminderType: string;
-  itemId: string;
-  targetMonth: string | null;
-  reminderKey: string;
-  content: string;
-  dryRun: boolean;
-}): Promise<"sent" | "wouldSend" | "skipped" | "failed"> {
-  const { data: existing, error: existingError } = await supabase
-    .from("discord_reminder_logs")
-    .select("id")
-    .eq("team_id", team.id)
-    .eq("reminder_type", reminderType)
-    .eq("item_id", itemId)
-    .eq("reminder_key", reminderKey)
-    .maybeSingle();
-
-  if (existingError) {
-    return "failed";
-  }
-
-  if (existing) {
-    return "skipped";
-  }
-
-  if (dryRun) {
-    return "wouldSend";
-  }
-
-  let ok = false;
-  let errorMessage: string | null = null;
-
-  try {
-    const response = await fetch(String(team.discord_webhook_url), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ content }),
-    });
-    ok = response.ok;
-    errorMessage = ok ? null : await response.text();
-  } catch (error) {
-    errorMessage =
-      error instanceof Error ? error.message : "Discord webhook request failed.";
-  }
-
-  const { error: logError } = await supabase.from("discord_reminder_logs").insert({
-    team_id: team.id,
-    reminder_type: reminderType,
-    item_id: itemId,
-    target_month: targetMonth,
-    reminder_key: reminderKey,
-    message: content,
-    delivery_status: ok ? "sent" : "failed",
-    error_message: errorMessage,
-    sent_at: new Date().toISOString(),
-  });
-
-  if (logError) {
-    return "failed";
-  }
-
-  return ok ? "sent" : "failed";
-}
-
 function buildMonthlyReminderMessage({
   team,
   setting,
-  schedule,
   status,
 }: {
   team: TeamRow;
   setting: MonthlySettingRow;
-  schedule: ReminderSchedule;
   status?: string;
 }) {
-  const mention = team.discord_mention_text?.trim();
   const statusText = status ? getMonthlyStatusLabel(status) : "未提出";
 
-  return [
-    mention,
-    `【月データ提出リマインド】${formatTeamName(team)} ${formatMonthLabel(
-      setting.target_month
-    )} の月データ提出が必要です。`,
-    `提出期限：${formatDateTime(setting.deadline_at)}`,
-    `現在の状態：${statusText}`,
-    `対象：X、YouTube、選手給与、クラブ活動`,
-    schedule.label,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  return buildSubmissionReminderMessage({
+    team,
+    targetLabel: `${formatReminderMonth(setting.target_month)}月データ`,
+    deadlineAt: setting.deadline_at,
+    statusLabel: statusText,
+  });
 }
 
 function buildProjectReminderMessage({
   team,
   project,
-  schedule,
   status,
 }: {
   team: TeamRow;
   project: ProjectRow;
-  schedule: ReminderSchedule;
   status?: string;
 }) {
-  const mention = team.discord_mention_text?.trim();
-  const statusText = status ? formatProjectStatus(status) : "未提交";
+  const statusText = formatProjectReminderStatus(status);
 
-  return [
-    mention,
-    `【提出物リマインド】${formatTeamName(team)}「${
-      project.title || "提出物"
-    }」の提出が必要です。`,
-    `提出期限：${formatDateTime(project.deadline_at)}`,
-    `現在の状態：${statusText}`,
-    schedule.label,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  return buildSubmissionReminderMessage({
+    team,
+    targetLabel: project.title || "提出物",
+    deadlineAt: project.deadline_at,
+    statusLabel: statusText,
+  });
 }
 
 function getReminderSchedule(
@@ -462,7 +372,14 @@ function isMonthlySubmissionDone(status?: string) {
 }
 
 function isProjectSubmissionDone(status?: string) {
-  return ["submitted", "reviewing", "approved"].includes(String(status || ""));
+  return [
+    "submitted",
+    "reviewing",
+    "approved",
+    "resubmitted",
+    "pending",
+    "pending_review",
+  ].includes(String(status || ""));
 }
 
 function isAuthorized(request: Request) {
@@ -488,58 +405,16 @@ function isDryRunRequest(url: URL) {
   return value === "1" || value === "true" || value === "yes";
 }
 
-function formatTeamName(team: TeamRow) {
-  return team.short_name || team.name || "戦隊";
-}
-
-function formatProjectStatus(status: string) {
+function formatProjectReminderStatus(status?: string) {
   const labels: Record<string, string> = {
-    not_submitted: "未提交",
-    draft: "草稿",
-    submitted: "已提交",
-    reviewing: "审核中",
-    returned: "已驳回需补充",
-    approved: "已通过",
+    not_submitted: "未提出",
+    draft: "未提出",
+    submitted: "提出済み",
+    reviewing: "審査中",
+    returned: "差し戻し（再提出待ち）",
+    resubmitted: "再提出済み",
+    approved: "承認済み",
   };
 
-  return labels[status] || status || "未提交";
-}
-
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Intl.DateTimeFormat("ja-JP", {
-    timeZone: "Asia/Tokyo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
-function getTokyoDateKey(date: Date) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Tokyo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date);
-  const year = parts.find((part) => part.type === "year")?.value || "1970";
-  const month = parts.find((part) => part.type === "month")?.value || "01";
-  const day = parts.find((part) => part.type === "day")?.value || "01";
-
-  return `${year}-${month}-${day}`;
-}
-
-function getTokyoDayDiff(from: Date, to: Date) {
-  return toUtcDayNumber(to) - toUtcDayNumber(from);
-}
-
-function toUtcDayNumber(date: Date) {
-  const [year, month, day] = getTokyoDateKey(date).split("-").map(Number);
-
-  return Math.floor(Date.UTC(year, month - 1, day) / 86400000);
+  return labels[String(status || "")] || "未提出";
 }
