@@ -74,10 +74,15 @@ async function updateTeam(formData: FormData) {
     throw new Error(error.message);
   }
 
-  redirect("/admin/teams");
+  redirect("/admin/teams?saved=1");
 }
 
-export default async function AdminTeamsPage() {
+export default async function AdminTeamsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ saved?: string }>;
+}) {
+  const { saved } = await searchParams;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -152,96 +157,104 @@ export default async function AdminTeamsPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-slate-700">
-            <table className="w-full min-w-[1040px] border-collapse bg-slate-900 text-left text-sm">
-              <thead className="bg-slate-800 text-slate-300">
-                <tr>
-                  <th className="px-4 py-3">战队名</th>
-                  <th className="px-4 py-3">简称</th>
-                  <th className="px-4 py-3">负责人</th>
-                  <th className="px-4 py-3">项目提交</th>
-                  <th className="px-4 py-3">月数据</th>
-                  <th className="px-4 py-3">状态</th>
-                  <th className="px-4 py-3">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {safeTeams.map((team) => {
-                  const projectSummary = summarizeProjectProgress(
-                    safeProjectTeams.filter((row) => row.team_id === team.id)
-                  );
-                  const monthlySummary = summarizeMonthlyProgress(
-                    safeMonthlySubmissions.filter((row) => row.team_id === team.id),
-                    currentMonth
-                  );
+          <>
+            {saved === "1" ? (
+              <div className="mb-5 rounded-xl border border-emerald-400/50 bg-emerald-950/40 px-4 py-3 text-sm font-semibold text-emerald-100">
+                战队信息已保存。
+              </div>
+            ) : null}
 
-                  return (
-                    <tr key={team.id} className="border-t border-slate-700">
-                      <td className="px-4 py-3 font-medium">
-                        <Link
-                          href={`/admin/teams/${team.id}`}
-                          className="hover:text-sky-300 hover:underline"
-                        >
-                          {team.name}
-                        </Link>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {team.contact_email || "-"}
-                        </p>
-                      </td>
-                      <td className="px-4 py-3 text-slate-300">
-                        {team.short_name || "-"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-300">
-                        {team.contact_name || "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1.5">
-                          <ProgressChip label="总数" value={projectSummary.total} />
-                          <ProgressChip label="待审" value={projectSummary.waiting} tone="amber" />
-                          <ProgressChip label="退回" value={projectSummary.returned} tone="rose" />
-                          <ProgressChip label="通过" value={projectSummary.approved} tone="emerald" />
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <p className="text-xs text-slate-500">本月</p>
-                        <p className="mt-1 font-semibold text-slate-200">
-                          {monthlySummary.currentStatus}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          已有 {monthlySummary.total} 个月数据 / 通过 {monthlySummary.approved} 月
-                        </p>
-                      </td>
-                      <td className="px-4 py-3">
-                        {team.is_active ? (
-                          <span className="rounded-full bg-green-950 px-3 py-1 text-green-300">
-                            启用
-                          </span>
-                        ) : (
-                          <span className="rounded-full bg-slate-700 px-3 py-1 text-slate-300">
-                            停用
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-2">
+            <div className="overflow-hidden rounded-xl border border-slate-700">
+              <table className="w-full min-w-[1040px] border-collapse bg-slate-900 text-left text-sm">
+                <thead className="bg-slate-800 text-slate-300">
+                  <tr>
+                    <th className="px-4 py-3">战队名</th>
+                    <th className="px-4 py-3">简称</th>
+                    <th className="px-4 py-3">负责人</th>
+                    <th className="px-4 py-3">项目提交</th>
+                    <th className="px-4 py-3">月数据</th>
+                    <th className="px-4 py-3">状态</th>
+                    <th className="px-4 py-3">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {safeTeams.map((team) => {
+                    const projectSummary = summarizeProjectProgress(
+                      safeProjectTeams.filter((row) => row.team_id === team.id)
+                    );
+                    const monthlySummary = summarizeMonthlyProgress(
+                      safeMonthlySubmissions.filter((row) => row.team_id === team.id),
+                      currentMonth
+                    );
+
+                    return (
+                      <tr key={team.id} className="border-t border-slate-700">
+                        <td className="px-4 py-3 font-medium">
                           <Link
                             href={`/admin/teams/${team.id}`}
-                            className="rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                            className="hover:text-sky-300 hover:underline"
                           >
-                            查看详情
+                            {team.name}
                           </Link>
-                          <TeamEditDialog
-                            team={team}
-                            updateTeamAction={updateTeam}
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {team.contact_email || "-"}
+                          </p>
+                        </td>
+                        <td className="px-4 py-3 text-slate-300">
+                          {team.short_name || "-"}
+                        </td>
+                        <td className="px-4 py-3 text-slate-300">
+                          {team.contact_name || "-"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-1.5">
+                            <ProgressChip label="总数" value={projectSummary.total} />
+                            <ProgressChip label="待审" value={projectSummary.waiting} tone="amber" />
+                            <ProgressChip label="退回" value={projectSummary.returned} tone="rose" />
+                            <ProgressChip label="通过" value={projectSummary.approved} tone="emerald" />
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <p className="text-xs text-slate-500">本月</p>
+                          <p className="mt-1 font-semibold text-slate-200">
+                            {monthlySummary.currentStatus}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            已有 {monthlySummary.total} 个月数据 / 通过 {monthlySummary.approved} 月
+                          </p>
+                        </td>
+                        <td className="px-4 py-3">
+                          {team.is_active ? (
+                            <span className="rounded-full bg-green-950 px-3 py-1 text-green-300">
+                              启用
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-slate-700 px-3 py-1 text-slate-300">
+                              停用
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-2">
+                            <Link
+                              href={`/admin/teams/${team.id}`}
+                              className="rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                            >
+                              查看详情
+                            </Link>
+                            <TeamEditDialog
+                              team={team}
+                              updateTeamAction={updateTeam}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </main>
