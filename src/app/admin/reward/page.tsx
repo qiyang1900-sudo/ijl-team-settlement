@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatDateTime } from "@/lib/date-format";
+import ImagePreview from "./ImagePreview";
 import {
   MonthlyDataStatus,
   MonthlyPlayerRow,
@@ -351,13 +352,10 @@ function PlayerDataTable({ players }: { players: MonthlyPlayerRow[] }) {
               <td className="px-3 py-2">{formatMonthlyNumber(player.salaryAmount)} 円</td>
               <td className="px-3 py-2">
                 {player.salaryScreenshotUrl ? (
-                  <a
-                    href={player.salaryScreenshotUrl}
-                    target="_blank"
-                    className="text-sky-300 underline"
-                  >
-                    打开
-                  </a>
+                  <ImagePreview
+                    imageUrl={player.salaryScreenshotUrl}
+                    fileName={player.salaryScreenshotName || player.playerName}
+                  />
                 ) : (
                   "-"
                 )}
@@ -398,13 +396,12 @@ function ActivityPanel({ row }: { row: MonthlySubmissionRow }) {
         </a>
       ) : null}
       {row.club_activity_image_url ? (
-        <a
-          href={row.club_activity_image_url}
-          target="_blank"
-          className="mt-3 block text-sm text-sky-300 underline"
-        >
-          {row.club_activity_image_name || "打开图片"}
-        </a>
+        <div className="mt-3">
+          <ImagePreview
+            imageUrl={row.club_activity_image_url}
+            fileName={row.club_activity_image_name}
+          />
+        </div>
       ) : null}
       {!row.club_activity_link && !row.club_activity_image_url ? (
         <p className="mt-3 text-sm text-slate-400">未提交。</p>
