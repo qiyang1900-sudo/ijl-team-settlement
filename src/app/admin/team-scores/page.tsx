@@ -69,35 +69,19 @@ async function saveTeamScoreReview(formData: FormData) {
       15,
       15
     ),
-    player_management_note: parseOptionalText(
-      formData.get("player_management_note")
-    ),
+    player_management_note: null,
     team_management_score: parseBoundedFormNumber(
       formData.get("team_management_score"),
       25,
       25
     ),
-    team_management_note: parseOptionalText(
-      formData.get("team_management_note")
-    ),
-    youtube_manual_deduction: parseBoundedFormNumber(
-      formData.get("youtube_manual_deduction"),
-      0,
-      30
-    ),
-    youtube_manual_note: parseOptionalText(formData.get("youtube_manual_note")),
-    tiktok_manual_deduction: parseBoundedFormNumber(
-      formData.get("tiktok_manual_deduction"),
-      0,
-      15
-    ),
-    tiktok_manual_note: parseOptionalText(formData.get("tiktok_manual_note")),
-    x_manual_deduction: parseBoundedFormNumber(
-      formData.get("x_manual_deduction"),
-      0,
-      15
-    ),
-    x_manual_note: parseOptionalText(formData.get("x_manual_note")),
+    team_management_note: null,
+    youtube_manual_deduction: 0,
+    youtube_manual_note: null,
+    tiktok_manual_deduction: 0,
+    tiktok_manual_note: null,
+    x_manual_deduction: 0,
+    x_manual_note: null,
     reviewer_note: parseOptionalText(formData.get("reviewer_note")),
     finalized_at: reviewStatus === "finalized" ? now : null,
   };
@@ -342,9 +326,6 @@ function ScoreCard({
 }) {
   const playerManagementSection = getSection(score, "playerManagement");
   const teamManagementSection = getSection(score, "teamManagement");
-  const youtubeSection = getSection(score, "youtube");
-  const tiktokSection = getSection(score, "tiktok");
-  const xSection = getSection(score, "x");
   const canSave = canPersist && score.hasApprovedData;
   const reviewStatusLabel = !score.hasApprovedData
     ? "无通过数据"
@@ -424,54 +405,11 @@ function ScoreCard({
             max={playerManagementSection.maxPoints}
             defaultValue={score.review.playerManagementScore}
           />
-          <ScoreNoteInput
-            label="選手管理备注"
-            name="player_management_note"
-            defaultValue={score.review.playerManagementNote}
-          />
           <ScoreNumberInput
             label="チーム管理分数"
             name="team_management_score"
             max={teamManagementSection.maxPoints}
             defaultValue={score.review.teamManagementScore}
-          />
-          <ScoreNoteInput
-            label="チーム管理备注"
-            name="team_management_note"
-            defaultValue={score.review.teamManagementNote}
-          />
-          <ScoreNumberInput
-            label="YouTube 人工扣分"
-            name="youtube_manual_deduction"
-            max={youtubeSection.maxPoints}
-            defaultValue={score.review.youtubeManualDeduction}
-          />
-          <ScoreNoteInput
-            label="YouTube 扣分备注"
-            name="youtube_manual_note"
-            defaultValue={score.review.youtubeManualNote}
-          />
-          <ScoreNumberInput
-            label="TikTok / Shorts 人工扣分"
-            name="tiktok_manual_deduction"
-            max={tiktokSection.maxPoints}
-            defaultValue={score.review.tiktokManualDeduction}
-          />
-          <ScoreNoteInput
-            label="TikTok / Shorts 扣分备注"
-            name="tiktok_manual_note"
-            defaultValue={score.review.tiktokManualNote}
-          />
-          <ScoreNumberInput
-            label="X 人工扣分"
-            name="x_manual_deduction"
-            max={xSection.maxPoints}
-            defaultValue={score.review.xManualDeduction}
-          />
-          <ScoreNoteInput
-            label="X 扣分备注"
-            name="x_manual_note"
-            defaultValue={score.review.xManualNote}
           />
         </div>
 
@@ -600,27 +538,6 @@ function ScoreNumberInput({
         className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white"
       />
       <span className="mt-1 block text-xs text-slate-500">0 - {max}</span>
-    </label>
-  );
-}
-
-function ScoreNoteInput({
-  label,
-  name,
-  defaultValue,
-}: {
-  label: string;
-  name: string;
-  defaultValue: string;
-}) {
-  return (
-    <label className="text-sm text-slate-300">
-      {label}
-      <input
-        name={name}
-        defaultValue={defaultValue}
-        className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white"
-      />
     </label>
   );
 }
