@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
+import MonthPicker from "./MonthPicker";
 import MonthlyDataForm from "./MonthlyDataForm";
 import {
   MonthlyPlayerRow,
@@ -342,12 +343,7 @@ export default async function TeamRewardPage({
         ) : (
           <div className="mt-6 grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
             <aside className="space-y-3">
-              <a
-                href={`/team/reward?teamId=${encodeURIComponent(teamId)}`}
-                className="block rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-semibold shadow-sm hover:border-slate-400"
-              >
-                新しい月を入力
-              </a>
+              <MonthPicker teamId={teamId} selectedMonth={selectedMonth} />
 
               <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
                 <div className="border-b border-slate-100 px-4 py-3">
