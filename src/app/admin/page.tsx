@@ -74,6 +74,16 @@ export default function AdminPage() {
               按月份和期间查看联盟数据汇总框架。
             </p>
           </Link>
+
+          <Link
+            href="/admin/team-scores"
+            className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md"
+          >
+            <h2 className="text-xl font-semibold">战队积分计算</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              根据审核通过的月数据计算战队分数和扣分项。
+            </p>
+          </Link>
         </div>
       </div>
     </main>

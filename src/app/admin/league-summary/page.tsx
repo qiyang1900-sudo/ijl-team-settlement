@@ -8,6 +8,7 @@ import {
 } from "@/lib/monthly-data";
 import {
   buildMonthOptions,
+  getCurrentMonthValue,
   normalizeMonthRange,
 } from "@/lib/month-options";
 import {
@@ -16,7 +17,12 @@ import {
   formatMonthlyPercent,
   summarizeMonthlySubmissions,
 } from "@/lib/monthly-summary";
-import MetricLineChart from "../components/MetricLineChart";
+import {
+  applyHistoricalLeagueSummaries,
+  getPreviousYearMonth,
+  historicalLeagueSummaryRows,
+} from "@/lib/league-summary-history";
+import MonthlyComboChart from "../components/MonthlyComboChart";
 
 type MonthlySubmissionRow = {
   id: string;
@@ -57,19 +63,26 @@ export default async function LeagueSummaryPage({
   }
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const currentMonth = getCurrentMonthValue();
   const { data: monthRows } = await supabase
     .from("monthly_data_submissions")
     .select("target_month")
+    .eq("status", "approved")
     .order("target_month", { ascending: true });
-  const availableMonths = (monthRows || []).map((row) =>
-    String(row.target_month || "")
-  );
+  const availableMonths = [
+    ...(monthRows || []).map((row) => String(row.target_month || "")),
+    ...historicalLeagueSummaryRows.map((row) => row.month),
+  ];
   const { fromMonth, toMonth } = normalizeMonthRange({
     from,
     to,
     availableMonths,
+    maxMonth: currentMonth,
   });
-  const monthOptions = buildMonthOptions(availableMonths);
+  const monthOptions = buildMonthOptions(availableMonths, {
+    includeFutureMonths: false,
+    maxMonth: currentMonth,
+  });
 
   const { data, error } = await supabase
     .from("monthly_data_submissions")
@@ -88,12 +101,20 @@ export default async function LeagueSummaryPage({
       )
     `
     )
-    .gte("target_month", fromMonth)
-    .lte("target_month", toMonth)
+    .lte("target_month", currentMonth)
+    .eq("status", "approved")
     .order("target_month", { ascending: true });
 
-  const rows = (data || []) as unknown as MonthlySubmissionRow[];
-  const monthlySummaries = summarizeMonthlySubmissions(rows);
+  const allRows = (data || []) as unknown as MonthlySubmissionRow[];
+  const rows = allRows.filter(
+    (row) => row.target_month >= fromMonth && row.target_month <= toMonth
+  );
+  const allMonthlySummaries = applyHistoricalLeagueSummaries(
+    summarizeMonthlySubmissions(allRows)
+  );
+  const monthlySummaries = allMonthlySummaries.filter(
+    (summary) => summary.month >= fromMonth && summary.month <= toMonth
+  );
   const periodSummary = buildMonthlySummary(
     "period",
     monthlySummaries.flatMap((summary) => summary.officialRows),
@@ -101,6 +122,12 @@ export default async function LeagueSummaryPage({
     rows.length
   );
   const byTeam = summarizeByTeam(rows);
+  const selectedMonthSummary =
+    allMonthlySummaries.find((summary) => summary.month === toMonth) || null;
+  const previousYearSummary =
+    allMonthlySummaries.find(
+      (summary) => summary.month === getPreviousYearMonth(toMonth)
+    ) || null;
   const exportHref = `/api/admin/league-summary/export?from=${encodeURIComponent(
     fromMonth
   )}&to=${encodeURIComponent(toMonth)}`;
@@ -178,30 +205,57 @@ export default async function LeagueSummaryPage({
           <Stat label="总互动" value={formatMonthlyNumber(periodSummary.total.xEngagements)} />
         </section>
 
-        <section className="mt-6 grid gap-4 xl:grid-cols-3">
-          <LineChartPanel
-            title="IJL联盟 X 阅读量推移"
-            rows={monthlySummaries.map((row) => ({
-              month: row.month,
-              value: row.total.xImpressions,
+        <MonthlyComparison
+          month={toMonth}
+          current={selectedMonthSummary}
+          previous={previousYearSummary}
+        />
+
+        <section className="mt-6 grid gap-4 xl:grid-cols-2">
+          <MonthlyComboChart
+            title="IJL联盟战队推特数据推移"
+            barLabel="互动量"
+            lineLabel="阅读量"
+            barColor="#7e57c2"
+            lineColor="#f4b400"
+            points={monthlySummaries.map((row) => ({
+              label: shortMonthLabel(row.month),
+              barValue: row.total.xEngagements,
+              lineValue: row.total.xImpressions,
             }))}
-            color="#38bdf8"
           />
-          <LineChartPanel
-            title="IJL联盟 X 互动量推移"
-            rows={monthlySummaries.map((row) => ({
-              month: row.month,
-              value: row.total.xEngagements,
+          <MonthlyComboChart
+            title="IJL联盟战队推特粉丝数推移"
+            lineLabel="粉丝数"
+            lineColor="#f4b400"
+            points={monthlySummaries.map((row) => ({
+              label: shortMonthLabel(row.month),
+              lineValue: row.total.xFollowerCount,
             }))}
-            color="#fbbf24"
           />
-          <LineChartPanel
+          <MonthlyComboChart
             title="IJL联盟 YouTube 投稿数据"
-            rows={monthlySummaries.map((row) => ({
-              month: row.month,
-              value: row.total.youtubeSubscriberCount,
+            barLabel="视频播放次数"
+            lineLabel="登録者数"
+            barColor="#ef4444"
+            lineColor="#3b82f6"
+            points={monthlySummaries.map((row) => ({
+              label: shortMonthLabel(row.month),
+              barValue: row.total.youtubeVideoAndShortViews,
+              lineValue: row.total.youtubeSubscriberCount,
             }))}
-            color="#f87171"
+          />
+          <MonthlyComboChart
+            title="IJL联盟 YouTube 直播数据"
+            barLabel="直播观看"
+            lineLabel="直播次数"
+            barColor="#3b82f6"
+            lineColor="#ef4444"
+            points={monthlySummaries.map((row) => ({
+              label: shortMonthLabel(row.month),
+              barValue: row.total.youtubeStreamViews,
+              lineValue: row.total.youtubeStreamCount,
+            }))}
           />
         </section>
 
@@ -389,39 +443,116 @@ function TeamSummaryTable({ rows }: { rows: TeamSummaryRow[] }) {
   );
 }
 
-function LineChartPanel({
-  title,
-  rows,
-  color,
+function MonthlyComparison({
+  month,
+  current,
+  previous,
 }: {
-  title: string;
-  rows: Array<{ month: string; value: number }>;
-  color: string;
+  month: string;
+  current: MonthlySummary | null;
+  previous: MonthlySummary | null;
 }) {
+  const items = current
+    ? [
+        {
+          label: "X 总推文",
+          value: current.total.xTweetCount,
+          previous: previous?.total.xTweetCount,
+        },
+        {
+          label: "X 总曝光",
+          value: current.total.xImpressions,
+          previous: previous?.total.xImpressions,
+        },
+        {
+          label: "X 总互动",
+          value: current.total.xEngagements,
+          previous: previous?.total.xEngagements,
+        },
+        {
+          label: "视频播放",
+          value: current.total.youtubeVideoViews,
+          previous: previous?.total.youtubeVideoViews,
+        },
+        {
+          label: "短视频播放",
+          value: current.total.youtubeShortViews,
+          previous: previous?.total.youtubeShortViews,
+        },
+        {
+          label: "直播观看",
+          value: current.total.youtubeStreamViews,
+          previous: previous?.total.youtubeStreamViews,
+        },
+        {
+          label: "直播次数",
+          value: current.total.youtubeStreamCount,
+          previous: previous?.total.youtubeStreamCount,
+        },
+        {
+          label: "YouTube 登録者",
+          value: current.total.youtubeSubscriberCount,
+          previous: previous?.total.youtubeSubscriberCount,
+        },
+      ]
+    : [];
+
   return (
-    <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
-      <h2 className="text-xl font-bold">{title}</h2>
-      <div className="mt-4">
-        <MetricLineChart
-          color={color}
-          points={rows.map((row) => ({
-            label: formatShortMonthLabel(row.month),
-            value: row.value,
-          }))}
-        />
+    <section className="mt-6 rounded-xl border border-slate-700 bg-slate-900 p-5">
+      <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+        <div>
+          <h2 className="text-xl font-bold">指定月份总数据</h2>
+          <p className="mt-1 text-sm text-slate-400">
+            {formatMonthLabel(month)} 所有战队审核通过数据合计，旁边为去年同月增减。
+          </p>
+        </div>
+        <p className="text-sm text-slate-500">
+          对比月份：{formatMonthLabel(getPreviousYearMonth(month))}
+        </p>
       </div>
+      {current ? (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {items.map((item) => (
+            <div key={item.label} className="rounded-lg bg-slate-950 p-4">
+              <p className="text-xs text-slate-500">{item.label}</p>
+              <p className="mt-1 text-xl font-bold">
+                {formatMonthlyNumber(item.value)}
+              </p>
+              <p className={`mt-1 text-xs ${comparisonTone(item.value, item.previous)}`}>
+                去年同月 {formatComparison(item.value, item.previous)}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-4 text-sm text-slate-500">该月份没有已通过数据。</p>
+      )}
     </section>
   );
 }
 
-function formatShortMonthLabel(month: string) {
-  const [year, monthValue] = month.split("-");
-
-  if (!year || !monthValue) {
-    return month;
+function formatComparison(current: number, previous?: number) {
+  if (!previous) {
+    return "-";
   }
 
-  return `${year.slice(-2)}/${monthValue}`;
+  const change = (current - previous) / previous;
+  const sign = change > 0 ? "+" : "";
+
+  return `${sign}${(change * 100).toFixed(1)}%`;
+}
+
+function comparisonTone(current: number, previous?: number) {
+  if (!previous || current === previous) {
+    return "text-slate-500";
+  }
+
+  return current > previous ? "text-emerald-300" : "text-rose-300";
+}
+
+function shortMonthLabel(month: string) {
+  const [, monthValue] = month.split("-");
+  return monthValue ? `${Number(monthValue)}月` : month;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

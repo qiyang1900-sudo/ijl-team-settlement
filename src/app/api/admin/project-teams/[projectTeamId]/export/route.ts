@@ -8,7 +8,7 @@ import {
   type XlsxTemplateImage,
 } from "@/lib/xlsx-template";
 
-type Row = Record<string, any>;
+type Row = Record<string, XlsxCellValue>;
 type SheetUpdates = Record<string, XlsxCellValue>;
 
 export async function GET(
@@ -102,19 +102,24 @@ export async function GET(
     .eq("project_team_id", projectTeamId)
     .order("created_at", { ascending: true });
 
+  const safeCompanyInfo = companyInfo as Row | null;
+  const safeSummaryRows = (summaryRows || []) as Row[];
+  const safeDetailRows = (detailRows || []) as Row[];
+  const safeReportRows = (reportRows || []) as Row[];
+  const safeFiles = (files || []) as Row[];
   const template = Buffer.from(SETTLEMENT_REPORT_TEMPLATE_BASE64, "base64");
-  const reportSheetImages = await buildReportSheetImages(files || []);
+  const reportSheetImages = await buildReportSheetImages(safeFiles);
   const filledWorkbook = fillXlsxTemplate(
     template,
     {
       "xl/worksheets/sheet1.xml": buildSummarySheetUpdates({
-        companyInfo,
-        summaryRows: summaryRows || [],
-        detailRows: detailRows || [],
+        companyInfo: safeCompanyInfo,
+        summaryRows: safeSummaryRows,
+        detailRows: safeDetailRows,
       }),
       "xl/worksheets/sheet2.xml": buildReportSheetUpdates({
-        reportRows: reportRows || [],
-        detailRows: detailRows || [],
+        reportRows: safeReportRows,
+        detailRows: safeDetailRows,
       }),
     },
     reportSheetImages
@@ -135,10 +140,10 @@ export async function GET(
       .eq("id", projectTeamId);
   }
 
-  const project = projectTeam.projects as Row | null;
-  const team = projectTeam.teams as Row | null;
-  const fileName = `${safeFilePart(team?.short_name || team?.name || "team")}_${safeFilePart(
-    project?.title || "project"
+  const project = normalizeRelation(projectTeam.projects as unknown as Row | Row[] | null);
+  const team = normalizeRelation(projectTeam.teams as unknown as Row | Row[] | null);
+  const fileName = `${safeFilePart(String(team?.short_name || team?.name || "team"))}_${safeFilePart(
+    String(project?.title || "project")
   )}_export.xlsx`;
 
   return new Response(new Uint8Array(workbook), {
@@ -238,7 +243,7 @@ async function buildReportSheetImages(files: Row[]): Promise<XlsxTemplateImage[]
       data: image.data,
       extension: image.extension,
       contentType: image.contentType,
-      altText: screenshot?.file_name || `結果報告 No.${rowNumber}`,
+      altText: String(screenshot?.file_name || `結果報告 No.${rowNumber}`),
     });
   }
 
@@ -304,6 +309,10 @@ function subtotal(row: Row) {
   }
 
   return toNumber(row.quantity) * toNumber(row.unit_price);
+}
+
+function normalizeRelation<T>(relation: T | T[] | null | undefined) {
+  return Array.isArray(relation) ? relation[0] : relation;
 }
 
 function toNumber(value: unknown) {

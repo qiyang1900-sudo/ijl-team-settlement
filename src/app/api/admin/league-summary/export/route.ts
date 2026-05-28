@@ -8,6 +8,16 @@ import {
   parseMonthlyPlayerRows,
   splitMonthlyRows,
 } from "@/lib/monthly-data";
+import { getCurrentMonthValue } from "@/lib/month-options";
+import {
+  MonthlySummary,
+  formatMonthlyPercent,
+  summarizeMonthlySubmissions,
+} from "@/lib/monthly-summary";
+import {
+  applyHistoricalLeagueSummaries,
+  getPreviousYearMonth,
+} from "@/lib/league-summary-history";
 
 export const runtime = "nodejs";
 
@@ -54,8 +64,18 @@ const youtubeFields: Array<{ key: keyof MonthlyPlayerRow; label: string }> = [
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const fromMonth = url.searchParams.get("from") || "0000-01";
-  const toMonth = url.searchParams.get("to") || "9999-12";
+  const currentMonth = getCurrentMonthValue();
+  let fromMonth = normalizeExportMonth(
+    url.searchParams.get("from") || "0000-01",
+    currentMonth
+  );
+  let toMonth = normalizeExportMonth(
+    url.searchParams.get("to") || currentMonth,
+    currentMonth
+  );
+  if (fromMonth > toMonth) {
+    [fromMonth, toMonth] = [toMonth, fromMonth];
+  }
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -76,16 +96,27 @@ export async function GET(request: Request) {
       )
     `
     )
-    .gte("target_month", fromMonth)
-    .lte("target_month", toMonth)
+    .lte("target_month", currentMonth)
+    .eq("status", "approved")
     .order("target_month", { ascending: true });
 
   if (error) {
     return new Response(error.message, { status: 500 });
   }
 
-  const submissions = (data || []) as unknown as MonthlySubmissionRow[];
+  const allSubmissions = (data || []) as unknown as MonthlySubmissionRow[];
+  const submissions = allSubmissions.filter(
+    (submission) =>
+      submission.target_month >= fromMonth && submission.target_month <= toMonth
+  );
+  const allMonthlySummaries = applyHistoricalLeagueSummaries(
+    summarizeMonthlySubmissions(allSubmissions)
+  );
+  const monthlySummaries = allMonthlySummaries.filter(
+    (summary) => summary.month >= fromMonth && summary.month <= toMonth
+  );
   const workbook = createXlsxWorkbook([
+    buildSummarySheet(monthlySummaries, allMonthlySummaries, toMonth),
     buildXSheet(submissions),
     buildYoutubeSheet(submissions),
   ]);
@@ -100,6 +131,173 @@ export async function GET(request: Request) {
       )}`,
     },
   });
+}
+
+function buildSummarySheet(
+  monthlySummaries: MonthlySummary[],
+  allMonthlySummaries: MonthlySummary[],
+  selectedMonth: string
+): SheetData {
+  const current = allMonthlySummaries.find((summary) => summary.month === selectedMonth);
+  const previous = allMonthlySummaries.find(
+    (summary) => summary.month === getPreviousYearMonth(selectedMonth)
+  );
+  const rows: SheetRow[] = [
+    {
+      cells: [
+        "数据",
+        "官推条数",
+        "官推互动量",
+        "官推阅读量",
+        "互动率",
+        "粉丝数",
+        "选手推条数",
+        "互动量",
+        "阅读量",
+        "互动率",
+        "总条数",
+        "总曝光",
+        "总互动",
+        "选手粉丝数",
+        "YT 登録者",
+        "投稿数量",
+        "视频播放次数",
+        "直播观看次数",
+        "直播次数",
+        "短视频投稿",
+        "合计播放数",
+        "点赞量",
+      ],
+      style: 2,
+    },
+    ...monthlySummaries.map((summary) => ({
+      cells: [
+        formatMonthLabel(summary.month),
+        summary.official.xTweetCount,
+        summary.official.xEngagements,
+        summary.official.xImpressions,
+        formatMonthlyPercent(summary.official.xEngagementRate),
+        summary.official.xFollowerCount,
+        summary.players.xTweetCount,
+        summary.players.xEngagements,
+        summary.players.xImpressions,
+        formatMonthlyPercent(summary.players.xEngagementRate),
+        summary.total.xTweetCount,
+        summary.total.xImpressions,
+        summary.total.xEngagements,
+        summary.players.xFollowerCount,
+        summary.total.youtubeSubscriberCount,
+        summary.total.youtubeTotalPostCount,
+        summary.total.youtubeVideoViews,
+        summary.total.youtubeStreamViews,
+        summary.total.youtubeStreamCount,
+        summary.total.youtubeShortPostCount,
+        summary.total.youtubeShortViews,
+        summary.total.youtubeLikeCount,
+      ],
+    })),
+    { cells: [] },
+    {
+      cells: [
+        `${formatMonthLabel(selectedMonth)} 指定月份总数据`,
+        "",
+        "表格合计放在这里，不混入月度表格行。",
+      ],
+      style: 1,
+    },
+    { cells: ["指标", "当前", "去年同月", "增减"], style: 2 },
+    ...buildComparisonRows(current, previous),
+  ];
+
+  return {
+    name: "汇总",
+    rows,
+    merges: [],
+    widths: [
+      14, 12, 14, 14, 12, 12, 14, 14, 14, 12, 12, 14, 14, 14, 14, 12, 14,
+      14, 12, 14, 14, 12,
+    ],
+  };
+}
+
+function buildComparisonRows(
+  current: MonthlySummary | undefined,
+  previous: MonthlySummary | undefined
+): SheetRow[] {
+  if (!current) {
+    return [{ cells: ["暂无该月份数据", "", "", ""], style: 0 }];
+  }
+
+  const metrics = [
+    {
+      label: "X 总推文",
+      value: current.total.xTweetCount,
+      previous: previous?.total.xTweetCount,
+    },
+    {
+      label: "X 总曝光",
+      value: current.total.xImpressions,
+      previous: previous?.total.xImpressions,
+    },
+    {
+      label: "X 总互动",
+      value: current.total.xEngagements,
+      previous: previous?.total.xEngagements,
+    },
+    {
+      label: "视频播放",
+      value: current.total.youtubeVideoViews,
+      previous: previous?.total.youtubeVideoViews,
+    },
+    {
+      label: "短视频播放",
+      value: current.total.youtubeShortViews,
+      previous: previous?.total.youtubeShortViews,
+    },
+    {
+      label: "直播观看",
+      value: current.total.youtubeStreamViews,
+      previous: previous?.total.youtubeStreamViews,
+    },
+    {
+      label: "直播次数",
+      value: current.total.youtubeStreamCount,
+      previous: previous?.total.youtubeStreamCount,
+    },
+    {
+      label: "YouTube 登録者",
+      value: current.total.youtubeSubscriberCount,
+      previous: previous?.total.youtubeSubscriberCount,
+    },
+  ];
+
+  return metrics.map((metric) => ({
+    cells: [
+      metric.label,
+      metric.value,
+      metric.previous ?? "",
+      formatComparison(metric.value, metric.previous),
+    ],
+  }));
+}
+
+function formatComparison(current: number, previous?: number) {
+  if (!previous) {
+    return "-";
+  }
+
+  const change = (current - previous) / previous;
+  const sign = change > 0 ? "+" : "";
+
+  return `${sign}${(change * 100).toFixed(1)}%`;
+}
+
+function normalizeExportMonth(month: string, maxMonth: string) {
+  if (!/^\d{4}-\d{2}$/.test(month)) {
+    return maxMonth;
+  }
+
+  return month > maxMonth ? maxMonth : month;
 }
 
 function buildXSheet(submissions: MonthlySubmissionRow[]): SheetData {

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 async function createTeam(formData: FormData) {
@@ -42,9 +43,9 @@ export default function NewTeamPage() {
     <main className="min-h-screen bg-slate-950 p-10 text-white">
       <div className="mx-auto max-w-3xl">
         <div className="mb-8">
-          <a href="/admin/teams" className="text-sm text-slate-400 hover:text-white">
+          <Link href="/admin/teams" className="text-sm text-slate-400 hover:text-white">
             ← 返回战队管理
-          </a>
+          </Link>
           <h1 className="mt-4 text-3xl font-bold">新增战队</h1>
           <p className="mt-2 text-slate-400">
             创建战队基础资料。Webhook 可以之后再补。
@@ -121,12 +122,12 @@ export default function NewTeamPage() {
           </div>
 
           <div className="flex justify-end gap-3">
-            <a
+            <Link
               href="/admin/teams"
               className="rounded-xl border border-slate-700 px-5 py-3 text-sm font-semibold text-slate-300 hover:bg-slate-800"
             >
               取消
-            </a>
+            </Link>
             <button
               type="submit"
               className="rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
