@@ -38,20 +38,23 @@ export function buildSubmissionReminderMessage({
   const hasValidDeadline = deadline && !Number.isNaN(deadline.getTime());
   const isOverdue = hasValidDeadline ? now.getTime() > deadline.getTime() : false;
   const daysUntil = hasValidDeadline ? Math.max(0, getTokyoDayDiff(now, deadline)) : null;
+  const targetText = isOverdue ? `**${targetLabel}**` : targetLabel;
   const baseLines = [
-    mention,
-    "提出リマインドBotです。",
-    `${formatTeamName(team)} の **${targetLabel}** の提出が必要です。`,
+    ...(mention ? [mention, ""] : []),
+    "提出リマインドBotです。資料提出についてのお知らせです。",
+    "",
+    `${formatTeamName(team)} の ${targetText} につきまして、`,
+    "まだご提出が確認できておりません。",
     "",
     `提出期限：${hasValidDeadline ? formatReminderDateTime(deadlineAt) : "未設定"}`,
     `現在の状態：${statusLabel || "未提出"}`,
     "",
-  ].filter((line) => line !== null && line !== undefined);
+  ];
 
   if (isOverdue) {
     return [
       ...baseLines,
-      "提出期限を過ぎています。",
+      "提出期限を過ぎております。",
       "お手数ですが、至急以下の管理ページよりご提出をお願いいたします。",
       REMINDER_SUBMISSION_URL,
     ].join("\n");
@@ -63,7 +66,7 @@ export function buildSubmissionReminderMessage({
     REMINDER_SUBMISSION_URL,
     ...(daysUntil === null
       ? []
-      : ["", `提出期限まであと **${daysUntil}日** です。`]),
+      : ["", `提出期限まであと ${daysUntil}日 です。`]),
   ].join("\n");
 }
 
