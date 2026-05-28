@@ -7,7 +7,12 @@ import {
   isOfficialMonthlyRow,
   parseMonthlyPlayerRows,
 } from "@/lib/monthly-data";
+import {
+  buildMonthOptions,
+  normalizeMonthRange,
+} from "@/lib/month-options";
 import { getPlayerDisplayName } from "@/lib/player-display";
+import MetricLineChart from "../../components/MetricLineChart";
 
 export const dynamic = "force-dynamic";
 
@@ -103,6 +108,19 @@ export default async function AdminPlayerDetailPage({
     )
     .eq("id", playerId)
     .maybeSingle();
+  const { data: monthRows } = await supabase
+    .from("monthly_data_submissions")
+    .select("target_month")
+    .order("target_month", { ascending: true });
+  const availableMonths = (monthRows || []).map((row) =>
+    String(row.target_month || "")
+  );
+  const { fromMonth, toMonth } = normalizeMonthRange({
+    from,
+    to,
+    availableMonths,
+  });
+  const monthOptions = buildMonthOptions(availableMonths);
 
   let monthlyQuery = supabase
     .from("monthly_data_submissions")
@@ -122,13 +140,8 @@ export default async function AdminPlayerDetailPage({
     )
     .order("target_month", { ascending: true });
 
-  if (from) {
-    monthlyQuery = monthlyQuery.gte("target_month", from);
-  }
-
-  if (to) {
-    monthlyQuery = monthlyQuery.lte("target_month", to);
-  }
+  monthlyQuery = monthlyQuery.gte("target_month", fromMonth);
+  monthlyQuery = monthlyQuery.lte("target_month", toMonth);
 
   const { data: submissions, error: submissionsError } = await monthlyQuery;
 
@@ -152,10 +165,6 @@ export default async function AdminPlayerDetailPage({
   const safeSubmissions = (submissions || []) as unknown as MonthlySubmissionRow[];
   const playerMonths = collectPlayerMonthData(safePlayer, safeSubmissions);
   const totals = summarizePlayerData(playerMonths);
-  const maxTrendValue = Math.max(
-    ...playerMonths.map((item) => getTrendValue(item.row)),
-    1
-  );
 
   return (
     <main className="min-h-screen bg-slate-950 p-8 text-white">
@@ -199,21 +208,31 @@ export default async function AdminPlayerDetailPage({
           <div className="mt-4 grid gap-3 sm:grid-cols-[180px_180px_auto] sm:items-end">
             <label className="block text-sm text-slate-300">
               开始月份
-              <input
-                type="month"
+              <select
                 name="from"
-                defaultValue={from || ""}
+                defaultValue={fromMonth}
                 className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white"
-              />
+              >
+                {monthOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="block text-sm text-slate-300">
               结束月份
-              <input
-                type="month"
+              <select
                 name="to"
-                defaultValue={to || ""}
+                defaultValue={toMonth}
                 className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white"
-              />
+              >
+                {monthOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </label>
             <button className="rounded-lg bg-indigo-400 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-indigo-300">
               查看期间
@@ -247,39 +266,47 @@ export default async function AdminPlayerDetailPage({
 
         <section className="mt-6 rounded-xl border border-slate-700 bg-slate-900 p-5">
           <h2 className="text-xl font-bold">可视化分析</h2>
-          <p className="mt-2 text-sm text-slate-400">
-            先显示每月「X Imp + YouTube 视听」趋势，后续可以继续增加分平台图表和评分逻辑。
-          </p>
-          <div className="mt-4 space-y-3">
-            {playerMonths.length === 0 ? (
-              <p className="text-sm text-slate-500">当前期间没有这个选手的月数据。</p>
-            ) : (
-              playerMonths.map((item) => {
-                const value = getTrendValue(item.row);
-
-                return (
-                  <div
-                    key={`${item.month}-${item.teamName}`}
-                    className="grid gap-3 md:grid-cols-[110px_minmax(0,1fr)_150px] md:items-center"
-                  >
-                    <span className="text-sm text-slate-300">
-                      {formatMonthLabel(item.month)}
-                    </span>
-                    <div className="h-3 overflow-hidden rounded-full bg-slate-800">
-                      <div
-                        className="h-full rounded-full bg-cyan-400"
-                        style={{
-                          width: `${Math.max(4, (value / maxTrendValue) * 100)}%`,
-                        }}
-                      />
-                    </div>
-                    <span className="text-sm font-semibold text-slate-200">
-                      {formatMonthlyNumber(value)}
-                    </span>
-                  </div>
-                );
-              })
-            )}
+          <div className="mt-4 grid gap-4 xl:grid-cols-3">
+            <LineChartPanel
+              title="X 阅读量推移"
+              rows={playerMonths.map((item) => ({
+                month: item.month,
+                value: numericValue(item.row.xImpressions),
+              }))}
+              color="#38bdf8"
+            />
+            <LineChartPanel
+              title="X 互动量推移"
+              rows={playerMonths.map((item) => ({
+                month: item.month,
+                value: numericValue(item.row.xEngagements),
+              }))}
+              color="#fbbf24"
+            />
+            <LineChartPanel
+              title="YouTube 再生数推移"
+              rows={playerMonths.map((item) => ({
+                month: item.month,
+                value: getYoutubeViews(item.row),
+              }))}
+              color="#f87171"
+            />
+            <LineChartPanel
+              title="X フォロワー推移"
+              rows={playerMonths.map((item) => ({
+                month: item.month,
+                value: numericValue(item.row.xFollowerCount),
+              }))}
+              color="#34d399"
+            />
+            <LineChartPanel
+              title="YouTube 登録者推移"
+              rows={playerMonths.map((item) => ({
+                month: item.month,
+                value: numericValue(item.row.youtubeSubscriberCount),
+              }))}
+              color="#60a5fa"
+            />
           </div>
         </section>
 
@@ -420,13 +447,44 @@ function getYoutubeViews(row: MonthlyPlayerRow) {
   );
 }
 
-function getTrendValue(row: MonthlyPlayerRow) {
-  return numericValue(row.xImpressions) + getYoutubeViews(row);
-}
-
 function numericValue(value: unknown) {
   const numberValue = Number(value || 0);
   return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+function LineChartPanel({
+  title,
+  rows,
+  color,
+}: {
+  title: string;
+  rows: Array<{ month: string; value: number }>;
+  color: string;
+}) {
+  return (
+    <section className="rounded-lg border border-slate-700 bg-slate-950 p-4">
+      <h3 className="font-bold">{title}</h3>
+      <div className="mt-3">
+        <MetricLineChart
+          color={color}
+          points={rows.map((row) => ({
+            label: formatShortMonthLabel(row.month),
+            value: row.value,
+          }))}
+        />
+      </div>
+    </section>
+  );
+}
+
+function formatShortMonthLabel(month: string) {
+  const [year, monthValue] = month.split("-");
+
+  if (!year || !monthValue) {
+    return month;
+  }
+
+  return `${year.slice(-2)}/${monthValue}`;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
