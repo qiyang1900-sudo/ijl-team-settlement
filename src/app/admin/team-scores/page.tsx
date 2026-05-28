@@ -304,7 +304,7 @@ export default async function AdminTeamScoresPage({
           </div>
         </section>
 
-        <section className="mt-6 grid gap-4">
+        <section className="mt-6 grid gap-4 lg:grid-cols-2">
           {scores.map((score) => (
             <ScoreCard
               key={score.teamId}
@@ -366,7 +366,7 @@ function ScoreCard({
         ))}
       </div>
 
-      <ScoreFoldout title="详细数据" badge="6 项">
+      <ScoreFoldout title="详细数据・人工审核" badge={`${score.deductions.length} 项扣分`}>
         <div className="grid gap-3 sm:grid-cols-3">
           <MetricChip label="全队推文" value={score.metrics.totalTweets} />
           <MetricChip label="官方推文" value={score.metrics.officialTweets} />
@@ -375,85 +375,86 @@ function ScoreCard({
           <MetricChip label="直播次数" value={score.metrics.totalStreams} />
           <MetricChip label="Shorts/TikTok" value={score.metrics.totalShortPosts} />
         </div>
-      </ScoreFoldout>
 
-      <ScoreFoldout title="扣分项" badge={`${score.deductions.length} 项`}>
-        {score.deductions.length === 0 ? (
-          <p className="text-sm font-semibold text-emerald-300">
-            已计算项目全部达成，人工评分暂无扣分。
-          </p>
-        ) : (
-          <ol className="max-h-44 space-y-2 overflow-auto pr-2 text-sm text-slate-200">
-            {score.deductions.map((deduction, index) => (
-              <li key={`${deduction.reason}-${index}`} className="leading-6">
-                {index + 1}、{deduction.reason}
-                <span className="ml-2 font-bold text-red-300">
-                  -{deduction.points}分
-                </span>
-              </li>
-            ))}
-          </ol>
-        )}
-      </ScoreFoldout>
-
-      <form action={saveTeamScoreReview} className="border-t border-slate-800 p-4">
-        <input type="hidden" name="team_id" value={score.teamId} />
-        <input type="hidden" name="target_month" value={score.month} />
-
-        <div className="grid gap-3 md:grid-cols-2">
-          <ScoreNumberInput
-            label="選手管理分数"
-            name="player_management_score"
-            max={playerManagementSection.maxPoints}
-            defaultValue={score.review.playerManagementScore}
-          />
-          <ScoreNumberInput
-            label="チーム管理分数"
-            name="team_management_score"
-            max={teamManagementSection.maxPoints}
-            defaultValue={score.review.teamManagementScore}
-          />
+        <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-4">
+          <p className="text-sm font-semibold text-slate-300">扣分项</p>
+          {score.deductions.length === 0 ? (
+            <p className="mt-3 text-sm font-semibold text-emerald-300">
+              已计算项目全部达成，人工评分暂无扣分。
+            </p>
+          ) : (
+            <ol className="mt-3 max-h-44 space-y-2 overflow-auto pr-2 text-sm text-slate-200">
+              {score.deductions.map((deduction, index) => (
+                <li key={`${deduction.reason}-${index}`} className="leading-6">
+                  {index + 1}、{deduction.reason}
+                  <span className="ml-2 font-bold text-red-300">
+                    -{deduction.points}分
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
 
-        <label className="mt-3 block text-sm text-slate-300">
-          审核备注
-          <textarea
-            name="reviewer_note"
-            defaultValue={score.review.reviewerNote}
-            className="mt-2 min-h-20 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white"
-          />
-        </label>
+        <form action={saveTeamScoreReview} className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-4">
+          <input type="hidden" name="team_id" value={score.teamId} />
+          <input type="hidden" name="target_month" value={score.month} />
 
-        {!canPersist ? (
-          <p className="mt-3 rounded-lg border border-amber-500 bg-amber-950 px-3 py-2 text-sm text-amber-100">
-            保存表尚未创建，暂时不能保存积分审核。
-          </p>
-        ) : null}
-        {!score.hasApprovedData ? (
-          <p className="mt-3 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-400">
-            该月没有审核通过的月数据，不能结束积分审核。
-          </p>
-        ) : null}
+          <div className="grid gap-3 md:grid-cols-2">
+            <ScoreNumberInput
+              label="選手管理分数"
+              name="player_management_score"
+              max={playerManagementSection.maxPoints}
+              defaultValue={score.review.playerManagementScore}
+            />
+            <ScoreNumberInput
+              label="チーム管理分数"
+              name="team_management_score"
+              max={teamManagementSection.maxPoints}
+              defaultValue={score.review.teamManagementScore}
+            />
+          </div>
 
-        <div className="mt-4 flex flex-wrap gap-3">
-          <button
-            name="review_status"
-            value="draft"
-            disabled={!canSave}
-            className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            保存草稿
-          </button>
-          <button
-            name="review_status"
-            value="finalized"
-            disabled={!canSave}
-            className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            已审核结束
-          </button>
-        </div>
-      </form>
+          <label className="mt-3 block text-sm text-slate-300">
+            审核备注
+            <textarea
+              name="reviewer_note"
+              defaultValue={score.review.reviewerNote}
+              className="mt-2 min-h-20 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white"
+            />
+          </label>
+
+          {!canPersist ? (
+            <p className="mt-3 rounded-lg border border-amber-500 bg-amber-950 px-3 py-2 text-sm text-amber-100">
+              保存表尚未创建，暂时不能保存积分审核。
+            </p>
+          ) : null}
+          {!score.hasApprovedData ? (
+            <p className="mt-3 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-400">
+              该月没有审核通过的月数据，不能结束积分审核。
+            </p>
+          ) : null}
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              name="review_status"
+              value="draft"
+              disabled={!canSave}
+              className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              保存草稿
+            </button>
+            <button
+              name="review_status"
+              value="finalized"
+              disabled={!canSave}
+              className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              已审核结束
+            </button>
+          </div>
+        </form>
+      </ScoreFoldout>
     </article>
   );
 }
@@ -484,8 +485,8 @@ function SectionSummary({
   const deductedPoints = section.maxPoints - section.score;
 
   return (
-    <div className="flex min-h-[150px] flex-col rounded-lg bg-slate-950 p-3">
-      <div className="grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+    <div className="flex min-h-[116px] flex-col rounded-lg bg-slate-950 p-3">
+      <div className="grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
         <p className="break-words text-xs font-semibold leading-5 text-slate-400">
           {section.label}
         </p>
@@ -493,7 +494,7 @@ function SectionSummary({
           {section.score}/{section.maxPoints}
         </p>
       </div>
-      <p className="mt-2 min-h-8 text-xs leading-4 text-slate-500">
+      <p className="mt-1 min-h-4 text-xs leading-4 text-slate-500">
         {section.autoScore === null ? "人工评分" : `自动评分 ${section.autoScore}`}
       </p>
       <div className="mt-auto pt-3">
