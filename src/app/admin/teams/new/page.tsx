@@ -112,13 +112,16 @@ export default function NewTeamPage() {
 
           <div>
             <label className="block text-sm font-medium text-slate-300">
-              Discord Mention
+              负责人 Discord 用户ID / mention
             </label>
             <input
               name="discord_mention_text"
-              placeholder="@FENNEL / <@123456789> / <@&角色ID>"
+              placeholder="复制用户 ID，或填写 <@用户ID> / <@&角色ID>"
               className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
             />
+            <p className="mt-2 text-xs text-slate-500">
+              只填数字也可以，系统会自动转成 Discord mention 来通知负责人。
+            </p>
           </div>
 
           <div className="flex justify-end gap-3">
