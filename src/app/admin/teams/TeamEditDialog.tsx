@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import { useFormStatus } from "react-dom";
 
 type Team = {
   id: string;
@@ -135,15 +136,24 @@ export function TeamEditDialog({
             >
               取消
             </button>
-            <button
-              type="submit"
-              className="rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
-            >
-              保存修改
-            </button>
+            <SaveButton />
           </div>
         </form>
       </dialog>
     </>
+  );
+}
+
+function SaveButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200 disabled:cursor-not-allowed disabled:bg-slate-400 disabled:text-slate-800"
+    >
+      {pending ? "保存中..." : "保存修改"}
+    </button>
   );
 }
