@@ -25,6 +25,31 @@ type ReportRow = {
   implementation_date: string;
 };
 
+type CompanyInfo = {
+  company_name?: string | null;
+  bank_name?: string | null;
+  bank_account_number?: string | null;
+  swift_code?: string | null;
+  used_saved_profile?: boolean | null;
+};
+
+type ProfileInfo = {
+  company_name?: string | null;
+  bank_name?: string | null;
+  bank_account_number?: string | null;
+  swift_code?: string | null;
+};
+
+type SourceSummaryRow = Partial<SummaryRow>;
+type SourceDetailRow = Partial<DetailRow> & { note?: unknown };
+type SourceReportRow = Partial<ReportRow>;
+
+type ScreenshotFile = {
+  file_category?: string | null;
+  file_name?: string | null;
+  note?: string | null;
+};
+
 function getScreenshotRowNumber(note?: string | null) {
   const match = String(note || "").match(/No\.(\d+)/);
   return match ? Number(match[1]) : null;
@@ -44,16 +69,16 @@ export default function SubmissionForm({
   invoiceUploadUrl,
   invoiceConfirmed,
 }: {
-  action: (formData: FormData) => void;
+  action: (formData: FormData) => void | Promise<void>;
   projectTeamId: string;
   teamId: string;
   currentStatus: string;
-  companyInfo: any;
-  profile: any;
-  summaryRows: any[];
-  detailRows: any[];
-  reportRows: any[];
-  screenshotFiles: any[];
+  companyInfo?: CompanyInfo | null;
+  profile?: ProfileInfo | null;
+  summaryRows: SourceSummaryRow[];
+  detailRows: SourceDetailRow[];
+  reportRows: SourceReportRow[];
+  screenshotFiles: ScreenshotFile[];
   invoiceUploadUrl: string;
   invoiceConfirmed: boolean;
 }) {
@@ -130,7 +155,7 @@ export default function SubmissionForm({
   function getScreenshotForRow(index: number) {
     const rowNumber = index + 1;
 
-    return screenshotFiles?.find((file: any) => {
+    return screenshotFiles?.find((file) => {
       return (
         file.file_category === "report_screenshot" &&
         getScreenshotRowNumber(file.note) === rowNumber
@@ -168,10 +193,18 @@ export default function SubmissionForm({
       return;
     }
 
+    if (!window.confirm("この項目を削除しますか？入力中の内容は元に戻せません。")) {
+      return;
+    }
+
     setSummaries(summaries.filter((_, i) => i !== index));
   }
 
-  function updateDetail(index: number, key: keyof DetailRow, value: any) {
+  function updateDetail<Key extends keyof DetailRow>(
+    index: number,
+    key: Key,
+    value: DetailRow[Key]
+  ) {
     const nextDetails = [...details];
     nextDetails[index] = {
       ...nextDetails[index],
@@ -227,6 +260,10 @@ export default function SubmissionForm({
   function removeRow(index: number) {
     if (details.length <= 1) {
       alert("最低1項目は必要です。");
+      return;
+    }
+
+    if (!window.confirm("この項目を削除しますか？関連する結果報告の入力内容も削除されます。")) {
       return;
     }
 
@@ -599,6 +636,16 @@ export default function SubmissionForm({
                               type="checkbox"
                               name={`delete_screenshot_${index}`}
                               value="true"
+                              onChange={(event) => {
+                                if (
+                                  event.target.checked &&
+                                  !window.confirm(
+                                    "この画像を削除しますか？保存後、現在の画像は削除されます。"
+                                  )
+                                ) {
+                                  event.target.checked = false;
+                                }
+                              }}
                               className="h-3 w-3"
                             />
                             この画像を削除する
