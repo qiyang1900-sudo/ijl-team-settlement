@@ -232,6 +232,7 @@ export default async function LeagueSummaryPage({
             lineLabel="阅读量"
             barColor="#7e57c2"
             lineColor="#f4b400"
+            showInsights
             points={monthlySummaries.map((row) => ({
               label: shortMonthLabel(row.month),
               barValue: row.total.xEngagements,
@@ -242,6 +243,7 @@ export default async function LeagueSummaryPage({
             title="IJL联盟战队推特粉丝数推移"
             lineLabel="粉丝数"
             lineColor="#f4b400"
+            showInsights
             points={monthlySummaries.map((row) => ({
               label: shortMonthLabel(row.month),
               lineValue: row.total.xFollowerCount,
@@ -253,6 +255,7 @@ export default async function LeagueSummaryPage({
             lineLabel="登録者数"
             barColor="#ef4444"
             lineColor="#3b82f6"
+            showInsights
             points={monthlySummaries.map((row) => ({
               label: shortMonthLabel(row.month),
               barValue: row.total.youtubeVideoAndShortViews,
@@ -265,6 +268,7 @@ export default async function LeagueSummaryPage({
             lineLabel="直播次数"
             barColor="#3b82f6"
             lineColor="#ef4444"
+            showInsights
             points={monthlySummaries.map((row) => ({
               label: shortMonthLabel(row.month),
               barValue: row.total.youtubeStreamViews,

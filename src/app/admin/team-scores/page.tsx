@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
@@ -303,7 +304,7 @@ export default async function AdminTeamScoresPage({
           </div>
         </section>
 
-        <section className="mt-6 grid gap-4 lg:grid-cols-2">
+        <section className="mt-6 grid gap-4">
           {scores.map((score) => (
             <ScoreCard
               key={score.teamId}
@@ -359,29 +360,30 @@ function ScoreCard({
         </div>
       </div>
 
-      <div className="grid gap-3 p-4 sm:grid-cols-5">
+      <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-5">
         {score.sections.map((section) => (
           <SectionSummary key={section.key} section={section} />
         ))}
       </div>
 
-      <div className="grid gap-3 border-t border-slate-800 p-4 sm:grid-cols-3">
-        <MetricChip label="全队推文" value={score.metrics.totalTweets} />
-        <MetricChip label="官方推文" value={score.metrics.officialTweets} />
-        <MetricChip label="总曝光" value={score.metrics.totalImpressions} />
-        <MetricChip label="视频合计" value={score.metrics.totalVideosWithArchives} />
-        <MetricChip label="直播次数" value={score.metrics.totalStreams} />
-        <MetricChip label="Shorts/TikTok" value={score.metrics.totalShortPosts} />
-      </div>
+      <ScoreFoldout title="详细数据" badge="6 项">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <MetricChip label="全队推文" value={score.metrics.totalTweets} />
+          <MetricChip label="官方推文" value={score.metrics.officialTweets} />
+          <MetricChip label="总曝光" value={score.metrics.totalImpressions} />
+          <MetricChip label="视频合计" value={score.metrics.totalVideosWithArchives} />
+          <MetricChip label="直播次数" value={score.metrics.totalStreams} />
+          <MetricChip label="Shorts/TikTok" value={score.metrics.totalShortPosts} />
+        </div>
+      </ScoreFoldout>
 
-      <div className="border-t border-slate-800 p-4">
-        <p className="text-sm font-semibold text-slate-300">减分理由</p>
+      <ScoreFoldout title="扣分项" badge={`${score.deductions.length} 项`}>
         {score.deductions.length === 0 ? (
-          <p className="mt-3 text-sm font-semibold text-emerald-300">
+          <p className="text-sm font-semibold text-emerald-300">
             已计算项目全部达成，人工评分暂无扣分。
           </p>
         ) : (
-          <ol className="mt-3 max-h-44 space-y-2 overflow-auto pr-2 text-sm text-slate-200">
+          <ol className="max-h-44 space-y-2 overflow-auto pr-2 text-sm text-slate-200">
             {score.deductions.map((deduction, index) => (
               <li key={`${deduction.reason}-${index}`} className="leading-6">
                 {index + 1}、{deduction.reason}
@@ -392,7 +394,7 @@ function ScoreCard({
             ))}
           </ol>
         )}
-      </div>
+      </ScoreFoldout>
 
       <form action={saveTeamScoreReview} className="border-t border-slate-800 p-4">
         <input type="hidden" name="team_id" value={score.teamId} />
@@ -482,30 +484,56 @@ function SectionSummary({
   const deductedPoints = section.maxPoints - section.score;
 
   return (
-    <div className="rounded-lg bg-slate-950 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-slate-400">{section.label}</p>
+    <div className="flex min-h-[150px] flex-col rounded-lg bg-slate-950 p-3">
+      <div className="grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+        <p className="break-words text-xs font-semibold leading-5 text-slate-400">
+          {section.label}
+        </p>
         <p className="text-sm font-bold text-white">
           {section.score}/{section.maxPoints}
         </p>
       </div>
-      <p className="mt-2 text-xs text-slate-500">
+      <p className="mt-2 min-h-8 text-xs leading-4 text-slate-500">
         {section.autoScore === null ? "人工评分" : `自动评分 ${section.autoScore}`}
       </p>
-      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-800">
-        <div
-          className="h-full rounded-full bg-emerald-400"
-          style={{ width: `${(section.score / section.maxPoints) * 100}%` }}
-        />
+      <div className="mt-auto pt-3">
+        <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
+          <div
+            className="h-full rounded-full bg-emerald-400"
+            style={{ width: `${(section.score / section.maxPoints) * 100}%` }}
+          />
+        </div>
+        {deductedPoints > 0 ? (
+          <p className="mt-2 text-xs font-semibold text-red-300">
+            -{deductedPoints}分
+          </p>
+        ) : (
+          <p className="mt-2 text-xs font-semibold text-emerald-300">满分</p>
+        )}
       </div>
-      {deductedPoints > 0 ? (
-        <p className="mt-2 text-xs font-semibold text-red-300">
-          -{deductedPoints}分
-        </p>
-      ) : (
-        <p className="mt-2 text-xs font-semibold text-emerald-300">满分</p>
-      )}
     </div>
+  );
+}
+
+function ScoreFoldout({
+  title,
+  badge,
+  children,
+}: {
+  title: string;
+  badge: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className="border-t border-slate-800">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-4">
+        <span className="text-sm font-semibold text-slate-300">{title}</span>
+        <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-300">
+          {badge} · 展开 / 收起
+        </span>
+      </summary>
+      <div className="border-t border-slate-800 p-4">{children}</div>
+    </details>
   );
 }
 
