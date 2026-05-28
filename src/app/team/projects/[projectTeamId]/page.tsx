@@ -3,11 +3,26 @@ import { redirect } from "next/navigation";
 import { getInvoiceUploadUrl } from "@/lib/invoice-upload-links";
 import { getStatusTone, getTeamStatusLabel } from "@/lib/status-labels";
 import { createTaxRateNote, normalizeTaxRate } from "@/lib/tax-rate";
+import { requireTeamAccess } from "@/lib/team-auth";
 import SubmissionForm from "./SubmissionForm";
 
 type TeamRecord = {
+  id?: string | null;
   name?: string | null;
   short_name?: string | null;
+};
+type ProjectRecord = {
+  id?: string | null;
+  title?: string | null;
+  description?: string | null;
+  template_type?: string | null;
+  deadline_at?: string | null;
+  edit_deadline_at?: string | null;
+};
+type SubmissionFileRecord = {
+  id: string;
+  note: string | null;
+  storage_path: string | null;
 };
 
 function createStoragePath(projectTeamId: string, fileName: string) {
@@ -18,6 +33,10 @@ function createStoragePath(projectTeamId: string, fileName: string) {
 function getScreenshotRowNumber(note?: string | null) {
   const match = String(note || "").match(/No\.(\d+)/);
   return match ? Number(match[1]) : null;
+}
+
+function isNonEmptyString(value: string | null): value is string {
+  return Boolean(value);
 }
 
 async function saveSubmission(formData: FormData) {
@@ -58,6 +77,22 @@ async function saveSubmission(formData: FormData) {
   const bankAccountNumber = String(formData.get("bank_account_number") || "");
   const swiftCode = String(formData.get("swift_code") || "");
   const saveProfile = formData.get("save_profile") === "on";
+
+  if (!projectTeamId || !teamId) {
+    throw new Error("提出対象の戦隊が確認できません。");
+  }
+
+  await requireTeamAccess(teamId);
+
+  const { data: projectTeamAccess } = await supabase
+    .from("project_teams")
+    .select("team_id")
+    .eq("id", projectTeamId)
+    .maybeSingle();
+
+  if (projectTeamAccess?.team_id !== teamId) {
+    throw new Error("この提出対象へのアクセス権限がありません。");
+  }
 
   await supabase.from("submission_company_info").upsert(
     {
@@ -126,17 +161,19 @@ async function saveSubmission(formData: FormData) {
     .select("*")
     .eq("project_team_id", projectTeamId)
     .eq("file_category", "report_screenshot");
+  const safeOldScreenshotFiles =
+    (oldScreenshotFiles || []) as SubmissionFileRecord[];
 
   const screenshotsToRemove =
-    oldScreenshotFiles?.filter((file: any) => {
+    safeOldScreenshotFiles.filter((file) => {
       const rowNumber = getScreenshotRowNumber(file.note);
       return rowNumber !== null && rowNumber > detailCount;
     }) || [];
 
   if (screenshotsToRemove.length > 0) {
     const storagePaths = screenshotsToRemove
-      .map((file: any) => file.storage_path)
-      .filter(Boolean);
+      .map((file) => file.storage_path)
+      .filter(isNonEmptyString);
 
     if (storagePaths.length > 0) {
       await adminSupabase.storage.from("screenshots").remove(storagePaths);
@@ -147,7 +184,7 @@ async function saveSubmission(formData: FormData) {
       .delete()
       .in(
         "id",
-        screenshotsToRemove.map((file: any) => file.id)
+        screenshotsToRemove.map((file) => file.id)
       );
   }
 
@@ -188,7 +225,7 @@ async function saveSubmission(formData: FormData) {
     });
 
     const oldFilesForThisRow =
-      oldScreenshotFiles?.filter((file: any) => {
+      safeOldScreenshotFiles.filter((file) => {
         return getScreenshotRowNumber(file.note) === rowNumber;
       }) || [];
 
@@ -197,8 +234,8 @@ async function saveSubmission(formData: FormData) {
 
     if (deleteScreenshot && oldFilesForThisRow.length > 0) {
       const oldStoragePaths = oldFilesForThisRow
-        .map((file: any) => file.storage_path)
-        .filter(Boolean);
+        .map((file) => file.storage_path)
+        .filter(isNonEmptyString);
 
       if (oldStoragePaths.length > 0) {
         await adminSupabase.storage
@@ -211,7 +248,7 @@ async function saveSubmission(formData: FormData) {
         .delete()
         .in(
           "id",
-          oldFilesForThisRow.map((file: any) => file.id)
+          oldFilesForThisRow.map((file) => file.id)
         );
     }
 
@@ -232,8 +269,8 @@ async function saveSubmission(formData: FormData) {
 
       if (oldFilesForThisRow.length > 0) {
         const oldStoragePaths = oldFilesForThisRow
-          .map((file: any) => file.storage_path)
-          .filter(Boolean);
+          .map((file) => file.storage_path)
+          .filter(isNonEmptyString);
 
         if (oldStoragePaths.length > 0) {
           await adminSupabase.storage
@@ -246,7 +283,7 @@ async function saveSubmission(formData: FormData) {
           .delete()
           .in(
             "id",
-            oldFilesForThisRow.map((file: any) => file.id)
+            oldFilesForThisRow.map((file) => file.id)
           );
       }
 
@@ -407,8 +444,10 @@ export default async function TeamSubmissionPage({
     );
   }
 
-  const project: any = projectTeam.projects;
-  const team: any = projectTeam.teams;
+  const project = projectTeam.projects as ProjectRecord | null;
+  const team = projectTeam.teams as TeamRecord | null;
+
+  await requireTeamAccess(projectTeam.team_id);
 
   const { data: profile } = await supabase
     .from("team_profiles")
@@ -459,8 +498,9 @@ export default async function TeamSubmissionPage({
   );
   const invoiceConfirmed = Boolean(invoiceFiles?.length);
 
-  const backHref = teamId
-    ? `/team/projects?teamId=${teamId}`
+  const backTeamId = teamId || projectTeam.team_id;
+  const backHref = backTeamId
+    ? `/team/projects?teamId=${backTeamId}`
     : "/team/projects";
 
   return (

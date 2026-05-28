@@ -12,6 +12,7 @@ import {
   parseMonthlyPlayerRows,
 } from "@/lib/monthly-data";
 import { getPlayerDisplayName } from "@/lib/player-display";
+import { requireTeamAccess } from "@/lib/team-auth";
 
 type MonthlySubmissionRow = {
   id?: string | null;
@@ -108,6 +109,8 @@ async function saveMonthlyData(formData: FormData) {
     throw new Error("戦隊または対象月が確認できません。");
   }
 
+  await requireTeamAccess(teamId);
+
   const { data: existingSubmission } = await supabase
     .from("monthly_data_submissions")
     .select("*")
@@ -202,6 +205,8 @@ async function cancelMonthlyDataSubmission(formData: FormData) {
     throw new Error("戦隊または対象月が確認できません。");
   }
 
+  await requireTeamAccess(teamId);
+
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
   const { data: submission, error: fetchError } = await supabase
     .from("monthly_data_submissions")
@@ -266,6 +271,8 @@ export default async function TeamRewardPage({
   let tableError: string | null = null;
 
   if (teamId && supabaseUrl && supabaseAnonKey) {
+    await requireTeamAccess(teamId);
+
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
     const { data: teamData } = await supabase
