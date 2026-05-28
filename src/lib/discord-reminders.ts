@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const REMINDER_SUBMISSION_URL =
-  "https://team-settlement-system.vercel.app/admin/reviews";
+  "https://team-settlement-system.vercel.app/team/login";
 
 export type DiscordReminderTeam = {
   id: string;
@@ -40,7 +40,8 @@ export function buildSubmissionReminderMessage({
   const daysUntil = hasValidDeadline ? Math.max(0, getTokyoDayDiff(now, deadline)) : null;
   const targetText = isOverdue ? `**${targetLabel}**` : targetLabel;
   const baseLines = [
-    ...(mention ? [mention, ""] : []),
+    ...(mention ? [mention] : []),
+    "お疲れ様です。",
     "提出リマインドBotです。資料提出についてのお知らせです。",
     "",
     `${formatTeamName(team)} の ${targetText} につきまして、`,
