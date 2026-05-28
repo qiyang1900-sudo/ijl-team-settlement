@@ -6,6 +6,7 @@ import {
   getStatusTone,
   isApprovedLike,
 } from "@/lib/status-labels";
+import ReminderButton from "./ReminderButton";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ type ReviewRowData = {
     deadline_at: string | null;
   } | null;
   teams: {
+    id: string;
     name: string | null;
     short_name: string | null;
   } | null;
@@ -48,6 +50,15 @@ function isSubmittedReviewRow(row: ReviewRowData) {
       !isReturnedStatus(status) &&
       !isApprovedLike(status) &&
       !["not_submitted", "draft"].includes(status)
+  );
+}
+
+function canSendProjectReminder(row: ReviewRowData) {
+  return (
+    (row.status === "not_submitted" ||
+      row.status === "draft" ||
+      row.status === "returned") &&
+    !isSubmittedReviewRow(row)
   );
 }
 
@@ -133,6 +144,25 @@ export default async function AdminReviewsPage() {
               <StatCard label="再次提交待审核" count={resubmitted.length} color="orange" />
               <StatCard label="审核通过" count={approved.length} color="green" />
               <StatCard label="未提交" count={notSubmitted.length} color="slate" />
+            </div>
+
+            <div className="mb-6 rounded-xl border border-sky-400/40 bg-sky-950/30 p-4">
+              <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+                <div>
+                  <h2 className="text-base font-bold text-sky-100">
+                    Discord 立即提醒
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-300">
+                    立即提醒所有未提交和待再次提交的战队。每条记录下方也可以单独提醒。
+                  </p>
+                </div>
+                <ReminderButton
+                  scope="project_all"
+                  label={`一键提醒 ${notSubmitted.length + returned.length} 队`}
+                  confirmMessage="确定立即提醒所有未提交和待再次提交的战队吗？"
+                  disabled={notSubmitted.length + returned.length === 0}
+                />
+              </div>
             </div>
 
             <div className="space-y-8">
@@ -236,7 +266,7 @@ function ReviewRow({ row }: { row: ReviewRowData }) {
 
   return (
     <article className="rounded-lg border border-slate-700 bg-slate-950/50 px-4 py-3">
-      <div className="grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)_140px_180px_90px] lg:items-start">
+      <div className="grid gap-4 lg:grid-cols-[180px_minmax(0,1fr)_140px_180px_130px] lg:items-start">
         <div className="min-w-0">
           <p className="text-xs text-slate-500">战队</p>
           <p className="mt-1 truncate text-sm font-semibold">
@@ -279,12 +309,23 @@ function ReviewRow({ row }: { row: ReviewRowData }) {
 
         <div className="lg:text-right">
           {project?.id ? (
-            <Link
-              href={`/admin/projects/${project.id}/teams/${row.id}`}
-              className="text-sm text-slate-300 underline hover:text-white"
-            >
-              查看提交
-            </Link>
+            <div className="space-y-2">
+              <Link
+                href={`/admin/projects/${project.id}/teams/${row.id}`}
+                className="block text-sm text-slate-300 underline hover:text-white"
+              >
+                查看提交
+              </Link>
+              {canSendProjectReminder(row) ? (
+                <ReminderButton
+                  scope="project_single"
+                  projectTeamId={row.id}
+                  label="立即提醒"
+                  confirmMessage={`确定立即提醒 ${team?.short_name || team?.name || "该战队"} 提交「${project?.title || "提出物"}」吗？`}
+                  compact
+                />
+              ) : null}
+            </div>
           ) : (
             <span className="text-sm text-slate-500">-</span>
           )}
