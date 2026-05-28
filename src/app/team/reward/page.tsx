@@ -471,8 +471,8 @@ export default async function TeamRewardPage({
               {!playerTableError ? (
                 <section className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
                   {isUsingMonthlyAssignments
-                    ? "この月は管理者が設定した月別選手名单を使用しています。"
-                    : "この月は現在のクラブ所属名单を自動反映しています。"}
+                    ? "この月は管理者が設定した月別選手リストを使用しています。"
+                    : "この月は現在のクラブ所属リストを自動反映しています。"}
                 </section>
               ) : null}
 

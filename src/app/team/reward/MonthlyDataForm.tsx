@@ -36,6 +36,22 @@ const youtubeFields: Array<{ key: PlayerField; label: string }> = [
   { key: "youtubeSubscriberCount", label: "登録者数" },
 ];
 
+const japanesePlayerMeta: Record<string, string> = {
+  队员: "選手",
+  队长: "キャプテン",
+  教练: "コーチ",
+  求生者: "サバイバー",
+  监管者: "ハンター",
+};
+
+function toJapanesePlayerMeta(value?: string) {
+  if (!value) {
+    return "";
+  }
+
+  return japanesePlayerMeta[value] || value;
+}
+
 export default function MonthlyDataForm({
   action,
   teamId,
@@ -98,14 +114,14 @@ export default function MonthlyDataForm({
           <div>
             <h2 className="text-lg font-bold">① 選手・選手給与</h2>
             <p className="mt-1 text-sm text-slate-500">
-              選手一覧は管理者が設定した本月名单から自動反映されます。
+              選手一覧は管理者が設定した当月の選手リストから自動反映されます。
             </p>
           </div>
         </div>
 
         {players.length === 0 ? (
           <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-            この月の選手名单がまだ設定されていません。管理者に確認してください。
+            この月の選手リストがまだ設定されていません。管理者に確認してください。
           </div>
         ) : null}
 
@@ -124,7 +140,11 @@ export default function MonthlyDataForm({
                     {player.playerName || "-"}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
-                    {[player.playerReading, player.playerPosition, player.playerRole]
+                    {[
+                      player.playerReading,
+                      toJapanesePlayerMeta(player.playerPosition),
+                      toJapanesePlayerMeta(player.playerRole),
+                    ]
                       .filter(Boolean)
                       .join(" / ") || "管理者設定"}
                   </p>
