@@ -34,6 +34,9 @@ type MonthlySubmissionRow = {
   approved_at?: string | null;
   updated_at?: string | null;
 };
+type MonthlyDataSettingRow = {
+  deadline_at: string | null;
+};
 type TeamRecord = {
   id?: string | null;
   name?: string | null;
@@ -275,6 +278,7 @@ export default async function TeamRewardPage({
   let playerTableError: string | null = null;
   let isUsingMonthlyAssignments = false;
   let tableError: string | null = null;
+  let monthlyDeadlineAt: string | null = null;
 
   if (teamId && supabaseUrl && supabaseAnonKey) {
     await requireTeamAccess(teamId);
@@ -300,6 +304,16 @@ export default async function TeamRewardPage({
     } else {
       submissions = data || [];
     }
+
+    const { data: settingData } = await supabase
+      .from("monthly_data_settings")
+      .select("deadline_at")
+      .eq("target_month", selectedMonth)
+      .maybeSingle();
+
+    monthlyDeadlineAt =
+      ((settingData || null) as MonthlyDataSettingRow | null)?.deadline_at ||
+      null;
 
     const { data: assignmentData, error: assignmentError } = await supabase
       .from("monthly_player_assignments")
@@ -519,6 +533,8 @@ export default async function TeamRewardPage({
                     : "この月は現在のクラブ所属リストを自動反映しています。"}
                 </section>
               ) : null}
+
+              <DeadlineNotice deadlineAt={monthlyDeadlineAt} />
 
               {selectedSubmission?.return_reason ? (
                 <section className="mb-5 rounded-lg border border-rose-200 bg-rose-50 p-4 text-rose-800">
@@ -753,4 +769,47 @@ function Notice({ text, tone }: { text: string; tone: "sky" | "emerald" }) {
       {text}
     </div>
   );
+}
+
+function DeadlineNotice({ deadlineAt }: { deadlineAt: string | null }) {
+  if (!deadlineAt) {
+    return (
+      <section className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+        提出期限はまだ設定されていません。管理者からの案内を確認してください。
+      </section>
+    );
+  }
+
+  const deadline = new Date(deadlineAt);
+  const isOverdue = new Date().getTime() > deadline.getTime();
+
+  return (
+    <section
+      className={`mb-5 rounded-lg border p-4 text-sm shadow-sm ${
+        isOverdue
+          ? "border-rose-200 bg-rose-50 text-rose-800"
+          : "border-emerald-200 bg-emerald-50 text-emerald-800"
+      }`}
+    >
+      <p className="font-bold">
+        月データ提出期限：{formatDeadlineDateTime(deadlineAt)}
+      </p>
+      <p className="mt-1">
+        {isOverdue
+          ? "提出期限を過ぎています。未提出または差し戻し中の場合は、早めに提出してください。"
+          : "この日時までに月データを提出してください。"}
+      </p>
+    </section>
+  );
+}
+
+function formatDeadlineDateTime(value: string) {
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
 }

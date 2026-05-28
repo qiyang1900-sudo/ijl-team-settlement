@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/discord-reminders",
+      "schedule": "0 1 * * *"
+    }
+  ]
+}

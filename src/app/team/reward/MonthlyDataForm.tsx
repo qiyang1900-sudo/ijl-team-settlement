@@ -649,10 +649,11 @@ function OcrCell({
         setStatus("数字を自動対応できませんでした。手入力してください。");
       } else {
         onApply(result.values);
+        const resultText = formatOcrResult(fields, result.values);
         setStatus(
           result.usedFallback
-            ? `${recognizedCount}項目を順番で推定しました。数字を確認してください。`
-            : `${recognizedCount}項目を反映しました。`
+            ? `${recognizedCount}項目を順番で推定しました：${resultText}。数字を確認してください。`
+            : `${recognizedCount}項目を反映しました：${resultText}。`
         );
       }
     } catch (error) {
@@ -687,10 +688,28 @@ function OcrCell({
         {isReading ? "読み取り中..." : "数字を反映"}
       </button>
       {status ? (
-        <p className="text-[11px] leading-4 text-slate-500">{status}</p>
+        <p
+          className={`rounded-md px-2 py-1 text-[11px] leading-4 ${
+            status.includes("反映") || status.includes("推定")
+              ? "bg-emerald-50 text-emerald-700"
+              : "bg-slate-50 text-slate-500"
+          }`}
+        >
+          {status}
+        </p>
       ) : null}
     </div>
   );
+}
+
+function formatOcrResult(
+  fields: Array<{ key: PlayerField; label: string; shortLabel: string }>,
+  values: Partial<Record<PlayerField, string>>
+) {
+  return fields
+    .filter((field) => values[field.key])
+    .map((field) => `${field.shortLabel} ${formatMonthlyNumber(values[field.key])}`)
+    .join(" / ");
 }
 
 function SalarySection({

@@ -126,6 +126,12 @@ async function syncCurrentRosterToMonth(formData: FormData) {
   const targetMonth =
     String(formData.get("target_month") || "") ||
     new Date().toISOString().slice(0, 7);
+  const deadlineAt = buildDeadlineAt(formData);
+
+  if (!deadlineAt) {
+    throw new Error("请选择有效的月数据提交截止时间。");
+  }
+
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
   const { data: players, error: playersError } = await supabase
     .from("league_players")
@@ -161,15 +167,35 @@ async function syncCurrentRosterToMonth(formData: FormData) {
     }
   }
 
-  redirect(`/admin/players?synced_month=${encodeURIComponent(targetMonth)}`);
+  const { error: settingError } = await supabase
+    .from("monthly_data_settings")
+    .upsert(
+      {
+        target_month: targetMonth,
+        deadline_at: deadlineAt,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "target_month" }
+    );
+
+  if (settingError) {
+    throw new Error(settingError.message);
+  }
+
+  redirect(
+    `/admin/players?synced_month=${encodeURIComponent(
+      targetMonth
+    )}&synced_deadline=${encodeURIComponent(deadlineAt)}`
+  );
 }
 
 export default async function AdminPlayersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ synced_month?: string }>;
+  searchParams: Promise<{ synced_month?: string; synced_deadline?: string }>;
 }) {
-  const { synced_month: syncedMonth } = await searchParams;
+  const { synced_month: syncedMonth, synced_deadline: syncedDeadline } =
+    await searchParams;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -266,6 +292,7 @@ export default async function AdminPlayersPage({
               monthOptions={monthOptions}
               defaultMonth={currentMonth}
               syncedMonth={syncedMonth}
+              syncedDeadline={syncedDeadline}
             />
 
             <PlayerRosterSelect
@@ -315,6 +342,41 @@ export default async function AdminPlayersPage({
       </div>
     </main>
   );
+}
+
+function buildDeadlineAt(formData: FormData) {
+  const year = Number(formData.get("deadline_year") || "");
+  const month = Number(formData.get("deadline_month") || "");
+  const day = Number(formData.get("deadline_day") || "");
+  const hour = Number(formData.get("deadline_hour") || "");
+  const minute = Number(formData.get("deadline_minute") || "");
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute) ||
+    year < 2020 ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31 ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return null;
+  }
+
+  const date = new Date(`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00+09:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString();
 }
 
 function Stat({ label, value }: { label: string; value: number }) {
