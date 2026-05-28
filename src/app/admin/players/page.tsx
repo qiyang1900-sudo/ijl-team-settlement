@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getPlayerDisplayName } from "@/lib/player-display";
-import PlayerTeamSelect from "./PlayerTeamSelect";
+import PlayerRosterSelect from "./PlayerRosterSelect";
 import RosterSyncPanel from "./RosterSyncPanel";
 
 export const dynamic = "force-dynamic";
@@ -268,58 +268,11 @@ export default async function AdminPlayersPage({
               syncedMonth={syncedMonth}
             />
 
-            <section className="mt-6 rounded-xl border border-slate-700 bg-slate-900">
-              <div className="flex items-center justify-between gap-3 border-b border-slate-700 px-4 py-3">
-                <h2 className="text-xl font-bold">选手大名单</h2>
-                <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">
-                  {safePlayers.length} 名
-                </span>
-              </div>
-              <div className="max-h-[560px] overflow-auto">
-                <table className="w-full min-w-[900px] border-collapse bg-slate-900 text-left text-sm">
-                <thead className="bg-slate-800 text-slate-300">
-                  <tr>
-                    <th className="px-4 py-3">选手名</th>
-                    <th className="px-4 py-3">读音</th>
-                    <th className="px-4 py-3">位置</th>
-                    <th className="px-4 py-3">阵营</th>
-                    <th className="px-4 py-3">当前俱乐部</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {safePlayers.map((player) => (
-                    <tr key={player.id} className="border-t border-slate-700">
-                      <td className="px-4 py-3 font-semibold">
-                        <Link
-                          href={`/admin/players/${player.id}`}
-                          className="hover:text-sky-300 hover:underline"
-                        >
-                          {getPlayerDisplayName(player)}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 text-slate-300">
-                        {player.reading || "-"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-300">
-                        {player.position_label || "-"}
-                      </td>
-                      <td className="px-4 py-3 text-slate-300">
-                        {player.roster_role || "-"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <PlayerTeamSelect
-                          playerId={player.id}
-                          currentTeamId={player.current_team_id}
-                          teams={safeTeams}
-                          action={updatePlayerTeam}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-            </section>
+            <PlayerRosterSelect
+              players={safePlayers}
+              teams={safeTeams}
+              action={updatePlayerTeam}
+            />
 
             <details className="mt-6 rounded-xl border border-slate-700 bg-slate-900 p-4">
               <summary className="cursor-pointer select-none text-lg font-bold">
