@@ -11,6 +11,7 @@ import {
 import { getCurrentMonthValue } from "@/lib/month-options";
 import {
   MonthlySummary,
+  buildMonthlySummary,
   formatMonthlyPercent,
   summarizeMonthlySubmissions,
 } from "@/lib/monthly-summary";
@@ -76,6 +77,10 @@ export async function GET(request: Request) {
   if (fromMonth > toMonth) {
     [fromMonth, toMonth] = [toMonth, fromMonth];
   }
+  const requestedMonth = normalizeExportMonth(
+    url.searchParams.get("month") || toMonth,
+    currentMonth
+  );
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -115,8 +120,13 @@ export async function GET(request: Request) {
   const monthlySummaries = allMonthlySummaries.filter(
     (summary) => summary.month >= fromMonth && summary.month <= toMonth
   );
+  const selectedMonth = allMonthlySummaries.some(
+    (summary) => summary.month === requestedMonth
+  )
+    ? requestedMonth
+    : toMonth;
   const workbook = createXlsxWorkbook([
-    buildSummarySheet(monthlySummaries, allMonthlySummaries, toMonth),
+    buildSummarySheet(monthlySummaries, allMonthlySummaries, selectedMonth),
     buildXSheet(submissions),
     buildYoutubeSheet(submissions),
   ]);
@@ -155,9 +165,6 @@ function buildSummarySheet(
         "互动量",
         "阅读量",
         "互动率",
-        "总条数",
-        "总曝光",
-        "总互动",
         "选手粉丝数",
         "YT 登録者",
         "投稿数量",
@@ -165,7 +172,7 @@ function buildSummarySheet(
         "直播观看次数",
         "直播次数",
         "短视频投稿",
-        "合计播放数",
+        "短视频播放次数",
         "点赞量",
       ],
       style: 2,
@@ -182,9 +189,6 @@ function buildSummarySheet(
         summary.players.xEngagements,
         summary.players.xImpressions,
         formatMonthlyPercent(summary.players.xEngagementRate),
-        summary.total.xTweetCount,
-        summary.total.xImpressions,
-        summary.total.xEngagements,
         summary.players.xFollowerCount,
         summary.total.youtubeSubscriberCount,
         summary.total.youtubeTotalPostCount,
@@ -196,6 +200,17 @@ function buildSummarySheet(
         summary.total.youtubeLikeCount,
       ],
     })),
+    { cells: [] },
+    {
+      cells: [
+        "当前期间总计算数",
+        "",
+        "总计算数放在表格下方，不混入月度表格行。",
+      ],
+      style: 1,
+    },
+    { cells: ["指标", "数值"], style: 2 },
+    ...buildPeriodTotalRows(monthlySummaries),
     { cells: [] },
     {
       cells: [
@@ -214,10 +229,33 @@ function buildSummarySheet(
     rows,
     merges: [],
     widths: [
-      14, 12, 14, 14, 12, 12, 14, 14, 14, 12, 12, 14, 14, 14, 14, 12, 14,
-      14, 12, 14, 14, 12,
+      14, 12, 14, 14, 12, 12, 14, 14, 14, 12, 14, 14, 12, 14, 14, 12, 14,
+      14, 12,
     ],
   };
+}
+
+function buildPeriodTotalRows(monthlySummaries: MonthlySummary[]): SheetRow[] {
+  const summary = buildMonthlySummary(
+    "period",
+    monthlySummaries.flatMap((row) => row.officialRows),
+    monthlySummaries.flatMap((row) => row.playerRows),
+    monthlySummaries.reduce((sum, row) => sum + row.submissionCount, 0)
+  );
+  const metrics = [
+    { label: "总条数", value: summary.total.xTweetCount },
+    { label: "总曝光", value: summary.total.xImpressions },
+    { label: "总互动", value: summary.total.xEngagements },
+    { label: "视频播放合计", value: summary.total.youtubeVideoViews },
+    { label: "短视频播放合计", value: summary.total.youtubeShortViews },
+    { label: "直播观看合计", value: summary.total.youtubeStreamViews },
+    { label: "直播次数合计", value: summary.total.youtubeStreamCount },
+    { label: "合计播放数", value: summary.total.youtubeTotalPlayback },
+  ];
+
+  return metrics.map((metric) => ({
+    cells: [metric.label, metric.value],
+  }));
 }
 
 function buildComparisonRows(

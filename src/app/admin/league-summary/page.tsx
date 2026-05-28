@@ -11,6 +11,7 @@ import {
   getCurrentMonthValue,
   normalizeMonthRange,
 } from "@/lib/month-options";
+import type { MonthOption } from "@/lib/month-options";
 import {
   MonthlySummary,
   buildMonthlySummary,
@@ -47,9 +48,9 @@ type TeamSummaryRow = {
 export default async function LeagueSummaryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; month?: string }>;
 }) {
-  const { from, to } = await searchParams;
+  const { from, to, month } = await searchParams;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -122,15 +123,25 @@ export default async function LeagueSummaryPage({
     rows.length
   );
   const byTeam = summarizeByTeam(rows);
+  const selectedComparisonMonth =
+    month &&
+    /^\d{4}-\d{2}$/.test(month) &&
+    month <= currentMonth &&
+    allMonthlySummaries.some((summary) => summary.month === month)
+      ? month
+      : toMonth;
   const selectedMonthSummary =
-    allMonthlySummaries.find((summary) => summary.month === toMonth) || null;
+    allMonthlySummaries.find((summary) => summary.month === selectedComparisonMonth) ||
+    null;
   const previousYearSummary =
     allMonthlySummaries.find(
-      (summary) => summary.month === getPreviousYearMonth(toMonth)
+      (summary) => summary.month === getPreviousYearMonth(selectedComparisonMonth)
     ) || null;
   const exportHref = `/api/admin/league-summary/export?from=${encodeURIComponent(
     fromMonth
-  )}&to=${encodeURIComponent(toMonth)}`;
+  )}&to=${encodeURIComponent(toMonth)}&month=${encodeURIComponent(
+    selectedComparisonMonth
+  )}`;
 
   return (
     <main className="min-h-screen bg-slate-950 p-8 text-white">
@@ -206,8 +217,11 @@ export default async function LeagueSummaryPage({
         </section>
 
         <MonthlyComparison
-          month={toMonth}
+          month={selectedComparisonMonth}
           current={selectedMonthSummary}
+          fromMonth={fromMonth}
+          toMonth={toMonth}
+          monthOptions={monthOptions}
           previous={previousYearSummary}
         />
 
@@ -263,7 +277,7 @@ export default async function LeagueSummaryPage({
           <div className="bg-slate-900 p-5">
             <h2 className="text-xl font-bold">汇总表格</h2>
           </div>
-          <LeagueSummaryTable rows={monthlySummaries} />
+          <LeagueSummaryTable rows={monthlySummaries} summary={periodSummary} />
         </section>
 
         <section className="mt-6 overflow-hidden rounded-xl border border-slate-700">
@@ -323,75 +337,109 @@ function summarizeByTeam(rows: MonthlySubmissionRow[]): TeamSummaryRow[] {
     .sort((left, right) => left.shortName.localeCompare(right.shortName));
 }
 
-function LeagueSummaryTable({ rows }: { rows: MonthlySummary[] }) {
+function LeagueSummaryTable({
+  rows,
+  summary,
+}: {
+  rows: MonthlySummary[];
+  summary: MonthlySummary;
+}) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[1900px] border-collapse bg-slate-900 text-left text-xs">
-        <thead className="bg-slate-800 text-slate-300">
-          <tr>
-            <th className="px-3 py-2">月份</th>
-            <th className="px-3 py-2">官推条数</th>
-            <th className="px-3 py-2">官推互动量</th>
-            <th className="px-3 py-2">官推阅读量</th>
-            <th className="px-3 py-2">互动率</th>
-            <th className="px-3 py-2">官方粉丝数</th>
-            <th className="px-3 py-2">选手推条数</th>
-            <th className="px-3 py-2">互动量</th>
-            <th className="px-3 py-2">阅读量</th>
-            <th className="px-3 py-2">互动率</th>
-            <th className="px-3 py-2">总条数</th>
-            <th className="px-3 py-2">总曝光</th>
-            <th className="px-3 py-2">总互动</th>
-            <th className="px-3 py-2">选手粉丝数</th>
-            <th className="px-3 py-2">YT 登録者</th>
-            <th className="px-3 py-2">投稿数量</th>
-            <th className="px-3 py-2">视频播放次数</th>
-            <th className="px-3 py-2">直播观看次数</th>
-            <th className="px-3 py-2">直播次数</th>
-            <th className="px-3 py-2">短视频投稿</th>
-            <th className="px-3 py-2">合计播放数</th>
-            <th className="px-3 py-2">点赞量</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
+    <>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1700px] border-collapse bg-slate-900 text-left text-xs">
+          <thead className="bg-slate-800 text-slate-300">
             <tr>
-              <td className="px-3 py-5 text-slate-500" colSpan={22}>
-                暂无数据。
-              </td>
+              <th className="px-3 py-2">月份</th>
+              <th className="px-3 py-2">官推条数</th>
+              <th className="px-3 py-2">官推互动量</th>
+              <th className="px-3 py-2">官推阅读量</th>
+              <th className="px-3 py-2">互动率</th>
+              <th className="px-3 py-2">官方粉丝数</th>
+              <th className="px-3 py-2">选手推条数</th>
+              <th className="px-3 py-2">互动量</th>
+              <th className="px-3 py-2">阅读量</th>
+              <th className="px-3 py-2">互动率</th>
+              <th className="px-3 py-2">选手粉丝数</th>
+              <th className="px-3 py-2">YT 登録者</th>
+              <th className="px-3 py-2">投稿数量</th>
+              <th className="px-3 py-2">视频播放次数</th>
+              <th className="px-3 py-2">直播观看次数</th>
+              <th className="px-3 py-2">直播次数</th>
+              <th className="px-3 py-2">短视频投稿</th>
+              <th className="px-3 py-2">短视频播放次数</th>
+              <th className="px-3 py-2">点赞量</th>
             </tr>
-          ) : (
-            rows.map((row) => (
-              <tr key={row.month} className="border-t border-slate-700">
-                <td className="px-3 py-2 font-semibold">
-                  {formatMonthLabel(row.month)}
+          </thead>
+          <tbody>
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-3 py-5 text-slate-500" colSpan={19}>
+                  暂无数据。
                 </td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.official.xTweetCount)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.official.xEngagements)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.official.xImpressions)}</td>
-                <td className="px-3 py-2">{formatMonthlyPercent(row.official.xEngagementRate)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.official.xFollowerCount)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.players.xTweetCount)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.players.xEngagements)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.players.xImpressions)}</td>
-                <td className="px-3 py-2">{formatMonthlyPercent(row.players.xEngagementRate)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.total.xTweetCount)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.total.xImpressions)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.total.xEngagements)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.players.xFollowerCount)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeSubscriberCount)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeTotalPostCount)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeVideoViews)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeStreamViews)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeStreamCount)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeShortPostCount)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeShortViews)}</td>
-                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeLikeCount)}</td>
               </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.month} className="border-t border-slate-700">
+                  <td className="px-3 py-2 font-semibold">
+                    {formatMonthLabel(row.month)}
+                  </td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.official.xTweetCount)}</td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.official.xEngagements)}</td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.official.xImpressions)}</td>
+                  <td className="px-3 py-2">{formatMonthlyPercent(row.official.xEngagementRate)}</td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.official.xFollowerCount)}</td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.players.xTweetCount)}</td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.players.xEngagements)}</td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.players.xImpressions)}</td>
+                  <td className="px-3 py-2">{formatMonthlyPercent(row.players.xEngagementRate)}</td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.players.xFollowerCount)}</td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeSubscriberCount)}</td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeTotalPostCount)}</td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeVideoViews)}</td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeStreamViews)}</td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeStreamCount)}</td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeShortPostCount)}</td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeShortViews)}</td>
+                  <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeLikeCount)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+      <LeagueSummaryTotals summary={summary} />
+    </>
+  );
+}
+
+function LeagueSummaryTotals({ summary }: { summary: MonthlySummary }) {
+  const items = [
+    { label: "总条数", value: summary.total.xTweetCount },
+    { label: "总曝光", value: summary.total.xImpressions },
+    { label: "总互动", value: summary.total.xEngagements },
+    { label: "视频播放合计", value: summary.total.youtubeVideoViews },
+    { label: "短视频播放合计", value: summary.total.youtubeShortViews },
+    { label: "直播观看合计", value: summary.total.youtubeStreamViews },
+    { label: "直播次数合计", value: summary.total.youtubeStreamCount },
+    { label: "合计播放数", value: summary.total.youtubeTotalPlayback },
+  ];
+
+  return (
+    <div className="border-t border-slate-700 bg-slate-900 p-5">
+      <h3 className="text-sm font-semibold text-slate-300">
+        当前期间总计算数
+      </h3>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {items.map((item) => (
+          <div key={item.label} className="rounded-lg bg-slate-950 p-3">
+            <p className="text-xs text-slate-500">{item.label}</p>
+            <p className="mt-1 text-lg font-bold">
+              {formatMonthlyNumber(item.value)}
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -446,10 +494,16 @@ function TeamSummaryTable({ rows }: { rows: TeamSummaryRow[] }) {
 function MonthlyComparison({
   month,
   current,
+  fromMonth,
+  toMonth,
+  monthOptions,
   previous,
 }: {
   month: string;
   current: MonthlySummary | null;
+  fromMonth: string;
+  toMonth: string;
+  monthOptions: MonthOption[];
   previous: MonthlySummary | null;
 }) {
   const items = current
@@ -501,15 +555,38 @@ function MonthlyComparison({
     <section className="mt-6 rounded-xl border border-slate-700 bg-slate-900 p-5">
       <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
         <div>
-          <h2 className="text-xl font-bold">指定月份总数据</h2>
+          <h2 className="text-xl font-bold">
+            指定月份总数据：{formatMonthLabel(month)}
+          </h2>
           <p className="mt-1 text-sm text-slate-400">
-            {formatMonthLabel(month)} 所有战队审核通过数据合计，旁边为去年同月增减。
+            上方筛选是期间，这里单独指定一个月份，用于查看所有战队合计和去年同月增减。
           </p>
         </div>
-        <p className="text-sm text-slate-500">
-          对比月份：{formatMonthLabel(getPreviousYearMonth(month))}
-        </p>
+        <form className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <input type="hidden" name="from" value={fromMonth} />
+          <input type="hidden" name="to" value={toMonth} />
+          <label className="text-sm text-slate-300">
+            指定月份
+            <select
+              name="month"
+              defaultValue={month}
+              className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white sm:w-44"
+            >
+              {monthOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-slate-200">
+            切换
+          </button>
+        </form>
       </div>
+      <p className="mt-3 text-sm text-slate-500">
+        对比月份：{formatMonthLabel(getPreviousYearMonth(month))}
+      </p>
       {current ? (
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {items.map((item) => (
