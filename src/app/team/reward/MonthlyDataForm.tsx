@@ -1,11 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import {
-  MonthlyPlayerRow,
-  emptyMonthlyPlayerRow,
-  formatMonthlyNumber,
-} from "@/lib/monthly-data";
+import { useMemo, useState } from "react";
+import { MonthlyPlayerRow, formatMonthlyNumber } from "@/lib/monthly-data";
 
 type MonthlyDataFormProps = {
   action: (formData: FormData) => void | Promise<void>;
@@ -50,51 +46,8 @@ export default function MonthlyDataForm({
   clubActivityImageName,
   isLocked,
 }: MonthlyDataFormProps) {
-  const storageKey = `monthly-data-player-names:${teamId}`;
-  const [useDefaultNames, setUseDefaultNames] = useState(true);
   const [activityLink, setActivityLink] = useState(clubActivityLink || "");
-  const [players, setPlayers] = useState<MonthlyPlayerRow[]>(() => {
-    if (initialPlayers.length > 0) {
-      return initialPlayers;
-    }
-
-    if (typeof window === "undefined") {
-      return [emptyMonthlyPlayerRow(0)];
-    }
-
-    const savedNames = window.localStorage.getItem(storageKey);
-
-    if (!savedNames) {
-      return [emptyMonthlyPlayerRow(0)];
-    }
-
-    try {
-      const names = JSON.parse(savedNames);
-
-      if (Array.isArray(names) && names.length > 0) {
-        return names.map((name, index) => ({
-          ...emptyMonthlyPlayerRow(index),
-          playerName: String(name || ""),
-        }));
-      }
-    } catch {
-      window.localStorage.removeItem(storageKey);
-    }
-
-    return [emptyMonthlyPlayerRow(0)];
-  });
-
-  useEffect(() => {
-    if (!useDefaultNames) {
-      return;
-    }
-
-    const names = players
-      .map((player) => player.playerName.trim())
-      .filter(Boolean);
-
-    window.localStorage.setItem(storageKey, JSON.stringify(names));
-  }, [players, storageKey, useDefaultNames]);
+  const [players, setPlayers] = useState<MonthlyPlayerRow[]>(initialPlayers);
 
   const totalSalary = useMemo(
     () =>
@@ -113,35 +66,22 @@ export default function MonthlyDataForm({
     );
   }
 
-  function addPlayer() {
-    setPlayers((current) => [...current, emptyMonthlyPlayerRow(current.length)]);
-  }
-
-  function removePlayer(index: number) {
-    setPlayers((current) =>
-      current.length <= 1
-        ? current
-        : current.filter((_, playerIndex) => playerIndex !== index)
-    );
-  }
+  const isSubmitDisabled = isLocked || players.length === 0;
 
   return (
     <form action={action} className="space-y-6">
       <input type="hidden" name="team_id" value={teamId} />
       <input type="hidden" name="player_rows" value={JSON.stringify(players)} />
       <input type="hidden" name="selected_month" value={selectedMonth} />
+      <input type="hidden" name="target_month" value={selectedMonth} />
 
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-xs font-semibold text-slate-500">対象月</p>
-            <input
-              type="month"
-              name="target_month"
-              defaultValue={selectedMonth}
-              disabled={isLocked}
-              className="mt-2 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900 disabled:bg-slate-100"
-            />
+            <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-950">
+              {selectedMonth}
+            </p>
           </div>
 
           <div className="rounded-lg bg-slate-50 px-4 py-3 text-sm">
@@ -156,23 +96,18 @@ export default function MonthlyDataForm({
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <h2 className="text-lg font-bold">① 選手名・選手給与</h2>
+            <h2 className="text-lg font-bold">① 選手・選手給与</h2>
             <p className="mt-1 text-sm text-slate-500">
-              選手は自由に追加できます。選手名は次回以降の初期値として保存できます。
+              選手一覧は管理者が設定した本月名单から自動反映されます。
             </p>
           </div>
-
-          <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              checked={useDefaultNames}
-              onChange={(event) => setUseDefaultNames(event.target.checked)}
-              className="h-4 w-4"
-              disabled={isLocked}
-            />
-            選手名を次回以降も使用する
-          </label>
         </div>
+
+        {players.length === 0 ? (
+          <div className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            この月の選手名单がまだ設定されていません。管理者に確認してください。
+          </div>
+        ) : null}
 
         <div className="mt-5 space-y-4">
           {players.map((player, index) => (
@@ -180,13 +115,20 @@ export default function MonthlyDataForm({
               key={player.id}
               className="rounded-lg border border-slate-200 bg-slate-50 p-4"
             >
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)_80px] md:items-end">
-                <Field
-                  label={`選手名 ${index + 1}`}
-                  value={player.playerName}
-                  onChange={(value) => updatePlayer(index, "playerName", value)}
-                  disabled={isLocked}
-                />
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_minmax(0,1fr)] md:items-end">
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <p className="text-xs font-semibold text-slate-500">
+                    選手名 {index + 1}
+                  </p>
+                  <p className="mt-1 font-semibold text-slate-950">
+                    {player.playerName || "-"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {[player.playerReading, player.playerPosition, player.playerRole]
+                      .filter(Boolean)
+                      .join(" / ") || "管理者設定"}
+                  </p>
+                </div>
                 <Field
                   label="選手給与"
                   value={player.salaryAmount}
@@ -224,27 +166,10 @@ export default function MonthlyDataForm({
                     )
                   ) : null}
                 </label>
-                <button
-                  type="button"
-                  onClick={() => removePlayer(index)}
-                  disabled={isLocked || players.length <= 1}
-                  className="rounded-lg border border-rose-200 px-3 py-2 text-sm font-semibold text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  削除
-                </button>
               </div>
             </div>
           ))}
         </div>
-
-        <button
-          type="button"
-          onClick={addPlayer}
-          disabled={isLocked}
-          className="mt-4 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          選手を追加
-        </button>
       </section>
 
       <MetricSection
@@ -266,7 +191,7 @@ export default function MonthlyDataForm({
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-bold">④ クラブ活動</h2>
         <p className="mt-1 text-sm text-slate-500">
-          リンク提出または画像アップロードのどちらか一方を選択してください。
+          リンクと画像はどちらも提出できます。必要な資料を登録してください。
         </p>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -288,7 +213,7 @@ export default function MonthlyDataForm({
               type="file"
               name="club_activity_image"
               accept="image/*"
-              disabled={isLocked || Boolean(activityLink.trim())}
+              disabled={isLocked}
               className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
             />
             {clubActivityImageName ? (
@@ -315,7 +240,7 @@ export default function MonthlyDataForm({
           type="submit"
           name="action_type"
           value="draft"
-          disabled={isLocked}
+          disabled={isSubmitDisabled}
           className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           下書き保存
@@ -325,7 +250,7 @@ export default function MonthlyDataForm({
           type="submit"
           name="action_type"
           value="submit"
-          disabled={isLocked}
+          disabled={isSubmitDisabled}
           className="rounded-lg bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
           審査提出
