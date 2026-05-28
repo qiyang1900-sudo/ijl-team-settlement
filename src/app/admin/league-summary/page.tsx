@@ -3,10 +3,20 @@ import Link from "next/link";
 import {
   formatMonthLabel,
   formatMonthlyNumber,
-  numericMonthlyValue,
   parseMonthlyPlayerRows,
   splitMonthlyRows,
 } from "@/lib/monthly-data";
+import {
+  buildMonthOptions,
+  normalizeMonthRange,
+} from "@/lib/month-options";
+import {
+  MonthlySummary,
+  buildMonthlySummary,
+  formatMonthlyPercent,
+  summarizeMonthlySubmissions,
+} from "@/lib/monthly-summary";
+import MetricLineChart from "../components/MetricLineChart";
 
 type MonthlySubmissionRow = {
   id: string;
@@ -22,16 +32,11 @@ type MonthlySubmissionRow = {
   } | null;
 };
 
-function getCurrentMonth() {
-  return new Date().toISOString().slice(0, 7);
-}
-
-function addMonths(monthValue: string, offset: number) {
-  const [year, month] = monthValue.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1 + offset, 1));
-
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
-}
+type TeamSummaryRow = {
+  team: string;
+  shortName: string;
+  summary: MonthlySummary;
+};
 
 export default async function LeagueSummaryPage({
   searchParams,
@@ -39,9 +44,6 @@ export default async function LeagueSummaryPage({
   searchParams: Promise<{ from?: string; to?: string }>;
 }) {
   const { from, to } = await searchParams;
-  const currentMonth = getCurrentMonth();
-  const fromMonth = from || addMonths(currentMonth, -5);
-  const toMonth = to || currentMonth;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -55,6 +57,20 @@ export default async function LeagueSummaryPage({
   }
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const { data: monthRows } = await supabase
+    .from("monthly_data_submissions")
+    .select("target_month")
+    .order("target_month", { ascending: true });
+  const availableMonths = (monthRows || []).map((row) =>
+    String(row.target_month || "")
+  );
+  const { fromMonth, toMonth } = normalizeMonthRange({
+    from,
+    to,
+    availableMonths,
+  });
+  const monthOptions = buildMonthOptions(availableMonths);
+
   const { data, error } = await supabase
     .from("monthly_data_submissions")
     .select(
@@ -77,73 +93,14 @@ export default async function LeagueSummaryPage({
     .order("target_month", { ascending: true });
 
   const rows = (data || []) as unknown as MonthlySubmissionRow[];
-  const monthlyRows = rows.flatMap((submission) => {
-    const teamName = submission.teams?.name || "-";
-    const teamShortName = submission.teams?.short_name || "-";
-    const { officialRow, playerRows } = splitMonthlyRows(
-      parseMonthlyPlayerRows(submission.player_rows)
-    );
-
-    return [
-      ...(officialRow
-        ? [
-            {
-              submission,
-              teamName,
-              teamShortName,
-              rowType: "official" as const,
-              player: officialRow,
-              salary: 0,
-              xImpressions: numericMonthlyValue(officialRow.xImpressions),
-              youtubeImpressions: numericMonthlyValue(
-                officialRow.youtubeTotalImpressions
-              ),
-            },
-          ]
-        : []),
-      ...playerRows.map((player) => ({
-        submission,
-        teamName,
-        teamShortName,
-        rowType: "player" as const,
-        player,
-        salary: numericMonthlyValue(player.salaryAmount),
-        xImpressions: numericMonthlyValue(player.xImpressions),
-        youtubeImpressions: numericMonthlyValue(player.youtubeTotalImpressions),
-      })),
-    ];
-  });
-  const totalSalary = monthlyRows.reduce((sum, row) => sum + row.salary, 0);
-  const totalXImpressions = monthlyRows.reduce(
-    (sum, row) => sum + row.xImpressions,
-    0
+  const monthlySummaries = summarizeMonthlySubmissions(rows);
+  const periodSummary = buildMonthlySummary(
+    "period",
+    monthlySummaries.flatMap((summary) => summary.officialRows),
+    monthlySummaries.flatMap((summary) => summary.playerRows),
+    rows.length
   );
-  const totalYoutubeImpressions = monthlyRows.reduce(
-    (sum, row) => sum + row.youtubeImpressions,
-    0
-  );
-  const byTeam = Array.from(
-    monthlyRows.reduce((map, row) => {
-      const key = row.teamShortName;
-      const current = map.get(key) || {
-        team: row.teamName,
-        shortName: row.teamShortName,
-        salary: 0,
-        xImpressions: 0,
-        youtubeImpressions: 0,
-        players: 0,
-      };
-
-      current.salary += row.salary;
-      current.xImpressions += row.xImpressions;
-      current.youtubeImpressions += row.youtubeImpressions;
-      current.players += row.rowType === "player" ? 1 : 0;
-      map.set(key, current);
-
-      return map;
-    }, new Map<string, { team: string; shortName: string; salary: number; xImpressions: number; youtubeImpressions: number; players: number }>())
-  ).map(([, value]) => value);
-  const maxTeamSalary = Math.max(...byTeam.map((row) => row.salary), 1);
+  const byTeam = summarizeByTeam(rows);
   const exportHref = `/api/admin/league-summary/export?from=${encodeURIComponent(
     fromMonth
   )}&to=${encodeURIComponent(toMonth)}`;
@@ -162,7 +119,7 @@ export default async function LeagueSummaryPage({
           <div>
             <h1 className="text-3xl font-bold">联盟数据汇总</h1>
             <p className="mt-2 text-slate-400">
-              这里先搭建汇总框架：表1 Excel 上传字段确认后接入，表2使用战队月数据。
+              按 Excel 汇总表口径查看联盟月数据、战队数据和可视化分析。
             </p>
           </div>
           <a
@@ -176,21 +133,31 @@ export default async function LeagueSummaryPage({
         <form className="mt-6 grid gap-3 rounded-xl border border-slate-700 bg-slate-900 p-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
           <label className="block text-sm text-slate-300">
             开始月份
-            <input
-              type="month"
+            <select
               name="from"
               defaultValue={fromMonth}
               className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white"
-            />
+            >
+              {monthOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="block text-sm text-slate-300">
             结束月份
-            <input
-              type="month"
+            <select
               name="to"
               defaultValue={toMonth}
               className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white"
-            />
+            >
+              {monthOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
           <button className="rounded-lg bg-emerald-400 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-300">
             筛选
@@ -207,75 +174,254 @@ export default async function LeagueSummaryPage({
         <section className="mt-6 grid gap-3 md:grid-cols-4">
           <Stat label="期间" value={`${formatMonthLabel(fromMonth)} - ${formatMonthLabel(toMonth)}`} />
           <Stat label="提交记录" value={`${rows.length} 件`} />
-          <Stat label="給与合计" value={`${formatMonthlyNumber(totalSalary)} 円`} />
-          <Stat label="总曝光" value={formatMonthlyNumber(totalXImpressions + totalYoutubeImpressions)} />
+          <Stat label="总曝光" value={formatMonthlyNumber(periodSummary.total.xImpressions)} />
+          <Stat label="总互动" value={formatMonthlyNumber(periodSummary.total.xEngagements)} />
         </section>
 
-        <section className="mt-6 rounded-xl border border-slate-700 bg-slate-900 p-5">
-          <h2 className="text-xl font-bold">表1 Excel 上传框架</h2>
-          <p className="mt-2 text-sm text-slate-400">
-            等你确认表1列名、计算逻辑和导出格式后，这里会启用 Excel 上传、字段映射和表1可视化。
-          </p>
-          <div className="mt-4 rounded-lg border border-dashed border-slate-700 bg-slate-950 p-6 text-center text-sm text-slate-500">
-            Excel 上传入口（字段确认后启用）
-          </div>
-        </section>
-
-        <section className="mt-6 rounded-xl border border-slate-700 bg-slate-900 p-5">
-          <h2 className="text-xl font-bold">战队汇总可视化</h2>
-          <div className="mt-4 space-y-3">
-            {byTeam.length === 0 ? (
-              <p className="text-sm text-slate-500">暂无数据。</p>
-            ) : (
-              byTeam.map((row) => (
-                <div key={row.shortName} className="grid gap-3 md:grid-cols-[120px_minmax(0,1fr)_140px] md:items-center">
-                  <span className="text-sm font-semibold text-slate-200">
-                    {row.shortName}
-                  </span>
-                  <div className="h-3 overflow-hidden rounded-full bg-slate-800">
-                    <div
-                      className="h-full rounded-full bg-violet-400"
-                      style={{ width: `${Math.max(4, (row.salary / maxTeamSalary) * 100)}%` }}
-                    />
-                  </div>
-                  <span className="text-sm text-slate-300">
-                    {formatMonthlyNumber(row.salary)} 円
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
+        <section className="mt-6 grid gap-4 xl:grid-cols-3">
+          <LineChartPanel
+            title="IJL联盟 X 阅读量推移"
+            rows={monthlySummaries.map((row) => ({
+              month: row.month,
+              value: row.total.xImpressions,
+            }))}
+            color="#38bdf8"
+          />
+          <LineChartPanel
+            title="IJL联盟 X 互动量推移"
+            rows={monthlySummaries.map((row) => ({
+              month: row.month,
+              value: row.total.xEngagements,
+            }))}
+            color="#fbbf24"
+          />
+          <LineChartPanel
+            title="IJL联盟 YouTube 投稿数据"
+            rows={monthlySummaries.map((row) => ({
+              month: row.month,
+              value: row.total.youtubeSubscriberCount,
+            }))}
+            color="#f87171"
+          />
         </section>
 
         <section className="mt-6 overflow-hidden rounded-xl border border-slate-700">
-          <table className="w-full min-w-[920px] border-collapse bg-slate-900 text-left text-sm">
-            <thead className="bg-slate-800 text-slate-300">
-              <tr>
-                <th className="px-4 py-3">战队</th>
-                <th className="px-4 py-3">选手数</th>
-                <th className="px-4 py-3">給与合计</th>
-                <th className="px-4 py-3">X曝光</th>
-                <th className="px-4 py-3">YouTube曝光</th>
-              </tr>
-            </thead>
-            <tbody>
-              {byTeam.map((row) => (
-                <tr key={row.shortName} className="border-t border-slate-700">
-                  <td className="px-4 py-3 font-semibold">
-                    {row.team}（{row.shortName}）
-                  </td>
-                  <td className="px-4 py-3">{row.players}</td>
-                  <td className="px-4 py-3">{formatMonthlyNumber(row.salary)} 円</td>
-                  <td className="px-4 py-3">{formatMonthlyNumber(row.xImpressions)}</td>
-                  <td className="px-4 py-3">{formatMonthlyNumber(row.youtubeImpressions)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="bg-slate-900 p-5">
+            <h2 className="text-xl font-bold">汇总表格</h2>
+          </div>
+          <LeagueSummaryTable rows={monthlySummaries} />
+        </section>
+
+        <section className="mt-6 overflow-hidden rounded-xl border border-slate-700">
+          <div className="bg-slate-900 p-5">
+            <h2 className="text-xl font-bold">各战队数据整理</h2>
+          </div>
+          <TeamSummaryTable rows={byTeam} />
         </section>
       </div>
     </main>
   );
+}
+
+function summarizeByTeam(rows: MonthlySubmissionRow[]): TeamSummaryRow[] {
+  const groups = new Map<
+    string,
+    {
+      team: string;
+      shortName: string;
+      officialRows: MonthlySummary["officialRows"];
+      playerRows: MonthlySummary["playerRows"];
+      submissionCount: number;
+    }
+  >();
+
+  for (const submission of rows) {
+    const key = submission.teams?.short_name || submission.teams?.name || "-";
+    const current = groups.get(key) || {
+      team: submission.teams?.name || "-",
+      shortName: submission.teams?.short_name || "-",
+      officialRows: [],
+      playerRows: [],
+      submissionCount: 0,
+    };
+    const splitRows = splitMonthlyRows(parseMonthlyPlayerRows(submission.player_rows));
+
+    if (splitRows.officialRow) {
+      current.officialRows.push(splitRows.officialRow);
+    }
+
+    current.playerRows.push(...splitRows.playerRows);
+    current.submissionCount += 1;
+    groups.set(key, current);
+  }
+
+  return Array.from(groups.values())
+    .map((row) => ({
+      team: row.team,
+      shortName: row.shortName,
+      summary: buildMonthlySummary(
+        row.shortName,
+        row.officialRows,
+        row.playerRows,
+        row.submissionCount
+      ),
+    }))
+    .sort((left, right) => left.shortName.localeCompare(right.shortName));
+}
+
+function LeagueSummaryTable({ rows }: { rows: MonthlySummary[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[1900px] border-collapse bg-slate-900 text-left text-xs">
+        <thead className="bg-slate-800 text-slate-300">
+          <tr>
+            <th className="px-3 py-2">月份</th>
+            <th className="px-3 py-2">官推条数</th>
+            <th className="px-3 py-2">官推互动量</th>
+            <th className="px-3 py-2">官推阅读量</th>
+            <th className="px-3 py-2">互动率</th>
+            <th className="px-3 py-2">官方粉丝数</th>
+            <th className="px-3 py-2">选手推条数</th>
+            <th className="px-3 py-2">互动量</th>
+            <th className="px-3 py-2">阅读量</th>
+            <th className="px-3 py-2">互动率</th>
+            <th className="px-3 py-2">总条数</th>
+            <th className="px-3 py-2">总曝光</th>
+            <th className="px-3 py-2">总互动</th>
+            <th className="px-3 py-2">选手粉丝数</th>
+            <th className="px-3 py-2">YT 登録者</th>
+            <th className="px-3 py-2">投稿数量</th>
+            <th className="px-3 py-2">视频播放次数</th>
+            <th className="px-3 py-2">直播观看次数</th>
+            <th className="px-3 py-2">直播次数</th>
+            <th className="px-3 py-2">短视频投稿</th>
+            <th className="px-3 py-2">合计播放数</th>
+            <th className="px-3 py-2">点赞量</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr>
+              <td className="px-3 py-5 text-slate-500" colSpan={22}>
+                暂无数据。
+              </td>
+            </tr>
+          ) : (
+            rows.map((row) => (
+              <tr key={row.month} className="border-t border-slate-700">
+                <td className="px-3 py-2 font-semibold">
+                  {formatMonthLabel(row.month)}
+                </td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.official.xTweetCount)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.official.xEngagements)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.official.xImpressions)}</td>
+                <td className="px-3 py-2">{formatMonthlyPercent(row.official.xEngagementRate)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.official.xFollowerCount)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.players.xTweetCount)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.players.xEngagements)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.players.xImpressions)}</td>
+                <td className="px-3 py-2">{formatMonthlyPercent(row.players.xEngagementRate)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.total.xTweetCount)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.total.xImpressions)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.total.xEngagements)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.players.xFollowerCount)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeSubscriberCount)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeTotalPostCount)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeVideoViews)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeStreamViews)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeStreamCount)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeShortPostCount)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeShortViews)}</td>
+                <td className="px-3 py-2">{formatMonthlyNumber(row.total.youtubeLikeCount)}</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TeamSummaryTable({ rows }: { rows: TeamSummaryRow[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[1100px] border-collapse bg-slate-900 text-left text-sm">
+        <thead className="bg-slate-800 text-slate-300">
+          <tr>
+            <th className="px-4 py-3">战队</th>
+            <th className="px-4 py-3">X 粉丝数</th>
+            <th className="px-4 py-3">推文条数</th>
+            <th className="px-4 py-3">战队合计曝光</th>
+            <th className="px-4 py-3">战队合计互动</th>
+            <th className="px-4 py-3">YT 粉丝数</th>
+            <th className="px-4 py-3">视频发布条数</th>
+            <th className="px-4 py-3">直播次数</th>
+            <th className="px-4 py-3">总播放</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 ? (
+            <tr>
+              <td className="px-4 py-6 text-slate-500" colSpan={9}>
+                暂无数据。
+              </td>
+            </tr>
+          ) : (
+            rows.map((row) => (
+              <tr key={row.shortName} className="border-t border-slate-700">
+                <td className="px-4 py-3 font-semibold">
+                  {row.team}（{row.shortName}）
+                </td>
+                <td className="px-4 py-3">{formatMonthlyNumber(row.summary.total.xFollowerCount)}</td>
+                <td className="px-4 py-3">{formatMonthlyNumber(row.summary.total.xTweetCount)}</td>
+                <td className="px-4 py-3">{formatMonthlyNumber(row.summary.total.xImpressions)}</td>
+                <td className="px-4 py-3">{formatMonthlyNumber(row.summary.total.xEngagements)}</td>
+                <td className="px-4 py-3">{formatMonthlyNumber(row.summary.total.youtubeSubscriberCount)}</td>
+                <td className="px-4 py-3">{formatMonthlyNumber(row.summary.total.youtubeTotalPostCount)}</td>
+                <td className="px-4 py-3">{formatMonthlyNumber(row.summary.total.youtubeStreamCount)}</td>
+                <td className="px-4 py-3">{formatMonthlyNumber(row.summary.total.youtubeTotalPlayback)}</td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function LineChartPanel({
+  title,
+  rows,
+  color,
+}: {
+  title: string;
+  rows: Array<{ month: string; value: number }>;
+  color: string;
+}) {
+  return (
+    <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
+      <h2 className="text-xl font-bold">{title}</h2>
+      <div className="mt-4">
+        <MetricLineChart
+          color={color}
+          points={rows.map((row) => ({
+            label: formatShortMonthLabel(row.month),
+            value: row.value,
+          }))}
+        />
+      </div>
+    </section>
+  );
+}
+
+function formatShortMonthLabel(month: string) {
+  const [year, monthValue] = month.split("-");
+
+  if (!year || !monthValue) {
+    return month;
+  }
+
+  return `${year.slice(-2)}/${monthValue}`;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
