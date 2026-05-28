@@ -73,6 +73,16 @@ export default function AdminDashboardPage() {
               查看月数据汇总、可视化和导出框架。
             </p>
           </Link>
+
+          <Link
+            href="/admin/team-scores"
+            className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md"
+          >
+            <h2 className="text-xl font-semibold">战队积分计算</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              按月计算各战队分数，并整理自动扣分项。
+            </p>
+          </Link>
         </div>
       </div>
     </main>

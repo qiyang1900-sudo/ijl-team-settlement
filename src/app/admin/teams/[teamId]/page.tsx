@@ -3,19 +3,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   formatMonthLabel,
-  formatMonthlyNumber,
   getMonthlyAdminStatusLabel,
 } from "@/lib/monthly-data";
 import { buildMonthOptions } from "@/lib/month-options";
-import {
-  MonthlySummary,
-  formatMonthlyPercent,
-  summarizeMonthlySubmissions,
-} from "@/lib/monthly-summary";
+import { summarizeMonthlySubmissions } from "@/lib/monthly-summary";
 import { getPlayerDisplayName } from "@/lib/player-display";
 import { getAdminStatusLabel, isApprovedLike, isWaitingReview } from "@/lib/status-labels";
-import MetricLineChart from "../../components/MetricLineChart";
 import PlayerTeamSelect from "../../players/PlayerTeamSelect";
+import TeamMonthlyDataTabs from "./TeamMonthlyDataTabs";
 
 type TeamRow = {
   id: string;
@@ -109,10 +104,10 @@ export default async function AdminTeamDetailPage({
   searchParams,
 }: {
   params: Promise<{ teamId: string }>;
-  searchParams: Promise<{ month?: string; view?: string }>;
+  searchParams: Promise<{ month?: string; year?: string }>;
 }) {
   const { teamId } = await params;
-  const { month, view } = await searchParams;
+  const { month, year } = await searchParams;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -205,17 +200,33 @@ export default async function AdminTeamDetailPage({
   );
   const projectSummary = summarizeProjectRows(safeProjectTeams);
   const monthlySummary = summarizeMonthlyRows(safeSubmissions, currentMonth);
-  const monthlyStats = summarizeMonthlySubmissions(safeSubmissions);
+  const approvedSubmissions = safeSubmissions.filter(
+    (submission) => submission.status === "approved"
+  );
+  const monthlyStats = summarizeMonthlySubmissions(approvedSubmissions);
+  const yearOptions = buildYearOptions(monthlyStats.map((row) => row.month), currentYear);
+  const selectedYear =
+    year && yearOptions.includes(year)
+      ? year
+      : yearOptions.includes(currentYear)
+        ? currentYear
+        : yearOptions.at(-1) || currentYear;
+  const yearlyMonthlyStats = monthlyStats.filter((row) =>
+    row.month.startsWith(selectedYear)
+  );
   const selectedMonth =
-    month && monthlyStats.some((row) => row.month === month)
+    month && yearlyMonthlyStats.some((row) => row.month === month)
       ? month
-      : monthlyStats.some((row) => row.month === currentMonth)
+      : yearlyMonthlyStats.some((row) => row.month === currentMonth)
         ? currentMonth
-        : monthlyStats.at(-1)?.month || currentMonth;
+        : yearlyMonthlyStats.at(-1)?.month ||
+          `${selectedYear}-${selectedYear === currentYear ? currentMonth.slice(5) : "12"}`;
   const selectedSummary =
-    monthlyStats.find((row) => row.month === selectedMonth) || null;
-  const selectedView = view === "youtube" ? "youtube" : "x";
-  const monthOptions = buildMonthOptions(safeSubmissions.map((row) => row.target_month));
+    yearlyMonthlyStats.find((row) => row.month === selectedMonth) || null;
+  const monthOptions = buildMonthOptions(
+    yearlyMonthlyStats.map((row) => row.month),
+    { includeRelativeMonths: false, includeCurrentMonth: false }
+  );
 
   return (
     <main className="min-h-screen bg-slate-950 p-8 text-white">
@@ -334,7 +345,20 @@ export default async function AdminTeamDetailPage({
               </p>
             </div>
             <form className="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <input type="hidden" name="view" value={selectedView} />
+              <label className="text-sm text-slate-300">
+                查看年份
+                <select
+                  name="year"
+                  defaultValue={selectedYear}
+                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white sm:w-32"
+                >
+                  {yearOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}年
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="text-sm text-slate-300">
                 查看月份
                 <select
@@ -342,11 +366,17 @@ export default async function AdminTeamDetailPage({
                   defaultValue={selectedMonth}
                   className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white sm:w-44"
                 >
-                  {monthOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
+                  {monthOptions.length > 0 ? (
+                    monthOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))
+                  ) : (
+                    <option value={selectedMonth}>
+                      {formatMonthLabel(selectedMonth)}
                     </option>
-                  ))}
+                  )}
                 </select>
               </label>
               <button className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-slate-200">
@@ -355,95 +385,11 @@ export default async function AdminTeamDetailPage({
             </form>
           </div>
 
-          <div className="mt-5 inline-flex overflow-hidden rounded-lg border border-slate-700 bg-slate-950 p-1 text-sm">
-            <Link
-              href={`/admin/teams/${teamId}?month=${encodeURIComponent(selectedMonth)}&view=x`}
-              className={`rounded-md px-4 py-2 font-semibold ${
-                selectedView === "x"
-                  ? "bg-cyan-400 text-slate-950"
-                  : "text-slate-300 hover:bg-slate-800"
-              }`}
-            >
-              X
-            </Link>
-            <Link
-              href={`/admin/teams/${teamId}?month=${encodeURIComponent(selectedMonth)}&view=youtube`}
-              className={`rounded-md px-4 py-2 font-semibold ${
-                selectedView === "youtube"
-                  ? "bg-red-300 text-slate-950"
-                  : "text-slate-300 hover:bg-slate-800"
-              }`}
-            >
-              YouTube
-            </Link>
-          </div>
-
-          {selectedSummary ? (
-            selectedView === "x" ? (
-              <XTotalPanel summary={selectedSummary} />
-            ) : (
-              <YoutubeTotalPanel summary={selectedSummary} />
-            )
-          ) : (
-            <p className="mt-5 text-sm text-slate-500">暂无月数据。</p>
-          )}
+          <TeamMonthlyDataTabs
+            selectedSummary={selectedSummary}
+            monthlyStats={yearlyMonthlyStats}
+          />
         </section>
-
-        {selectedView === "x" ? (
-          <section className="mt-6 grid gap-4 xl:grid-cols-3">
-            <LineChartPanel
-              title="X 阅读量推移"
-              rows={monthlyStats.map((row) => ({
-                month: row.month,
-                value: row.total.xImpressions,
-              }))}
-              color="#38bdf8"
-            />
-            <LineChartPanel
-              title="X 互动量推移"
-              rows={monthlyStats.map((row) => ({
-                month: row.month,
-                value: row.total.xEngagements,
-              }))}
-              color="#fbbf24"
-            />
-            <LineChartPanel
-              title="X 粉丝数推移"
-              rows={monthlyStats.map((row) => ({
-                month: row.month,
-                value: row.total.xFollowerCount,
-              }))}
-              color="#34d399"
-            />
-          </section>
-        ) : (
-          <section className="mt-6 grid gap-4 xl:grid-cols-3">
-            <LineChartPanel
-              title="YouTube 再生数推移"
-              rows={monthlyStats.map((row) => ({
-                month: row.month,
-                value: row.total.youtubeTotalPlayback,
-              }))}
-              color="#f87171"
-            />
-            <LineChartPanel
-              title="YouTube 合計Imp推移"
-              rows={monthlyStats.map((row) => ({
-                month: row.month,
-                value: row.total.youtubeTotalImpressions,
-              }))}
-              color="#a78bfa"
-            />
-            <LineChartPanel
-              title="YouTube 登録者推移"
-              rows={monthlyStats.map((row) => ({
-                month: row.month,
-                value: row.total.youtubeSubscriberCount,
-              }))}
-              color="#60a5fa"
-            />
-          </section>
-        )}
 
         <section className="mt-6 rounded-xl border border-slate-700 bg-slate-900 p-5">
           <h2 className="text-xl font-bold">俱乐部选手</h2>
@@ -522,279 +468,6 @@ function MiniStat({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function XTotalPanel({ summary }: { summary: MonthlySummary }) {
-  return (
-    <section className="mt-5 overflow-hidden rounded-lg border border-slate-700">
-      <div className="grid gap-3 bg-slate-950 p-4 sm:grid-cols-2 lg:grid-cols-6">
-        <MiniStat label="推文条数" value={formatMonthlyNumber(summary.total.xTweetCount)} />
-        <MiniStat label="阅读量" value={formatMonthlyNumber(summary.total.xImpressions)} />
-        <MiniStat label="互动量" value={formatMonthlyNumber(summary.total.xEngagements)} />
-        <MiniStat label="ファンイベント" value={formatMonthlyNumber(summary.total.xFanEventCount)} />
-        <MiniStat label="互动率" value={formatMonthlyPercent(summary.total.xEngagementRate)} />
-        <MiniStat label="粉丝数" value={formatMonthlyNumber(summary.total.xFollowerCount)} />
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[840px] border-collapse bg-slate-900 text-left text-sm">
-          <thead className="bg-slate-800 text-slate-300">
-            <tr>
-              <th className="px-4 py-3">推文条数</th>
-              <th className="px-4 py-3">互动量</th>
-              <th className="px-4 py-3">阅读量</th>
-              <th className="px-4 py-3">ファンイベント</th>
-              <th className="px-4 py-3">互动率</th>
-              <th className="px-4 py-3">粉丝数</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="border-t border-slate-700">
-              <td className="px-4 py-3 text-slate-300">
-                {formatMonthlyNumber(summary.total.xTweetCount)}
-              </td>
-              <td className="px-4 py-3 text-slate-300">
-                {formatMonthlyNumber(summary.total.xEngagements)}
-              </td>
-              <td className="px-4 py-3 text-slate-300">
-                {formatMonthlyNumber(summary.total.xImpressions)}
-              </td>
-              <td className="px-4 py-3 text-slate-300">
-                {formatMonthlyNumber(summary.total.xFanEventCount)}
-              </td>
-              <td className="px-4 py-3 text-slate-300">
-                {formatMonthlyPercent(summary.total.xEngagementRate)}
-              </td>
-              <td className="px-4 py-3 text-slate-300">
-                {formatMonthlyNumber(summary.total.xFollowerCount)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <details className="border-t border-slate-700 bg-slate-950/50">
-        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-300">
-          查看本月 X 明细
-        </summary>
-        <MonthlyXDetailRows summary={summary} />
-      </details>
-    </section>
-  );
-}
-
-function YoutubeTotalPanel({ summary }: { summary: MonthlySummary }) {
-  return (
-    <section className="mt-5 overflow-hidden rounded-lg border border-slate-700">
-      <div className="grid gap-3 bg-slate-950 p-4 sm:grid-cols-2 lg:grid-cols-6">
-        <MiniStat label="投稿数量" value={formatMonthlyNumber(summary.total.youtubeTotalPostCount)} />
-        <MiniStat label="视频播放" value={formatMonthlyNumber(summary.total.youtubeVideoViews)} />
-        <MiniStat label="短视频播放" value={formatMonthlyNumber(summary.total.youtubeShortViews)} />
-        <MiniStat label="直播观看" value={formatMonthlyNumber(summary.total.youtubeStreamViews)} />
-        <MiniStat label="合計Imp" value={formatMonthlyNumber(summary.total.youtubeTotalImpressions)} />
-        <MiniStat label="登録者数" value={formatMonthlyNumber(summary.total.youtubeSubscriberCount)} />
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1040px] border-collapse bg-slate-900 text-left text-sm">
-          <thead className="bg-slate-800 text-slate-300">
-            <tr>
-              <th className="px-4 py-3">投稿数量</th>
-              <th className="px-4 py-3">视频播放</th>
-              <th className="px-4 py-3">直播观看</th>
-              <th className="px-4 py-3">直播次数</th>
-              <th className="px-4 py-3">短视频投稿</th>
-              <th className="px-4 py-3">短视频播放</th>
-              <th className="px-4 py-3">点赞量</th>
-              <th className="px-4 py-3">合計Imp</th>
-              <th className="px-4 py-3">登録者数</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="border-t border-slate-700">
-              <td className="px-4 py-3 text-slate-300">
-                {formatMonthlyNumber(summary.total.youtubeTotalPostCount)}
-              </td>
-              <td className="px-4 py-3 text-slate-300">
-                {formatMonthlyNumber(summary.total.youtubeVideoViews)}
-              </td>
-              <td className="px-4 py-3 text-slate-300">
-                {formatMonthlyNumber(summary.total.youtubeStreamViews)}
-              </td>
-              <td className="px-4 py-3 text-slate-300">
-                {formatMonthlyNumber(summary.total.youtubeStreamCount)}
-              </td>
-              <td className="px-4 py-3 text-slate-300">
-                {formatMonthlyNumber(summary.total.youtubeShortPostCount)}
-              </td>
-              <td className="px-4 py-3 text-slate-300">
-                {formatMonthlyNumber(summary.total.youtubeShortViews)}
-              </td>
-              <td className="px-4 py-3 text-slate-300">
-                {formatMonthlyNumber(summary.total.youtubeLikeCount)}
-              </td>
-              <td className="px-4 py-3 text-slate-300">
-                {formatMonthlyNumber(summary.total.youtubeTotalImpressions)}
-              </td>
-              <td className="px-4 py-3 text-slate-300">
-                {formatMonthlyNumber(summary.total.youtubeSubscriberCount)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <details className="border-t border-slate-700 bg-slate-950/50">
-        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-300">
-          查看本月 YouTube 明细
-        </summary>
-        <MonthlyYoutubeDetailRows summary={summary} />
-      </details>
-    </section>
-  );
-}
-
-function MonthlyXDetailRows({ summary }: { summary: MonthlySummary }) {
-  const rows = [
-    ...summary.officialRows.map((row) => ({ type: "官方账号", row })),
-    ...summary.playerRows.map((row) => ({ type: "选手", row })),
-  ];
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] border-collapse text-left text-xs">
-        <thead className="bg-slate-900 text-slate-400">
-          <tr>
-            <th className="px-4 py-2">分类</th>
-            <th className="px-4 py-2">名称</th>
-            <th className="px-4 py-2">推文</th>
-            <th className="px-4 py-2">阅读量</th>
-            <th className="px-4 py-2">互动量</th>
-            <th className="px-4 py-2">ファンイベント</th>
-            <th className="px-4 py-2">粉丝数</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(({ type, row }) => (
-            <tr key={`${type}-${row.id}`} className="border-t border-slate-800">
-              <td className="px-4 py-2 text-slate-400">{type}</td>
-              <td className="px-4 py-2 font-semibold">{row.playerName}</td>
-              <td className="px-4 py-2 text-slate-300">
-                {formatMonthlyNumber(row.xTweetCount)}
-              </td>
-              <td className="px-4 py-2 text-slate-300">
-                {formatMonthlyNumber(row.xImpressions)}
-              </td>
-              <td className="px-4 py-2 text-slate-300">
-                {formatMonthlyNumber(row.xEngagements)}
-              </td>
-              <td className="px-4 py-2 text-slate-300">
-                {formatMonthlyNumber(row.xFanEventCount)}
-              </td>
-              <td className="px-4 py-2 text-slate-300">
-                {formatMonthlyNumber(row.xFollowerCount)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function MonthlyYoutubeDetailRows({ summary }: { summary: MonthlySummary }) {
-  const rows = [
-    ...summary.officialRows.map((row) => ({ type: "官方账号", row })),
-    ...summary.playerRows.map((row) => ({ type: "选手", row })),
-  ];
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[980px] border-collapse text-left text-xs">
-        <thead className="bg-slate-900 text-slate-400">
-          <tr>
-            <th className="px-4 py-2">分类</th>
-            <th className="px-4 py-2">名称</th>
-            <th className="px-4 py-2">動画投稿</th>
-            <th className="px-4 py-2">動画視聴</th>
-            <th className="px-4 py-2">ショート投稿</th>
-            <th className="px-4 py-2">ショート視聴</th>
-            <th className="px-4 py-2">配信回数</th>
-            <th className="px-4 py-2">配信視聴</th>
-            <th className="px-4 py-2">いいね</th>
-            <th className="px-4 py-2">合計Imp</th>
-            <th className="px-4 py-2">登録者</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(({ type, row }) => (
-            <tr key={`${type}-${row.id}`} className="border-t border-slate-800">
-              <td className="px-4 py-2 text-slate-400">{type}</td>
-              <td className="px-4 py-2 font-semibold">{row.playerName}</td>
-              <td className="px-4 py-2 text-slate-300">
-                {formatMonthlyNumber(row.youtubeVideoPostCount)}
-              </td>
-              <td className="px-4 py-2 text-slate-300">
-                {formatMonthlyNumber(row.youtubeVideoViews)}
-              </td>
-              <td className="px-4 py-2 text-slate-300">
-                {formatMonthlyNumber(row.youtubeShortPostCount)}
-              </td>
-              <td className="px-4 py-2 text-slate-300">
-                {formatMonthlyNumber(row.youtubeShortViews)}
-              </td>
-              <td className="px-4 py-2 text-slate-300">
-                {formatMonthlyNumber(row.youtubeStreamCount)}
-              </td>
-              <td className="px-4 py-2 text-slate-300">
-                {formatMonthlyNumber(row.youtubeStreamViews)}
-              </td>
-              <td className="px-4 py-2 text-slate-300">
-                {formatMonthlyNumber(row.youtubeLikeCount)}
-              </td>
-              <td className="px-4 py-2 text-slate-300">
-                {formatMonthlyNumber(row.youtubeTotalImpressions)}
-              </td>
-              <td className="px-4 py-2 text-slate-300">
-                {formatMonthlyNumber(row.youtubeSubscriberCount)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function LineChartPanel({
-  title,
-  rows,
-  color,
-}: {
-  title: string;
-  rows: Array<{ month: string; value: number }>;
-  color: string;
-}) {
-  return (
-    <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
-      <h2 className="text-xl font-bold">{title}</h2>
-      <div className="mt-4">
-        <MetricLineChart
-          color={color}
-          points={rows.map((row) => ({
-            label: formatShortMonthLabel(row.month),
-            value: row.value,
-          }))}
-        />
-      </div>
-    </section>
-  );
-}
-
-function formatShortMonthLabel(month: string) {
-  const [year, monthValue] = month.split("-");
-
-  if (!year || !monthValue) {
-    return month;
-  }
-
-  return `${year.slice(-2)}/${monthValue}`;
-}
-
 function summarizeProjectRows(rows: ProjectTeamRow[]) {
   return rows.reduce(
     (summary, row) => {
@@ -825,4 +498,17 @@ function summarizeMonthlyRows(rows: MonthlySubmissionRow[], currentMonth: string
       ? getMonthlyAdminStatusLabel(currentSubmission.status)
       : "未提交",
   };
+}
+
+function buildYearOptions(months: string[], currentYear: string) {
+  const years = Array.from(
+    new Set([
+      currentYear,
+      ...months
+        .map((month) => month.slice(0, 4))
+        .filter((year) => /^\d{4}$/.test(year)),
+    ])
+  ).sort();
+
+  return years;
 }

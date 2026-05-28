@@ -12,7 +12,7 @@ import {
   normalizeMonthRange,
 } from "@/lib/month-options";
 import { getPlayerDisplayName } from "@/lib/player-display";
-import MetricLineChart from "../../components/MetricLineChart";
+import MonthlyComboChart from "../../components/MonthlyComboChart";
 
 export const dynamic = "force-dynamic";
 
@@ -111,6 +111,7 @@ export default async function AdminPlayerDetailPage({
   const { data: monthRows } = await supabase
     .from("monthly_data_submissions")
     .select("target_month")
+    .eq("status", "approved")
     .order("target_month", { ascending: true });
   const availableMonths = (monthRows || []).map((row) =>
     String(row.target_month || "")
@@ -142,6 +143,7 @@ export default async function AdminPlayerDetailPage({
 
   monthlyQuery = monthlyQuery.gte("target_month", fromMonth);
   monthlyQuery = monthlyQuery.lte("target_month", toMonth);
+  monthlyQuery = monthlyQuery.eq("status", "approved");
 
   const { data: submissions, error: submissionsError } = await monthlyQuery;
 
@@ -266,46 +268,53 @@ export default async function AdminPlayerDetailPage({
 
         <section className="mt-6 rounded-xl border border-slate-700 bg-slate-900 p-5">
           <h2 className="text-xl font-bold">可视化分析</h2>
-          <div className="mt-4 grid gap-4 xl:grid-cols-3">
-            <LineChartPanel
-              title="X 阅读量推移"
-              rows={playerMonths.map((item) => ({
-                month: item.month,
-                value: numericValue(item.row.xImpressions),
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            <MonthlyComboChart
+              title="IJL選手推特数据推移"
+              barLabel="互动量"
+              lineLabel="阅读量"
+              barColor="#3b82f6"
+              lineColor="#ef4444"
+              points={playerMonths.map((item) => ({
+                label: formatShortMonthLabel(item.month),
+                barValue: numericValue(item.row.xEngagements),
+                lineValue: numericValue(item.row.xImpressions),
               }))}
-              color="#38bdf8"
             />
-            <LineChartPanel
-              title="X 互动量推移"
-              rows={playerMonths.map((item) => ({
-                month: item.month,
-                value: numericValue(item.row.xEngagements),
+            <MonthlyComboChart
+              title="IJL選手推特粉丝数推移"
+              lineLabel="粉丝数"
+              lineColor="#cc79a7"
+              points={playerMonths.map((item) => ({
+                label: formatShortMonthLabel(item.month),
+                lineValue: numericValue(item.row.xFollowerCount),
               }))}
-              color="#fbbf24"
             />
-            <LineChartPanel
-              title="YouTube 再生数推移"
-              rows={playerMonths.map((item) => ({
-                month: item.month,
-                value: getYoutubeViews(item.row),
+            <MonthlyComboChart
+              title="IJL選手Youtube投稿数据"
+              barLabel="再生数"
+              lineLabel="登録者"
+              barColor="#ef4444"
+              lineColor="#3b82f6"
+              points={playerMonths.map((item) => ({
+                label: formatShortMonthLabel(item.month),
+                barValue:
+                  numericValue(item.row.youtubeVideoViews) +
+                  numericValue(item.row.youtubeShortViews),
+                lineValue: numericValue(item.row.youtubeSubscriberCount),
               }))}
-              color="#f87171"
             />
-            <LineChartPanel
-              title="X フォロワー推移"
-              rows={playerMonths.map((item) => ({
-                month: item.month,
-                value: numericValue(item.row.xFollowerCount),
+            <MonthlyComboChart
+              title="IJL選手Youtube直播数据"
+              barLabel="直播观看"
+              lineLabel="直播次数"
+              barColor="#3b82f6"
+              lineColor="#ef4444"
+              points={playerMonths.map((item) => ({
+                label: formatShortMonthLabel(item.month),
+                barValue: numericValue(item.row.youtubeStreamViews),
+                lineValue: numericValue(item.row.youtubeStreamCount),
               }))}
-              color="#34d399"
-            />
-            <LineChartPanel
-              title="YouTube 登録者推移"
-              rows={playerMonths.map((item) => ({
-                month: item.month,
-                value: numericValue(item.row.youtubeSubscriberCount),
-              }))}
-              color="#60a5fa"
             />
           </div>
         </section>
@@ -452,39 +461,10 @@ function numericValue(value: unknown) {
   return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
-function LineChartPanel({
-  title,
-  rows,
-  color,
-}: {
-  title: string;
-  rows: Array<{ month: string; value: number }>;
-  color: string;
-}) {
-  return (
-    <section className="rounded-lg border border-slate-700 bg-slate-950 p-4">
-      <h3 className="font-bold">{title}</h3>
-      <div className="mt-3">
-        <MetricLineChart
-          color={color}
-          points={rows.map((row) => ({
-            label: formatShortMonthLabel(row.month),
-            value: row.value,
-          }))}
-        />
-      </div>
-    </section>
-  );
-}
-
 function formatShortMonthLabel(month: string) {
-  const [year, monthValue] = month.split("-");
+  const [, monthValue] = month.split("-");
 
-  if (!year || !monthValue) {
-    return month;
-  }
-
-  return `${year.slice(-2)}/${monthValue}`;
+  return monthValue ? `${Number(monthValue)}月` : month;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

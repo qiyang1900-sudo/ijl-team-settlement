@@ -4,6 +4,76 @@ import { getAdminStatusLabel } from "@/lib/status-labels";
 import { formatTaxRate, getTaxRateFromRows } from "@/lib/tax-rate";
 import ImagePreview from "./ImagePreview";
 
+type ProjectInfo = {
+  id?: string | null;
+  title?: string | null;
+  description?: string | null;
+  template_type?: string | null;
+  deadline_at?: string | null;
+  edit_deadline_at?: string | null;
+  status?: string | null;
+};
+
+type TeamInfo = {
+  id?: string | null;
+  name?: string | null;
+  short_name?: string | null;
+};
+
+type ProjectTeamDetail = {
+  id: string;
+  status: string;
+  submitted_at?: string | null;
+  returned_at?: string | null;
+  approved_at?: string | null;
+  exported_at?: string | null;
+  return_reason?: string | null;
+  admin_note?: string | null;
+  projects?: ProjectInfo | ProjectInfo[] | null;
+  teams?: TeamInfo | TeamInfo[] | null;
+};
+
+type SettlementSummaryRow = {
+  id: string;
+  payment_content?: string | null;
+  delivery_due_date?: string | null;
+};
+
+type SettlementDetailRow = {
+  id: string;
+  row_number?: number | string | null;
+  service_item?: string | null;
+  quantity?: string | number | null;
+  unit_price?: string | number | null;
+  subtotal?: string | number | null;
+  note?: string | null;
+};
+
+type ReportRow = {
+  id: string;
+  row_number?: number | string | null;
+  item_content?: string | null;
+  category_type?: string | null;
+  amount?: string | number | null;
+  link_url?: string | null;
+  implementation_date?: string | null;
+};
+
+type SubmissionFileRow = {
+  id: string;
+  file_category?: string | null;
+  file_url?: string | null;
+  file_name?: string | null;
+  note?: string | null;
+};
+
+type ReviewLogRow = {
+  id: string;
+  action?: string | null;
+  comment?: string | null;
+  created_at?: string | null;
+};
+
 async function approveSubmission(formData: FormData) {
   "use server";
 
@@ -165,17 +235,22 @@ export default async function AdminSubmissionDetailPage({
     .eq("project_team_id", projectTeamId)
     .order("created_at", { ascending: false });
 
-  function getReportScreenshot(rowNumber: number) {
-    return files?.find((file: any) => {
+  const safeFiles = (files || []) as SubmissionFileRow[];
+  const safeSummaryRows = (summaryRows || []) as SettlementSummaryRow[];
+  const safeDetailRows = (detailRows || []) as SettlementDetailRow[];
+  const safeReportRows = (reportRows || []) as ReportRow[];
+  const safeReviewLogs = (reviewLogs || []) as ReviewLogRow[];
+
+  function getReportScreenshot(rowNumber: number | string | null | undefined) {
+    return safeFiles.find((file) => {
       return (
         file.file_category === "report_screenshot" &&
         String(file.note || "").includes(`No.${rowNumber}`)
       );
     });
   }
-  const invoiceFile = files?.find(
-    (file: { file_category?: string }) =>
-      file.file_category === "invoice_confirmation"
+  const invoiceFile = safeFiles.find(
+    (file) => file.file_category === "invoice_confirmation"
   );
 
   if (projectTeamError || !projectTeam) {
@@ -200,14 +275,15 @@ export default async function AdminSubmissionDetailPage({
     );
   }
 
-  const project: any = projectTeam.projects;
-  const team: any = projectTeam.teams;
+  const safeProjectTeam = projectTeam as unknown as ProjectTeamDetail;
+  const project = normalizeRelation(safeProjectTeam.projects);
+  const team = normalizeRelation(safeProjectTeam.teams);
   const reportSubtotal =
-    reportRows?.reduce((sum: number, row: any) => {
+    safeReportRows.reduce((sum, row) => {
       const amount = Number(row?.amount || 0);
       return sum + (Number.isFinite(amount) ? amount : 0);
     }, 0) || 0;
-  const reportTaxRate = getTaxRateFromRows(detailRows || []);
+  const reportTaxRate = getTaxRateFromRows(safeDetailRows);
   const reportTax = Math.round(reportSubtotal * reportTaxRate);
   const reportTotal = reportSubtotal + reportTax;
 
@@ -224,7 +300,7 @@ export default async function AdminSubmissionDetailPage({
 
           <h1 className="mt-4 text-3xl font-bold">提交详情</h1>
 
-          {["approved", "exported"].includes(projectTeam.status) ? (
+          {["approved", "exported"].includes(safeProjectTeam.status) ? (
             <a
               href={`/api/admin/project-teams/${projectTeamId}/export`}
               className="mt-4 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
@@ -255,15 +331,15 @@ export default async function AdminSubmissionDetailPage({
             <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
               <p className="text-sm text-slate-500">提交状态</p>
               <p className="mt-2 font-semibold">
-                {getAdminStatusLabel(projectTeam.status)}
+                {getAdminStatusLabel(safeProjectTeam.status)}
               </p>
             </div>
 
             <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
               <p className="text-sm text-slate-500">提交时间</p>
               <p className="mt-2 font-semibold">
-                {projectTeam.submitted_at
-                  ? new Date(projectTeam.submitted_at).toLocaleString("ja-JP")
+                {safeProjectTeam.submitted_at
+                  ? new Date(safeProjectTeam.submitted_at).toLocaleString("ja-JP")
                   : "-"}
               </p>
             </div>
@@ -285,11 +361,11 @@ export default async function AdminSubmissionDetailPage({
             </div>
           </div>
 
-          {projectTeam.return_reason ? (
+          {safeProjectTeam.return_reason ? (
             <div className="mt-6 rounded-xl border border-yellow-500 bg-yellow-950 p-5 text-yellow-100">
               <p className="font-bold">退回理由</p>
               <p className="mt-2 whitespace-pre-wrap text-sm">
-                {projectTeam.return_reason}
+                {safeProjectTeam.return_reason}
               </p>
             </div>
           ) : null}
@@ -370,7 +446,7 @@ export default async function AdminSubmissionDetailPage({
         <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
           <h2 className="text-2xl font-bold">验收总表</h2>
 
-          {!summaryRows || summaryRows.length === 0 ? (
+          {safeSummaryRows.length === 0 ? (
             <p className="mt-4 text-slate-400">暂无提交资料。</p>
           ) : (
             <div className="mt-4 overflow-hidden rounded-xl border border-slate-700">
@@ -383,7 +459,7 @@ export default async function AdminSubmissionDetailPage({
                 </thead>
 
                 <tbody>
-                  {summaryRows.map((row: any) => (
+                  {safeSummaryRows.map((row) => (
                     <tr key={row.id} className="border-t border-slate-700">
                       <td className="px-4 py-3">
                         {row.payment_content || "-"}
@@ -402,7 +478,7 @@ export default async function AdminSubmissionDetailPage({
         <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
           <h2 className="text-2xl font-bold">结算明细</h2>
 
-          {!detailRows || detailRows.length === 0 ? (
+          {safeDetailRows.length === 0 ? (
             <p className="mt-4 text-slate-400">暂无提交资料。</p>
           ) : (
             <div className="mt-4 overflow-x-auto rounded-xl border border-slate-700">
@@ -418,7 +494,7 @@ export default async function AdminSubmissionDetailPage({
                 </thead>
 
                 <tbody>
-                  {detailRows.map((row: any) => (
+                  {safeDetailRows.map((row) => (
                     <tr key={row.id} className="border-t border-slate-700">
                       <td className="px-4 py-3 text-slate-400">
                         {row.row_number || "-"}
@@ -438,7 +514,7 @@ export default async function AdminSubmissionDetailPage({
         <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
           <h2 className="text-2xl font-bold">结果报告</h2>
 
-          {!reportRows || reportRows.length === 0 ? (
+          {safeReportRows.length === 0 ? (
             <p className="mt-4 text-slate-400">暂无提交资料。</p>
           ) : (
             <div className="mt-4 overflow-x-auto rounded-xl border border-slate-700">
@@ -456,7 +532,7 @@ export default async function AdminSubmissionDetailPage({
                 </thead>
 
                 <tbody>
-                  {reportRows.map((row: any) => {
+                  {safeReportRows.map((row) => {
                     const screenshot = getReportScreenshot(row.row_number);
 
                     return (
@@ -524,11 +600,11 @@ export default async function AdminSubmissionDetailPage({
         <section className="mt-6 rounded-2xl border border-slate-700 bg-slate-900 p-6">
           <h2 className="text-2xl font-bold">审核记录</h2>
 
-          {!reviewLogs || reviewLogs.length === 0 ? (
+          {safeReviewLogs.length === 0 ? (
             <p className="mt-4 text-slate-400">暂无审核记录。</p>
           ) : (
             <div className="mt-4 space-y-3">
-              {reviewLogs.map((log: any) => (
+              {safeReviewLogs.map((log) => (
                 <div
                   key={log.id}
                   className="rounded-xl border border-slate-700 bg-slate-950 p-4"
@@ -590,7 +666,7 @@ function AmountInfo({
   );
 }
 
-function formatSubtotal(row: any) {
+function formatSubtotal(row: SettlementDetailRow) {
   const storedSubtotal = Number(row?.subtotal);
 
   if (Number.isFinite(storedSubtotal) && storedSubtotal !== 0) {
@@ -602,4 +678,8 @@ function formatSubtotal(row: any) {
   const subtotal = quantity * unitPrice;
 
   return Number.isFinite(subtotal) ? subtotal : "-";
+}
+
+function normalizeRelation<T>(relation: T | T[] | null | undefined) {
+  return Array.isArray(relation) ? relation[0] : relation;
 }

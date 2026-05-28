@@ -1,10 +1,12 @@
+import Link from "next/link";
+
 export default function AdminLoginPage() {
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto max-w-md px-6 py-16">
-        <a href="/" className="text-sm text-slate-400 hover:text-white">
+        <Link href="/" className="text-sm text-slate-400 hover:text-white">
           ← 返回首页
-        </a>
+        </Link>
 
         <h1 className="mt-6 text-3xl font-bold">管理员登录</h1>
         <p className="mt-3 text-slate-400">
@@ -29,12 +31,12 @@ export default function AdminLoginPage() {
             />
           </div>
 
-          <a
+          <Link
             href="/admin/dashboard"
             className="block rounded-xl bg-white px-5 py-3 text-center text-sm font-semibold text-slate-950 hover:bg-slate-200"
           >
             登录
-          </a>
+          </Link>
         </form>
 
         <p className="mt-4 text-sm text-slate-500">

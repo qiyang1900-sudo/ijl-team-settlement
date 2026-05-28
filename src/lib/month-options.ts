@@ -18,20 +18,39 @@ export function getCurrentMonthValue() {
 
 export function buildMonthOptions(
   sourceMonths: Array<string | null | undefined>,
-  options: { includeRelativeMonths?: boolean; descending?: boolean } = {}
+  options: {
+    includeRelativeMonths?: boolean;
+    descending?: boolean;
+    includeFutureMonths?: boolean;
+    includeCurrentMonth?: boolean;
+    maxMonth?: string;
+  } = {}
 ): MonthOption[] {
   const currentMonth = getCurrentMonthValue();
+  const maxMonth =
+    /^\d{4}-\d{2}$/.test(String(options.maxMonth || ""))
+      ? String(options.maxMonth)
+      : currentMonth;
   const months = new Set(
     sourceMonths
       .map((month) => String(month || "").slice(0, 7))
       .filter((month) => /^\d{4}-\d{2}$/.test(month))
+      .filter((month) => month <= maxMonth)
   );
 
-  months.add(currentMonth);
+  if (options.includeCurrentMonth !== false && currentMonth <= maxMonth) {
+    months.add(currentMonth);
+  }
 
   if (options.includeRelativeMonths !== false) {
-    for (let index = -18; index <= 6; index += 1) {
-      months.add(addMonths(currentMonth, index));
+    const futureLimit = options.includeFutureMonths ? 6 : 0;
+
+    for (let index = -18; index <= futureLimit; index += 1) {
+      const month = addMonths(currentMonth, index);
+
+      if (month <= maxMonth) {
+        months.add(month);
+      }
     }
   }
 
@@ -48,24 +67,37 @@ export function normalizeMonthRange({
   from,
   to,
   availableMonths,
+  maxMonth,
 }: {
   from?: string;
   to?: string;
   availableMonths: string[];
+  maxMonth?: string;
 }) {
+  const currentMonth = getCurrentMonthValue();
+  const safeMaxMonth =
+    /^\d{4}-\d{2}$/.test(String(maxMonth || "")) ? String(maxMonth) : currentMonth;
   const sortedMonths = Array.from(
     new Set(
       availableMonths
         .map((month) => String(month || "").slice(0, 7))
         .filter((month) => /^\d{4}-\d{2}$/.test(month))
+        .filter((month) => month <= safeMaxMonth)
     )
   ).sort();
-  const currentMonth = getCurrentMonthValue();
-  const latestMonth = sortedMonths.at(-1) || currentMonth;
+  const latestMonth = sortedMonths.at(-1) || safeMaxMonth;
   let toMonth = /^\d{4}-\d{2}$/.test(String(to || "")) ? String(to) : latestMonth;
   let fromMonth = /^\d{4}-\d{2}$/.test(String(from || ""))
     ? String(from)
     : addMonths(toMonth, -5);
+
+  if (toMonth > safeMaxMonth) {
+    toMonth = safeMaxMonth;
+  }
+
+  if (fromMonth > safeMaxMonth) {
+    fromMonth = safeMaxMonth;
+  }
 
   if (fromMonth > toMonth) {
     [fromMonth, toMonth] = [toMonth, fromMonth];
