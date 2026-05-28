@@ -3,7 +3,9 @@ import Link from "next/link";
 import {
   formatMonthLabel,
   formatMonthlyNumber,
+  numericMonthlyValue,
   parseMonthlyPlayerRows,
+  splitMonthlyRows,
 } from "@/lib/monthly-data";
 
 type MonthlySubmissionRow = {
@@ -75,31 +77,53 @@ export default async function LeagueSummaryPage({
     .order("target_month", { ascending: true });
 
   const rows = (data || []) as unknown as MonthlySubmissionRow[];
-  const playerRows = rows.flatMap((submission) => {
+  const monthlyRows = rows.flatMap((submission) => {
     const teamName = submission.teams?.name || "-";
     const teamShortName = submission.teams?.short_name || "-";
+    const { officialRow, playerRows } = splitMonthlyRows(
+      parseMonthlyPlayerRows(submission.player_rows)
+    );
 
-    return parseMonthlyPlayerRows(submission.player_rows).map((player) => ({
-      submission,
-      teamName,
-      teamShortName,
-      player,
-      salary: Number(player.salaryAmount || 0) || 0,
-      xImpressions: Number(player.xImpressions || 0) || 0,
-      youtubeImpressions: Number(player.youtubeTotalImpressions || 0) || 0,
-    }));
+    return [
+      ...(officialRow
+        ? [
+            {
+              submission,
+              teamName,
+              teamShortName,
+              rowType: "official" as const,
+              player: officialRow,
+              salary: 0,
+              xImpressions: numericMonthlyValue(officialRow.xImpressions),
+              youtubeImpressions: numericMonthlyValue(
+                officialRow.youtubeTotalImpressions
+              ),
+            },
+          ]
+        : []),
+      ...playerRows.map((player) => ({
+        submission,
+        teamName,
+        teamShortName,
+        rowType: "player" as const,
+        player,
+        salary: numericMonthlyValue(player.salaryAmount),
+        xImpressions: numericMonthlyValue(player.xImpressions),
+        youtubeImpressions: numericMonthlyValue(player.youtubeTotalImpressions),
+      })),
+    ];
   });
-  const totalSalary = playerRows.reduce((sum, row) => sum + row.salary, 0);
-  const totalXImpressions = playerRows.reduce(
+  const totalSalary = monthlyRows.reduce((sum, row) => sum + row.salary, 0);
+  const totalXImpressions = monthlyRows.reduce(
     (sum, row) => sum + row.xImpressions,
     0
   );
-  const totalYoutubeImpressions = playerRows.reduce(
+  const totalYoutubeImpressions = monthlyRows.reduce(
     (sum, row) => sum + row.youtubeImpressions,
     0
   );
   const byTeam = Array.from(
-    playerRows.reduce((map, row) => {
+    monthlyRows.reduce((map, row) => {
       const key = row.teamShortName;
       const current = map.get(key) || {
         team: row.teamName,
@@ -113,7 +137,7 @@ export default async function LeagueSummaryPage({
       current.salary += row.salary;
       current.xImpressions += row.xImpressions;
       current.youtubeImpressions += row.youtubeImpressions;
-      current.players += 1;
+      current.players += row.rowType === "player" ? 1 : 0;
       map.set(key, current);
 
       return map;
@@ -145,7 +169,7 @@ export default async function LeagueSummaryPage({
             href={exportHref}
             className="rounded-lg bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
           >
-            导出当前数据 CSV
+            导出当前数据 Excel
           </a>
         </div>
 

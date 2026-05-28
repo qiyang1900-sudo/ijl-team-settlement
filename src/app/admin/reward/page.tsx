@@ -13,6 +13,7 @@ import {
   getMonthlyStatusTone,
   normalizeMonthlyStatus,
   parseMonthlyPlayerRows,
+  splitMonthlyRows,
 } from "@/lib/monthly-data";
 
 export const dynamic = "force-dynamic";
@@ -287,7 +288,9 @@ function ReviewSection({
 
 function ReviewRow({ row }: { row: MonthlySubmissionRow }) {
   const status = normalizeMonthlyStatus(row.status);
-  const players = parseMonthlyPlayerRows(row.player_rows);
+  const { officialRow, playerRows: players } = splitMonthlyRows(
+    parseMonthlyPlayerRows(row.player_rows)
+  );
   const totalSalary = players.reduce((sum, player) => {
     const amount = Number(player.salaryAmount || 0);
     return sum + (Number.isFinite(amount) ? amount : 0);
@@ -325,7 +328,10 @@ function ReviewRow({ row }: { row: MonthlySubmissionRow }) {
 
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
         <PlayerDataTable players={players} />
-        <ActivityPanel row={row} />
+        <div className="space-y-4">
+          <OfficialDataPanel officialRow={officialRow} />
+          <ActivityPanel row={row} />
+        </div>
       </div>
 
       <AdminActions row={row} status={status} />
@@ -337,6 +343,33 @@ function ReviewRow({ row }: { row: MonthlySubmissionRow }) {
         />
       </div>
     </article>
+  );
+}
+
+function OfficialDataPanel({
+  officialRow,
+}: {
+  officialRow: MonthlyPlayerRow | null;
+}) {
+  if (!officialRow) {
+    return (
+      <div className="rounded-lg border border-slate-700 bg-slate-950 p-4">
+        <h3 className="font-bold">公式アカウント</h3>
+        <p className="mt-3 text-sm text-slate-400">未提交。</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-700 bg-slate-950 p-4">
+      <h3 className="font-bold">公式アカウント</h3>
+      <div className="mt-3 grid gap-2 text-xs text-slate-300">
+        <p>X Imp：{formatMonthlyNumber(officialRow.xImpressions)}</p>
+        <p>X ENG：{formatMonthlyNumber(officialRow.xEngagements)}</p>
+        <p>YT 合計Imp：{formatMonthlyNumber(officialRow.youtubeTotalImpressions)}</p>
+        <p>YT 登録者：{formatMonthlyNumber(officialRow.youtubeSubscriberCount)}</p>
+      </div>
+    </div>
   );
 }
 

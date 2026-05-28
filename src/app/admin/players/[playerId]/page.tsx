@@ -4,6 +4,7 @@ import {
   MonthlyPlayerRow,
   formatMonthLabel,
   formatMonthlyNumber,
+  isOfficialMonthlyRow,
   parseMonthlyPlayerRows,
 } from "@/lib/monthly-data";
 import { getPlayerDisplayName } from "@/lib/player-display";
@@ -344,6 +345,7 @@ function collectPlayerMonthData(
   return submissions
     .flatMap((submission) =>
       parseMonthlyPlayerRows(submission.player_rows)
+        .filter((row) => !isOfficialMonthlyRow(row))
         .filter((row) => isSamePlayer(row, player, playerName, handle))
         .map((row) => ({
           month: submission.target_month,
