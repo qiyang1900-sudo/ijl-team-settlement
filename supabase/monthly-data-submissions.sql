@@ -19,9 +19,9 @@ create table if not exists monthly_data_submissions (
   unique (team_id, target_month)
 );
 
-grant select, insert, update on table public.monthly_data_submissions to anon;
-grant select, insert, update on table public.monthly_data_submissions to authenticated;
-grant select, insert, update on table public.monthly_data_submissions to service_role;
+grant select, insert, update, delete on table public.monthly_data_submissions to anon;
+grant select, insert, update, delete on table public.monthly_data_submissions to authenticated;
+grant select, insert, update, delete on table public.monthly_data_submissions to service_role;
 
 alter table monthly_data_submissions enable row level security;
 
@@ -40,3 +40,8 @@ create policy "monthly data submissions are updatable"
 on monthly_data_submissions for update
 using (true)
 with check (true);
+
+drop policy if exists "monthly data submissions are deletable" on monthly_data_submissions;
+create policy "monthly data submissions are deletable"
+on monthly_data_submissions for delete
+using (true);

@@ -4,12 +4,14 @@ import MonthPicker from "./MonthPicker";
 import MonthlyDataForm from "./MonthlyDataForm";
 import {
   MonthlyPlayerRow,
+  emptyMonthlyPlayerRow,
   formatMonthLabel,
   getMonthlyStatusLabel,
   getMonthlyStatusTone,
   normalizeMonthlyStatus,
   parseMonthlyPlayerRows,
 } from "@/lib/monthly-data";
+import { getPlayerDisplayName } from "@/lib/player-display";
 
 type MonthlySubmissionRow = {
   id?: string | null;
@@ -33,6 +35,23 @@ type TeamRecord = {
   id?: string | null;
   name?: string | null;
   short_name?: string | null;
+};
+type PlayerRecord = {
+  id: string;
+  handle: string | null;
+  reading: string | null;
+  position_label: string | null;
+  roster_role: string | null;
+  current_team_short_name: string | null;
+  sort_order?: number | null;
+  teams?: {
+    id?: string | null;
+    short_name?: string | null;
+  } | { id?: string | null; short_name?: string | null }[] | null;
+};
+type AssignmentRecord = {
+  sort_order?: number | null;
+  league_players?: PlayerRecord | PlayerRecord[] | null;
 };
 type StorageClient = {
   storage: {
@@ -104,7 +123,7 @@ async function saveMonthlyData(formData: FormData) {
 
   const clubActivityImage = formData.get("club_activity_image") as File | null;
   const uploadedClubActivity =
-    !clubActivityLink && clubActivityImage && clubActivityImage.size > 0
+    clubActivityImage && clubActivityImage.size > 0
       ? await uploadImage({
           file: clubActivityImage,
           teamId,
@@ -130,14 +149,7 @@ async function saveMonthlyData(formData: FormData) {
         club_activity_image_mime_type: uploadedClubActivity.mimeType,
         club_activity_image_storage_path: uploadedClubActivity.storagePath,
       }
-    : clubActivityLink
-      ? {
-          club_activity_image_url: null,
-          club_activity_image_name: null,
-          club_activity_image_mime_type: null,
-          club_activity_image_storage_path: null,
-        }
-      : previousClubImage;
+    : previousClubImage;
 
   const payload = {
     team_id: teamId,
@@ -236,11 +248,17 @@ export default async function TeamRewardPage({
   searchParams: Promise<{ teamId?: string; month?: string; result?: string }>;
 }) {
   const { teamId, month, result } = await searchParams;
+  const selectedMonth =
+    month ||
+    new Date().toISOString().slice(0, 7);
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   let team: TeamRecord | null = null;
   let submissions: MonthlySubmissionRow[] = [];
+  let assignedPlayers: PlayerRecord[] = [];
+  let playerTableError: string | null = null;
+  let isUsingMonthlyAssignments = false;
   let tableError: string | null = null;
 
   if (teamId && supabaseUrl && supabaseAnonKey) {
@@ -265,6 +283,68 @@ export default async function TeamRewardPage({
     } else {
       submissions = data || [];
     }
+
+    const { data: assignmentData, error: assignmentError } = await supabase
+      .from("monthly_player_assignments")
+      .select(
+        `
+        sort_order,
+        league_players (
+          id,
+          handle,
+          reading,
+          position_label,
+          roster_role,
+          current_team_short_name,
+          sort_order,
+          teams:current_team_id (
+            id,
+            short_name
+          )
+        )
+      `
+      )
+      .eq("team_id", teamId)
+      .eq("target_month", selectedMonth)
+      .order("sort_order", { ascending: true });
+
+    if (assignmentError) {
+      playerTableError = assignmentError.message;
+    } else if (assignmentData && assignmentData.length > 0) {
+      assignedPlayers = (assignmentData as unknown as AssignmentRecord[])
+        .flatMap((row: AssignmentRecord) => row.league_players || [])
+        .filter(Boolean) as PlayerRecord[];
+      isUsingMonthlyAssignments = true;
+    }
+
+    if (assignedPlayers.length === 0) {
+      const { data: currentPlayers, error: currentPlayersError } = await supabase
+        .from("league_players")
+        .select(
+          `
+          id,
+          handle,
+          reading,
+          position_label,
+          roster_role,
+          current_team_short_name,
+          sort_order,
+          teams:current_team_id (
+            id,
+            short_name
+          )
+        `
+        )
+        .eq("current_team_id", teamId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true });
+
+      if (currentPlayersError) {
+        playerTableError = playerTableError || currentPlayersError.message;
+      } else {
+        assignedPlayers = (currentPlayers || []) as unknown as PlayerRecord[];
+      }
+    }
   }
 
   if (!teamId) {
@@ -286,13 +366,17 @@ export default async function TeamRewardPage({
     );
   }
 
-  const selectedMonth =
-    month ||
-    new Date().toISOString().slice(0, 7);
   const selectedSubmission =
     submissions.find((row) => row.target_month === selectedMonth) || null;
   const status = normalizeMonthlyStatus(selectedSubmission?.status);
-  const playerRows = parseMonthlyPlayerRows(selectedSubmission?.player_rows);
+  const savedPlayerRows = parseMonthlyPlayerRows(selectedSubmission?.player_rows);
+  const assignedPlayerRows = assignedPlayers.map((player, index) =>
+    createPlayerRowFromRecord(player, index)
+  );
+  const playerRows =
+    assignedPlayerRows.length > 0
+      ? mergePlayerRows(assignedPlayerRows, savedPlayerRows)
+      : savedPlayerRows;
   const isLocked = status === "submitted" || status === "reviewing" || status === "approved";
   const dashboardHref = `/team/dashboard?teamId=${encodeURIComponent(teamId)}`;
 
@@ -377,6 +461,21 @@ export default async function TeamRewardPage({
             </aside>
 
             <div>
+              {playerTableError ? (
+                <section className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  選手管理テーブルがまだ準備されていないため、既存提出データのみ表示しています。
+                  <span className="mt-1 block text-xs">{playerTableError}</span>
+                </section>
+              ) : null}
+
+              {!playerTableError ? (
+                <section className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+                  {isUsingMonthlyAssignments
+                    ? "この月は管理者が設定した月別選手名单を使用しています。"
+                    : "この月は現在のクラブ所属名单を自動反映しています。"}
+                </section>
+              ) : null}
+
               {selectedSubmission?.return_reason ? (
                 <section className="mb-5 rounded-lg border border-rose-200 bg-rose-50 p-4 text-rose-800">
                   <p className="font-bold">差し戻し理由</p>
@@ -417,9 +516,7 @@ export default async function TeamRewardPage({
                 action={saveMonthlyData}
                 teamId={teamId}
                 selectedMonth={selectedMonth}
-                initialPlayers={
-                  playerRows.length > 0 ? playerRows : [createInitialPlayer()]
-                }
+                initialPlayers={playerRows}
                 clubActivityLink={selectedSubmission?.club_activity_link || ""}
                 clubActivityImageUrl={selectedSubmission?.club_activity_image_url || null}
                 clubActivityImageName={selectedSubmission?.club_activity_image_name || null}
@@ -431,6 +528,65 @@ export default async function TeamRewardPage({
       </div>
     </main>
   );
+}
+
+function createPlayerRowFromRecord(
+  player: PlayerRecord,
+  index: number
+): MonthlyPlayerRow {
+  return {
+    ...emptyMonthlyPlayerRow(index),
+    id: `player-${player.id}`,
+    playerId: player.id,
+    playerHandle: player.handle || "",
+    playerReading: player.reading || "",
+    playerPosition: player.position_label || "",
+    playerRole: player.roster_role || "",
+    playerName: getPlayerDisplayName(player),
+  };
+}
+
+function mergePlayerRows(
+  assignedRows: MonthlyPlayerRow[],
+  savedRows: MonthlyPlayerRow[]
+) {
+  const savedByPlayerId = new Map(
+    savedRows
+      .filter((row) => row.playerId)
+      .map((row) => [String(row.playerId), row])
+  );
+  const savedByName = new Map(
+    savedRows.map((row) => [String(row.playerName || row.playerHandle), row])
+  );
+
+  const usedSavedRows = new Set<MonthlyPlayerRow>();
+  const mergedRows = assignedRows.map((assignedRow) => {
+    const savedRow =
+      savedByPlayerId.get(String(assignedRow.playerId || "")) ||
+      savedByName.get(assignedRow.playerName) ||
+      savedByName.get(String(assignedRow.playerHandle || ""));
+
+    if (savedRow) {
+      usedSavedRows.add(savedRow);
+    }
+
+    return {
+      ...assignedRow,
+      ...(savedRow || {}),
+      id: assignedRow.id,
+      playerId: assignedRow.playerId,
+      playerHandle: assignedRow.playerHandle,
+      playerReading: assignedRow.playerReading,
+      playerPosition: assignedRow.playerPosition,
+      playerRole: assignedRow.playerRole,
+      playerName: assignedRow.playerName,
+    };
+  });
+
+  return [
+    ...mergedRows,
+    ...savedRows.filter((savedRow) => !usedSavedRows.has(savedRow)),
+  ];
 }
 
 async function uploadSalaryScreenshots({
@@ -538,32 +694,6 @@ async function uploadImage({
     fileUrl: data.publicUrl,
     fileName: file.name,
     mimeType: file.type,
-  };
-}
-
-function createInitialPlayer(): MonthlyPlayerRow {
-  return {
-    id: "player-1",
-    playerName: "",
-    salaryAmount: "",
-    salaryScreenshotName: "",
-    salaryScreenshotUrl: "",
-    salaryScreenshotStoragePath: "",
-    salaryScreenshotMimeType: "",
-    xTweetCount: "",
-    xImpressions: "",
-    xEngagements: "",
-    xFanEventCount: "",
-    xFollowerCount: "",
-    youtubeVideoPostCount: "",
-    youtubeVideoViews: "",
-    youtubeShortPostCount: "",
-    youtubeShortViews: "",
-    youtubeLikeCount: "",
-    youtubeStreamCount: "",
-    youtubeStreamViews: "",
-    youtubeTotalImpressions: "",
-    youtubeSubscriberCount: "",
   };
 }
 

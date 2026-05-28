@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatDateTime } from "@/lib/date-format";
+import DeleteMonthlySubmissionButton from "./DeleteMonthlySubmissionButton";
 import ImagePreview from "./ImagePreview";
 import {
   MonthlyDataStatus,
@@ -81,6 +82,35 @@ async function updateMonthlyDataStatus(formData: FormData) {
   const { error } = await supabase
     .from("monthly_data_submissions")
     .update(patch)
+    .eq("id", submissionId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  redirect("/admin/reward");
+}
+
+async function deleteMonthlyDataSubmission(formData: FormData) {
+  "use server";
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Supabase 环境变量没有设置成功。");
+  }
+
+  const submissionId = String(formData.get("submission_id") || "");
+
+  if (!submissionId) {
+    throw new Error("未找到月数据提交记录。");
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const { error } = await supabase
+    .from("monthly_data_submissions")
+    .delete()
     .eq("id", submissionId);
 
   if (error) {
@@ -299,6 +329,13 @@ function ReviewRow({ row }: { row: MonthlySubmissionRow }) {
       </div>
 
       <AdminActions row={row} status={status} />
+
+      <div className="mt-4 border-t border-slate-800 pt-4">
+        <DeleteMonthlySubmissionButton
+          submissionId={row.id}
+          action={deleteMonthlyDataSubmission}
+        />
+      </div>
     </article>
   );
 }

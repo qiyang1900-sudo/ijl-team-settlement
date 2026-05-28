@@ -52,6 +52,26 @@ export default function AdminPage() {
               审核战队提交的月数据资料。
             </p>
           </a>
+
+          <a
+            href="/admin/players"
+            className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
+          >
+            <h2 className="text-xl font-semibold">选手管理</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              管理选手当前所属战队，供月数据表自动同步。
+            </p>
+          </a>
+
+          <a
+            href="/admin/league-summary"
+            className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-300 hover:shadow-md"
+          >
+            <h2 className="text-xl font-semibold">联盟数据汇总</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              按月份和期间查看联盟数据汇总框架。
+            </p>
+          </a>
         </div>
       </div>
     </main>

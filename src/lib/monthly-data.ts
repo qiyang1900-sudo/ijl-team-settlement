@@ -8,6 +8,11 @@ export type MonthlyDataStatus =
 
 export type MonthlyPlayerRow = {
   id: string;
+  playerId?: string;
+  playerHandle?: string;
+  playerReading?: string;
+  playerPosition?: string;
+  playerRole?: string;
   playerName: string;
   salaryAmount: string;
   salaryScreenshotName?: string;
@@ -32,6 +37,11 @@ export type MonthlyPlayerRow = {
 
 export const emptyMonthlyPlayerRow = (index = 0): MonthlyPlayerRow => ({
   id: `player-${index + 1}`,
+  playerId: "",
+  playerHandle: "",
+  playerReading: "",
+  playerPosition: "",
+  playerRole: "",
   playerName: "",
   salaryAmount: "",
   salaryScreenshotName: "",

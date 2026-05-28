@@ -123,7 +123,7 @@ export default async function AdminTeamsPage() {
                   <th className="px-4 py-3">负责人</th>
                   <th className="px-4 py-3">邮箱</th>
                   <th className="px-4 py-3">状态</th>
-                  <th className="px-4 py-3">编辑</th>
+                  <th className="px-4 py-3">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -151,10 +151,18 @@ export default async function AdminTeamsPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <TeamEditDialog
-                        team={team}
-                        updateTeamAction={updateTeam}
-                      />
+                      <div className="flex flex-wrap gap-2">
+                        <Link
+                          href={`/admin/teams/${team.id}`}
+                          className="rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+                        >
+                          查看详情
+                        </Link>
+                        <TeamEditDialog
+                          team={team}
+                          updateTeamAction={updateTeam}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}
