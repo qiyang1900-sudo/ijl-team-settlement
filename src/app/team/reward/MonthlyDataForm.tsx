@@ -20,6 +20,7 @@ type MonthlyDataFormProps = {
 };
 
 type PlayerField = keyof MonthlyPlayerRow;
+type MetricSectionKind = "x" | "youtube";
 
 const xFields: Array<{ key: PlayerField; label: string; shortLabel: string }> = [
   {
@@ -79,6 +80,217 @@ function toJapanesePlayerMeta(value?: string) {
   }
 
   return japanesePlayerMeta[value] || value;
+}
+
+type TesseractGlobal = {
+  recognize: (
+    image: File,
+    language?: string,
+    options?: {
+      logger?: (message: { status?: string; progress?: number }) => void;
+    }
+  ) => Promise<{ data: { text: string } }>;
+};
+
+declare global {
+  interface Window {
+    Tesseract?: TesseractGlobal;
+  }
+}
+
+let tesseractLoader: Promise<TesseractGlobal> | null = null;
+
+function loadTesseract() {
+  if (typeof window === "undefined") {
+    return Promise.reject(new Error("ブラウザでのみ利用できます。"));
+  }
+
+  if (window.Tesseract) {
+    return Promise.resolve(window.Tesseract);
+  }
+
+  if (!tesseractLoader) {
+    tesseractLoader = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src =
+        "https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js";
+      script.async = true;
+      script.onload = () => {
+        if (window.Tesseract) {
+          resolve(window.Tesseract);
+        } else {
+          reject(new Error("OCR ライブラリの読み込みに失敗しました。"));
+        }
+      };
+      script.onerror = () =>
+        reject(new Error("OCR ライブラリの読み込みに失敗しました。"));
+      document.head.appendChild(script);
+    });
+  }
+
+  return tesseractLoader;
+}
+
+async function recognizeMetricsFromImage({
+  file,
+  fields,
+}: {
+  file: File;
+  fields: Array<{ key: PlayerField; label: string; shortLabel: string }>;
+}) {
+  const tesseract = await loadTesseract();
+  const result = await tesseract.recognize(file, "eng+jpn");
+  const text = normalizeOcrText(result.data.text);
+  const values: Partial<Record<PlayerField, string>> = {};
+
+  for (const field of fields) {
+    const value = pickNumberForField(text, field);
+
+    if (value !== null) {
+      values[field.key] = String(value);
+    }
+  }
+
+  if (Object.keys(values).length === 0) {
+    const orderedNumbers = extractNumberCandidates(text)
+      .map((candidate) => candidate.value)
+      .filter((value) => value >= 0)
+      .filter((value) => value < 300000000);
+
+    if (
+      orderedNumbers.length < fields.length ||
+      orderedNumbers.length > fields.length + 2
+    ) {
+      return {
+        values,
+        usedFallback: false,
+      };
+    }
+
+    orderedNumbers.slice(0, fields.length).forEach((value, index) => {
+      const field = fields[index];
+
+      if (field) {
+        values[field.key] = String(value);
+      }
+    });
+
+    return {
+      values,
+      usedFallback: orderedNumbers.length > 0,
+    };
+  }
+
+  return { values, usedFallback: false };
+}
+
+function pickNumberForField(
+  text: string,
+  field: { key: PlayerField; label: string; shortLabel: string }
+) {
+  const keywords = [
+    field.label,
+    field.shortLabel,
+    ...(ocrKeywordAliases[field.key] || []),
+  ].map(normalizeOcrText);
+  const candidates = extractNumberCandidates(text);
+  let bestCandidate: { value: number; distance: number } | null = null;
+
+  for (const keyword of keywords) {
+    if (!keyword) {
+      continue;
+    }
+
+    const keywordIndex = text.toLowerCase().indexOf(keyword.toLowerCase());
+
+    if (keywordIndex < 0) {
+      continue;
+    }
+
+    for (const candidate of candidates) {
+      const distance = candidate.index - keywordIndex;
+
+      if (distance < -24 || distance > 140) {
+        continue;
+      }
+
+      const absoluteDistance = Math.abs(distance);
+
+      if (!bestCandidate || absoluteDistance < bestCandidate.distance) {
+        bestCandidate = {
+          value: candidate.value,
+          distance: absoluteDistance,
+        };
+      }
+    }
+  }
+
+  return bestCandidate?.value ?? null;
+}
+
+const ocrKeywordAliases: Partial<Record<PlayerField, string[]>> = {
+  xTweetCount: ["tweet", "tweets", "post", "posts", "ポスト", "投稿"],
+  xImpressions: ["impression", "impressions", "表示回数", "閲覧", "閱讀"],
+  xEngagements: ["engagement", "engagements", "反応", "エンゲージ"],
+  xFanEventCount: ["event", "events", "イベント"],
+  xFollowerCount: ["follower", "followers", "フォロワー"],
+  youtubeVideoPostCount: ["video", "videos", "動画", "投稿"],
+  youtubeVideoViews: ["video views", "views", "動画再生", "視聴回数"],
+  youtubeShortPostCount: ["short", "shorts", "ショート"],
+  youtubeShortViews: ["short views", "ショート再生"],
+  youtubeLikeCount: ["like", "likes", "いいね"],
+  youtubeStreamCount: ["stream", "streams", "live", "配信", "ライブ"],
+  youtubeStreamViews: ["stream views", "live views", "配信再生", "ライブ視聴"],
+  youtubeTotalImpressions: ["impression", "impressions", "合計インプレッション"],
+  youtubeSubscriberCount: ["subscriber", "subscribers", "登録者"],
+};
+
+function extractNumberCandidates(text: string) {
+  const candidates: Array<{ value: number; index: number }> = [];
+  const matcher = /(\d[\d,]*(?:\.\d+)?)(\s*(?:万|億|k|K|m|M))?/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = matcher.exec(text)) !== null) {
+    const value = parseOcrNumber(match[1], match[2]);
+
+    if (value !== null) {
+      candidates.push({ value, index: match.index });
+    }
+  }
+
+  return candidates;
+}
+
+function parseOcrNumber(rawNumber: string, rawUnit?: string) {
+  const numberValue = Number(rawNumber.replace(/,/g, ""));
+
+  if (!Number.isFinite(numberValue)) {
+    return null;
+  }
+
+  const unit = String(rawUnit || "").trim().toLowerCase();
+  const multiplier = unit.includes("億")
+    ? 100000000
+    : unit.includes("万")
+      ? 10000
+      : unit === "m"
+        ? 1000000
+        : unit === "k"
+          ? 1000
+          : 1;
+
+  return Math.round(numberValue * multiplier);
+}
+
+function normalizeOcrText(value: string) {
+  return value
+    .replace(/[０-９]/g, (char) =>
+      String.fromCharCode(char.charCodeAt(0) - 0xfee0)
+    )
+    .replace(/[，、]/g, ",")
+    .replace(/[：]/g, ":")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export default function MonthlyDataForm({
@@ -158,6 +370,7 @@ export default function MonthlyDataForm({
 
       <MetricSection
         title="② X"
+        kind="x"
         fields={xFields}
         officialRow={officialRow}
         players={players}
@@ -168,6 +381,7 @@ export default function MonthlyDataForm({
 
       <MetricSection
         title="③ YouTube"
+        kind="youtube"
         fields={youtubeFields}
         officialRow={officialRow}
         players={players}
@@ -250,6 +464,7 @@ export default function MonthlyDataForm({
 
 function MetricSection({
   title,
+  kind,
   fields,
   officialRow,
   players,
@@ -258,6 +473,7 @@ function MetricSection({
   disabled,
 }: {
   title: string;
+  kind: MetricSectionKind;
   fields: Array<{ key: PlayerField; label: string; shortLabel: string }>;
   officialRow: MonthlyPlayerRow;
   players: MonthlyPlayerRow[];
@@ -270,9 +486,14 @@ function MetricSection({
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-base font-bold">{title}</h2>
+        <div>
+          <h2 className="text-base font-bold">{title}</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            画像読み取りは入力補助です。反映後の数字は必ず修正できます。
+          </p>
+        </div>
         <span className="text-xs font-semibold text-slate-400">
-          {players.length}名
+          {players.length}名 / {kind === "x" ? "X" : "YouTube"}
         </span>
       </div>
 
@@ -292,6 +513,7 @@ function MetricSection({
                   {field.shortLabel}
                 </th>
               ))}
+              <th className="w-56 min-w-56 px-2 py-2">画像読み取り</th>
             </tr>
           </thead>
           <tbody>
@@ -319,6 +541,19 @@ function MetricSection({
                   />
                 </td>
               ))}
+              <td className="w-56 min-w-56 px-2 py-2">
+                <OcrCell
+                  fields={fields}
+                  disabled={disabled}
+                  onApply={(values) => {
+                    for (const [key, value] of Object.entries(values)) {
+                      if (typeof value === "string") {
+                        updateOfficial(key as PlayerField, value);
+                      }
+                    }
+                  }}
+                />
+              </td>
             </tr>
             {players.map((player, index) => (
               <tr key={`${player.id}-${title}`} className="border-t border-slate-200">
@@ -347,6 +582,19 @@ function MetricSection({
                     />
                   </td>
                 ))}
+                <td className="w-56 min-w-56 px-2 py-2">
+                  <OcrCell
+                    fields={fields}
+                    disabled={disabled}
+                    onApply={(values) => {
+                      for (const [key, value] of Object.entries(values)) {
+                        if (typeof value === "string") {
+                          updatePlayer(index, key as PlayerField, value);
+                        }
+                      }
+                    }}
+                  />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -360,11 +608,88 @@ function MetricSection({
                   {formatMonthlyNumber(sumMonthlyField(totalRows, field.key))}
                 </td>
               ))}
+              <td className="w-56 min-w-56 px-2 py-2 text-xs text-slate-500">
+                -
+              </td>
             </tr>
           </tfoot>
         </table>
       </div>
     </section>
+  );
+}
+
+function OcrCell({
+  fields,
+  disabled,
+  onApply,
+}: {
+  fields: Array<{ key: PlayerField; label: string; shortLabel: string }>;
+  disabled: boolean;
+  onApply: (values: Partial<Record<PlayerField, string>>) => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [status, setStatus] = useState("");
+  const [isReading, setIsReading] = useState(false);
+
+  async function handleRecognize() {
+    if (!file) {
+      setStatus("画像を選択してください。");
+      return;
+    }
+
+    setIsReading(true);
+    setStatus("画像を読み取り中...");
+
+    try {
+      const result = await recognizeMetricsFromImage({ file, fields });
+      const recognizedCount = Object.keys(result.values).length;
+
+      if (recognizedCount === 0) {
+        setStatus("数字を自動対応できませんでした。手入力してください。");
+      } else {
+        onApply(result.values);
+        setStatus(
+          result.usedFallback
+            ? `${recognizedCount}項目を順番で推定しました。数字を確認してください。`
+            : `${recognizedCount}項目を反映しました。`
+        );
+      }
+    } catch (error) {
+      setStatus(
+        error instanceof Error
+          ? error.message
+          : "画像読み取りに失敗しました。"
+      );
+    } finally {
+      setIsReading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <input
+        type="file"
+        accept="image/*"
+        disabled={disabled || isReading}
+        onChange={(event) => {
+          setFile(event.target.files?.[0] || null);
+          setStatus("");
+        }}
+        className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs disabled:bg-slate-100"
+      />
+      <button
+        type="button"
+        disabled={disabled || isReading || !file}
+        onClick={handleRecognize}
+        className="w-full rounded-md bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
+      >
+        {isReading ? "読み取り中..." : "数字を反映"}
+      </button>
+      {status ? (
+        <p className="text-[11px] leading-4 text-slate-500">{status}</p>
+      ) : null}
+    </div>
   );
 }
 

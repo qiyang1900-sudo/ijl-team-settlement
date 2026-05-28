@@ -14,18 +14,21 @@ type MonthlyComboChartProps = {
   barColor?: string;
   lineColor?: string;
   showInsights?: boolean;
+  insights?: ChartInsight[];
+  insightEmptyText?: string;
 };
 
-type ChartInsight = {
+export type ChartInsight = {
   key: string;
-  label: string;
-  seriesLabel: string;
-  currentValue: number;
-  previousLabel: string;
-  previousValue: number;
-  changePercent: number | null;
   tone: "up" | "down";
   message: string;
+  detail?: string;
+  label?: string;
+  seriesLabel?: string;
+  currentValue?: number;
+  previousLabel?: string;
+  previousValue?: number;
+  changePercent?: number | null;
 };
 
 const width = 720;
@@ -45,6 +48,8 @@ export default function MonthlyComboChart({
   barColor = "#3b82f6",
   lineColor = "#ef4444",
   showInsights = false,
+  insights: providedInsights,
+  insightEmptyText = "当前筛选期间内没有超过阈值的突然上升或下降。",
 }: MonthlyComboChartProps) {
   const safePoints = points.map((point) => ({
     label: point.label,
@@ -71,7 +76,7 @@ export default function MonthlyComboChart({
     .join(" ");
   const xLabelEvery = Math.max(1, Math.ceil(safePoints.length / 12));
   const insights = showInsights
-    ? buildChartInsights(safePoints, barLabel, lineLabel)
+    ? providedInsights ?? buildChartInsights(safePoints, barLabel, lineLabel)
     : [];
 
   if (safePoints.length === 0) {
@@ -230,7 +235,7 @@ export default function MonthlyComboChart({
           <div className="border-t border-slate-200 px-4 py-3">
             {insights.length === 0 ? (
               <p className="text-sm leading-6 text-slate-500">
-                当前筛选期间内没有超过阈值的突然上升或下降。建议后续把阈值做成可配置，用于适配不同数据类型。
+                {insightEmptyText}
               </p>
             ) : (
               <div className="space-y-2">
@@ -244,10 +249,17 @@ export default function MonthlyComboChart({
                     }`}
                   >
                     <p className="font-semibold">{insight.message}</p>
-                    <p className="mt-1 text-xs opacity-75">
-                      {insight.previousLabel} {formatMonthlyNumber(insight.previousValue)} →{" "}
-                      {insight.label} {formatMonthlyNumber(insight.currentValue)}
-                    </p>
+                    {insight.detail ? (
+                      <p className="mt-1 text-xs leading-5 opacity-75">
+                        {insight.detail}
+                      </p>
+                    ) : insight.previousLabel && insight.label ? (
+                      <p className="mt-1 text-xs opacity-75">
+                        {insight.previousLabel}{" "}
+                        {formatMonthlyNumber(insight.previousValue)} →{" "}
+                        {insight.label} {formatMonthlyNumber(insight.currentValue)}
+                      </p>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -277,8 +289,14 @@ function buildChartInsights(
 
   return insights
     .sort((left, right) => {
-      const leftSeverity = left.changePercent === null ? 10 : Math.abs(left.changePercent);
-      const rightSeverity = right.changePercent === null ? 10 : Math.abs(right.changePercent);
+      const leftSeverity =
+        left.changePercent === null || left.changePercent === undefined
+          ? 10
+          : Math.abs(left.changePercent);
+      const rightSeverity =
+        right.changePercent === null || right.changePercent === undefined
+          ? 10
+          : Math.abs(right.changePercent);
 
       return rightSeverity - leftSeverity;
     })

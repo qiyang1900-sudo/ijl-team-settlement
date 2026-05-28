@@ -3,6 +3,7 @@ import Link from "next/link";
 import {
   formatMonthLabel,
   formatMonthlyNumber,
+  getMonthlyAdminStatusLabel,
   parseMonthlyPlayerRows,
   splitMonthlyRows,
 } from "@/lib/monthly-data";
@@ -24,7 +25,9 @@ import {
   getPreviousYearMonth,
   historicalLeagueSummaryRows,
 } from "@/lib/league-summary-history";
-import MonthlyComboChart from "../components/MonthlyComboChart";
+import MonthlyComboChart, {
+  type ChartInsight,
+} from "../components/MonthlyComboChart";
 
 type MonthlySubmissionRow = {
   id: string;
@@ -40,10 +43,40 @@ type MonthlySubmissionRow = {
   } | null;
 };
 
+type TeamRow = {
+  id: string;
+  name: string | null;
+  short_name: string | null;
+};
+
+type SubmissionStatusRow = {
+  team_id: string;
+  target_month: string;
+  status: string | null;
+};
+
 type TeamSummaryRow = {
   team: string;
   shortName: string;
   summary: MonthlySummary;
+};
+
+type TeamMonthlySummary = {
+  teamId: string;
+  team: string;
+  shortName: string;
+  month: string;
+  summary: MonthlySummary;
+  hasApprovedSubmission: boolean;
+};
+
+type InsightMetricType = "volume" | "count" | "follower";
+
+type InsightMetric = {
+  key: string;
+  label: string;
+  type: InsightMetricType;
+  getValue: (summary: MonthlySummary) => number;
 };
 
 export default async function LeagueSummaryPage({
@@ -85,6 +118,16 @@ export default async function LeagueSummaryPage({
     includeFutureMonths: false,
     maxMonth: currentMonth,
   });
+  const [{ data: teamData }, { data: submissionStatusRows }] = await Promise.all([
+    supabase
+      .from("teams")
+      .select("id, name, short_name")
+      .order("short_name", { ascending: true }),
+    supabase
+      .from("monthly_data_submissions")
+      .select("team_id, target_month, status")
+      .lte("target_month", currentMonth),
+  ]);
 
   const { data, error } = await supabase
     .from("monthly_data_submissions")
@@ -111,6 +154,12 @@ export default async function LeagueSummaryPage({
   const rows = allRows.filter(
     (row) => row.target_month >= fromMonth && row.target_month <= toMonth
   );
+  const teams = ((teamData || []) as TeamRow[]).filter(
+    (team) => team.id && team.short_name
+  );
+  const statusByTeamMonth = buildStatusByTeamMonth(
+    (submissionStatusRows || []) as SubmissionStatusRow[]
+  );
   const allMonthlySummaries = applyHistoricalLeagueSummaries(
     summarizeMonthlySubmissions(allRows)
   );
@@ -122,7 +171,86 @@ export default async function LeagueSummaryPage({
     monthlySummaries,
     rows.length
   );
+  const teamSummariesByMonth = buildTeamSummariesByMonth(allRows, teams);
   const byTeam = summarizeByTeam(rows);
+  const xTrendInsights = buildLeagueTrendInsights({
+    selectedSummaries: monthlySummaries,
+    allSummaries: allMonthlySummaries,
+    teams,
+    teamSummariesByMonth,
+    statusByTeamMonth,
+    metrics: [
+      {
+        key: "xEngagements",
+        label: "X 互动量",
+        type: "volume",
+        getValue: (summary) => summary.total.xEngagements,
+      },
+      {
+        key: "xImpressions",
+        label: "X 阅读量",
+        type: "volume",
+        getValue: (summary) => summary.total.xImpressions,
+      },
+    ],
+  });
+  const xFollowerInsights = buildLeagueTrendInsights({
+    selectedSummaries: monthlySummaries,
+    allSummaries: allMonthlySummaries,
+    teams,
+    teamSummariesByMonth,
+    statusByTeamMonth,
+    metrics: [
+      {
+        key: "xFollowerCount",
+        label: "X 粉丝数",
+        type: "follower",
+        getValue: (summary) => summary.total.xFollowerCount,
+      },
+    ],
+  });
+  const youtubePostInsights = buildLeagueTrendInsights({
+    selectedSummaries: monthlySummaries,
+    allSummaries: allMonthlySummaries,
+    teams,
+    teamSummariesByMonth,
+    statusByTeamMonth,
+    metrics: [
+      {
+        key: "youtubeVideoAndShortViews",
+        label: "YouTube 投稿播放数",
+        type: "volume",
+        getValue: (summary) => summary.total.youtubeVideoAndShortViews,
+      },
+      {
+        key: "youtubeSubscriberCount",
+        label: "YouTube 登録者数",
+        type: "follower",
+        getValue: (summary) => summary.total.youtubeSubscriberCount,
+      },
+    ],
+  });
+  const youtubeLiveInsights = buildLeagueTrendInsights({
+    selectedSummaries: monthlySummaries,
+    allSummaries: allMonthlySummaries,
+    teams,
+    teamSummariesByMonth,
+    statusByTeamMonth,
+    metrics: [
+      {
+        key: "youtubeStreamViews",
+        label: "YouTube 直播观看数",
+        type: "volume",
+        getValue: (summary) => summary.total.youtubeStreamViews,
+      },
+      {
+        key: "youtubeStreamCount",
+        label: "YouTube 直播次数",
+        type: "count",
+        getValue: (summary) => summary.total.youtubeStreamCount,
+      },
+    ],
+  });
   const selectedComparisonMonth =
     month &&
     /^\d{4}-\d{2}$/.test(month) &&
@@ -233,6 +361,7 @@ export default async function LeagueSummaryPage({
             barColor="#7e57c2"
             lineColor="#f4b400"
             showInsights
+            insights={xTrendInsights}
             points={monthlySummaries.map((row) => ({
               label: shortMonthLabel(row.month),
               barValue: row.total.xEngagements,
@@ -244,6 +373,7 @@ export default async function LeagueSummaryPage({
             lineLabel="粉丝数"
             lineColor="#f4b400"
             showInsights
+            insights={xFollowerInsights}
             points={monthlySummaries.map((row) => ({
               label: shortMonthLabel(row.month),
               lineValue: row.total.xFollowerCount,
@@ -256,6 +386,7 @@ export default async function LeagueSummaryPage({
             barColor="#ef4444"
             lineColor="#3b82f6"
             showInsights
+            insights={youtubePostInsights}
             points={monthlySummaries.map((row) => ({
               label: shortMonthLabel(row.month),
               barValue: row.total.youtubeVideoAndShortViews,
@@ -269,6 +400,7 @@ export default async function LeagueSummaryPage({
             barColor="#3b82f6"
             lineColor="#ef4444"
             showInsights
+            insights={youtubeLiveInsights}
             points={monthlySummaries.map((row) => ({
               label: shortMonthLabel(row.month),
               barValue: row.total.youtubeStreamViews,
@@ -293,6 +425,252 @@ export default async function LeagueSummaryPage({
       </div>
     </main>
   );
+}
+
+function buildStatusByTeamMonth(rows: SubmissionStatusRow[]) {
+  const map = new Map<string, string>();
+
+  for (const row of rows) {
+    map.set(`${row.team_id}:${row.target_month}`, String(row.status || ""));
+  }
+
+  return map;
+}
+
+function buildTeamSummariesByMonth(
+  rows: MonthlySubmissionRow[],
+  teams: TeamRow[]
+) {
+  const map = new Map<string, Map<string, TeamMonthlySummary>>();
+  const teamById = new Map(teams.map((team) => [team.id, team]));
+
+  for (const submission of rows) {
+    const team = teamById.get(submission.team_id);
+    const splitRows = splitMonthlyRows(parseMonthlyPlayerRows(submission.player_rows));
+    const summary = buildMonthlySummary(
+      submission.target_month,
+      splitRows.officialRow ? [splitRows.officialRow] : [],
+      splitRows.playerRows,
+      1
+    );
+    const monthMap = map.get(submission.target_month) || new Map();
+
+    monthMap.set(submission.team_id, {
+      teamId: submission.team_id,
+      team: team?.name || submission.teams?.name || "-",
+      shortName: team?.short_name || submission.teams?.short_name || "-",
+      month: submission.target_month,
+      summary,
+      hasApprovedSubmission: true,
+    });
+    map.set(submission.target_month, monthMap);
+  }
+
+  return map;
+}
+
+function buildLeagueTrendInsights({
+  selectedSummaries,
+  allSummaries,
+  teams,
+  teamSummariesByMonth,
+  statusByTeamMonth,
+  metrics,
+}: {
+  selectedSummaries: MonthlySummary[];
+  allSummaries: MonthlySummary[];
+  teams: TeamRow[];
+  teamSummariesByMonth: Map<string, Map<string, TeamMonthlySummary>>;
+  statusByTeamMonth: Map<string, string>;
+  metrics: InsightMetric[];
+}): ChartInsight[] {
+  const insights: ChartInsight[] = [];
+  const sortedSummaries = [...allSummaries].sort((left, right) =>
+    left.month.localeCompare(right.month)
+  );
+
+  for (const current of selectedSummaries) {
+    const previousThree = sortedSummaries
+      .filter((summary) => summary.month < current.month)
+      .slice(-3);
+
+    if (previousThree.length === 0) {
+      continue;
+    }
+
+    for (const metric of metrics) {
+      const currentValue = metric.getValue(current);
+      const previousAverage = average(previousThree.map(metric.getValue));
+
+      if (!isInsightTriggered(currentValue, previousAverage, metric.type)) {
+        continue;
+      }
+
+      const changePercent =
+        previousAverage > 0 ? (currentValue - previousAverage) / previousAverage : null;
+      const tone = currentValue >= previousAverage ? "up" : "down";
+      const teamDetail = buildTeamInsightDetail({
+        month: current.month,
+        previousMonths: previousThree.map((summary) => summary.month),
+        teams,
+        teamSummariesByMonth,
+        statusByTeamMonth,
+        metric,
+        tone,
+      });
+
+      insights.push({
+        key: `${metric.key}-${current.month}-${currentValue}-${previousAverage}`,
+        tone,
+        message: `${formatMonthLabel(current.month)} ${metric.label} 较前三个月平均${
+          tone === "up" ? "上升" : "下降"
+        } ${formatSignedPercent(changePercent)}。`,
+        detail: `前三个月平均 ${formatMonthlyNumber(
+          Math.round(previousAverage)
+        )} → 本月 ${formatMonthlyNumber(currentValue)}。${teamDetail}`,
+        changePercent,
+      });
+    }
+  }
+
+  return insights
+    .sort((left, right) => Math.abs(right.changePercent || 10) - Math.abs(left.changePercent || 10))
+    .slice(0, 8);
+}
+
+function isInsightTriggered(
+  currentValue: number,
+  previousAverage: number,
+  type: InsightMetricType
+) {
+  if (previousAverage > 0 && currentValue === 0) {
+    return true;
+  }
+
+  if (previousAverage <= 0) {
+    return currentValue > 0;
+  }
+
+  const change = (currentValue - previousAverage) / previousAverage;
+  const threshold = getInsightThreshold(type);
+
+  return change >= threshold.up || change <= threshold.down;
+}
+
+function getInsightThreshold(type: InsightMetricType) {
+  if (type === "count") {
+    return { up: 1, down: -0.7 };
+  }
+
+  if (type === "follower") {
+    return { up: 0.25, down: -0.25 };
+  }
+
+  return { up: 1.5, down: -0.8 };
+}
+
+function buildTeamInsightDetail({
+  month,
+  previousMonths,
+  teams,
+  teamSummariesByMonth,
+  statusByTeamMonth,
+  metric,
+  tone,
+}: {
+  month: string;
+  previousMonths: string[];
+  teams: TeamRow[];
+  teamSummariesByMonth: Map<string, Map<string, TeamMonthlySummary>>;
+  statusByTeamMonth: Map<string, string>;
+  metric: InsightMetric;
+  tone: "up" | "down";
+}) {
+  const monthMap = teamSummariesByMonth.get(month);
+
+  if (!monthMap || monthMap.size === 0) {
+    return "该月份为历史汇总数据或暂无已通过的战队拆分数据，暂时只能判断联盟合计变化。";
+  }
+
+  const previousTeamMonths = previousMonths.filter((previousMonth) =>
+    teamSummariesByMonth.has(previousMonth)
+  );
+
+  if (previousTeamMonths.length === 0) {
+    return "前三个月为历史汇总数据或暂无战队拆分数据，暂时只能判断联盟合计变化。";
+  }
+
+  const contributions = teams
+    .map((team) => {
+      const currentSummary = monthMap.get(team.id);
+      const currentValue = currentSummary
+        ? metric.getValue(currentSummary.summary)
+        : 0;
+      const previousValues = previousTeamMonths.map((previousMonth) => {
+        const previousSummary = teamSummariesByMonth
+          .get(previousMonth)
+          ?.get(team.id);
+
+        return previousSummary ? metric.getValue(previousSummary.summary) : 0;
+      });
+      const previousAverage = average(previousValues);
+      const delta = currentValue - previousAverage;
+      const status = statusByTeamMonth.get(`${team.id}:${month}`) || "";
+
+      return {
+        team: team.name || "-",
+        shortName: team.short_name || "-",
+        currentValue,
+        previousAverage,
+        delta,
+        hasApprovedSubmission: Boolean(currentSummary?.hasApprovedSubmission),
+        status,
+      };
+    })
+    .filter(
+      (row) =>
+        Math.abs(row.delta) > 0 ||
+        (row.previousAverage > 0 && row.currentValue === 0)
+    )
+    .sort((left, right) =>
+      tone === "up" ? right.delta - left.delta : left.delta - right.delta
+    )
+    .slice(0, 3);
+
+  if (contributions.length === 0) {
+    return "各战队变化比较平均，没有单一战队造成明显偏移。";
+  }
+
+  const prefix = tone === "up" ? "主要增加来自" : "主要下降来自";
+  const details = contributions.map((row) => {
+    const change =
+      row.previousAverage > 0
+        ? formatSignedPercent((row.currentValue - row.previousAverage) / row.previousAverage)
+        : row.currentValue > 0
+          ? "从 0 新增"
+          : "0";
+    const valueText = `${formatMonthlyNumber(
+      Math.round(row.previousAverage)
+    )} → ${formatMonthlyNumber(row.currentValue)}`;
+
+    if (!row.hasApprovedSubmission && row.previousAverage > 0) {
+      const statusText = row.status
+        ? `数据状态为${getMonthlyAdminStatusLabel(row.status)}，尚未进入已通过汇总`
+        : "没交数据";
+
+      return `${row.shortName} ${statusText}（前三个月平均 ${formatMonthlyNumber(
+        Math.round(row.previousAverage)
+      )} → 本月 0）`;
+    }
+
+    if (row.currentValue === 0 && row.previousAverage > 0) {
+      return `${row.shortName} 本月该项为 0（${valueText}，${change}）`;
+    }
+
+    return `${row.shortName} ${change}（${valueText}）`;
+  });
+
+  return `${prefix}：${details.join("；")}。`;
 }
 
 function summarizeByTeam(rows: MonthlySubmissionRow[]): TeamSummaryRow[] {
@@ -628,6 +1006,24 @@ function formatComparison(current: number, previous?: number) {
   const sign = change > 0 ? "+" : "";
 
   return `${sign}${(change * 100).toFixed(1)}%`;
+}
+
+function formatSignedPercent(value: number | null) {
+  if (value === null) {
+    return "从 0 变化";
+  }
+
+  const sign = value > 0 ? "+" : "";
+
+  return `${sign}${(value * 100).toFixed(1)}%`;
+}
+
+function average(values: number[]) {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 function comparisonTone(current: number, previous?: number) {
