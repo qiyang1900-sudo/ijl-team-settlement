@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { formatDateTime } from "@/lib/date-format";
 import { getStatusTone, getTeamStatusLabel } from "@/lib/status-labels";
+import { requireTeamAccess } from "@/lib/team-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,8 @@ export default async function TeamProjectsPage({
       </main>
     );
   }
+
+  await requireTeamAccess(teamId);
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
 

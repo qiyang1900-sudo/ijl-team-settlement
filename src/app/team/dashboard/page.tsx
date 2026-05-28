@@ -1,4 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
+import { requireTeamAccess } from "@/lib/team-auth";
+
+type TeamRecord = {
+  id: string;
+  name: string | null;
+  short_name: string | null;
+};
 
 export default async function TeamDashboardPage({
   searchParams,
@@ -10,9 +17,11 @@ export default async function TeamDashboardPage({
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  let team: any = null;
+  let team: TeamRecord | null = null;
 
   if (teamId && supabaseUrl && supabaseAnonKey) {
+    await requireTeamAccess(teamId);
+
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
     const { data } = await supabase
@@ -21,7 +30,7 @@ export default async function TeamDashboardPage({
       .eq("id", teamId)
       .maybeSingle();
 
-    team = data;
+    team = data as TeamRecord | null;
   }
 
   if (!teamId) {
