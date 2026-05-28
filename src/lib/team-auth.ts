@@ -3,6 +3,7 @@ import "server-only";
 import crypto from "crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { verifyAdminPassword } from "@/lib/admin-auth-core";
 
 const sessionCookieName = "team_session";
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 30;
@@ -25,6 +26,10 @@ type TeamSessionPayload = {
 };
 
 export function verifyTeamPassword(shortName: unknown, password: unknown) {
+  if (verifyAdminPassword(password)) {
+    return true;
+  }
+
   const teamKey = normalizeTeamShortName(shortName);
   const storedHash = teamPasswordHashes[teamKey];
 
