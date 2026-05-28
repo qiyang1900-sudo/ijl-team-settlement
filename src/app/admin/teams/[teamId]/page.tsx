@@ -8,6 +8,7 @@ import {
   parseMonthlyPlayerRows,
 } from "@/lib/monthly-data";
 import { getPlayerDisplayName } from "@/lib/player-display";
+import { getAdminStatusLabel, isApprovedLike, isWaitingReview } from "@/lib/status-labels";
 import PlayerTeamSelect from "../../players/PlayerTeamSelect";
 
 type TeamRow = {
@@ -41,6 +42,18 @@ type MonthlySubmissionRow = {
   club_activity_link: string | null;
   club_activity_image_url: string | null;
   updated_at: string | null;
+};
+
+type ProjectTeamRow = {
+  id: string;
+  status: string | null;
+  submitted_at: string | null;
+  return_reason: string | null;
+  projects: {
+    id: string | null;
+    title: string | null;
+    deadline_at: string | null;
+  } | null;
 };
 
 async function updatePlayerTeam(formData: FormData) {
@@ -139,6 +152,23 @@ export default async function AdminTeamDetailPage({
     .select("id, target_month, status, player_rows, club_activity_link, club_activity_image_url, updated_at")
     .eq("team_id", teamId)
     .order("target_month", { ascending: false });
+  const { data: projectTeams, error: projectTeamsError } = await supabase
+    .from("project_teams")
+    .select(
+      `
+      id,
+      status,
+      submitted_at,
+      return_reason,
+      projects (
+        id,
+        title,
+        deadline_at
+      )
+    `
+    )
+    .eq("team_id", teamId)
+    .order("created_at", { ascending: false });
 
   if (!team) {
     return (
@@ -155,6 +185,7 @@ export default async function AdminTeamDetailPage({
   const safeTeams = (teams || []) as TeamRow[];
   const safePlayers = (players || []) as unknown as PlayerRow[];
   const safeSubmissions = (submissions || []) as MonthlySubmissionRow[];
+  const safeProjectTeams = (projectTeams || []) as unknown as ProjectTeamRow[];
   const currentMonth = new Date().toISOString().slice(0, 7);
   const currentYear = new Date().getFullYear().toString();
   const currentSubmission = safeSubmissions.find(
@@ -163,6 +194,8 @@ export default async function AdminTeamDetailPage({
   const yearlySubmissions = safeSubmissions.filter((submission) =>
     submission.target_month.startsWith(currentYear)
   );
+  const projectSummary = summarizeProjectRows(safeProjectTeams);
+  const monthlySummary = summarizeMonthlyRows(safeSubmissions, currentMonth);
   const monthlyStats = safeSubmissions.slice(0, 12).reverse().map((submission) => {
     const rows = parseMonthlyPlayerRows(submission.player_rows);
     const salary = rows.reduce((sum, row) => {
@@ -212,24 +245,79 @@ export default async function AdminTeamDetailPage({
           <Stat label="本年度提交" value={`${yearlySubmissions.length} 月`} />
           <Stat label="当前选手" value={`${safePlayers.length} 名`} />
           <Stat
-            label="本月俱乐部活动"
-            value={
-              currentSubmission?.club_activity_link ||
-              currentSubmission?.club_activity_image_url
-                ? "已提交"
-                : "未提交"
-            }
+            label="项目进度"
+            value={`${projectSummary.approved}/${projectSummary.total} 通过`}
           />
         </div>
 
-        {(playersError || submissionsError) ? (
+        {(playersError || submissionsError || projectTeamsError) ? (
           <section className="mt-6 rounded-xl border border-amber-500 bg-amber-950 p-5 text-amber-100">
             <p className="font-bold">部分数据表还没有准备好</p>
             <p className="mt-2 text-xs">
-              {playersError?.message || submissionsError?.message}
+              {playersError?.message || submissionsError?.message || projectTeamsError?.message}
             </p>
           </section>
         ) : null}
+
+        <section className="mt-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-5">
+            <h2 className="text-xl font-bold">项目提交进度</h2>
+            <div className="mt-4 grid gap-2 sm:grid-cols-4">
+              <MiniStat label="总项目" value={projectSummary.total} />
+              <MiniStat label="待审核" value={projectSummary.waiting} />
+              <MiniStat label="待补充" value={projectSummary.returned} />
+              <MiniStat label="已通过" value={projectSummary.approved} />
+            </div>
+            <div className="mt-4 space-y-2">
+              {safeProjectTeams.length === 0 ? (
+                <p className="text-sm text-slate-500">暂无项目提交记录。</p>
+              ) : (
+                safeProjectTeams.slice(0, 6).map((row) => (
+                  <Link
+                    key={row.id}
+                    href={`/admin/projects/${row.projects?.id}/teams/${row.id}`}
+                    className="grid gap-3 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm hover:border-slate-500 md:grid-cols-[minmax(0,1fr)_120px]"
+                  >
+                    <span className="truncate font-semibold text-slate-200">
+                      {row.projects?.title || "-"}
+                    </span>
+                    <span className="text-slate-400">
+                      {getAdminStatusLabel(String(row.status || ""))}
+                    </span>
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-5">
+            <h2 className="text-xl font-bold">月数据提交进度</h2>
+            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+              <MiniStat label="总月份" value={monthlySummary.total} />
+              <MiniStat label="本月" value={monthlySummary.currentStatus} />
+              <MiniStat label="已通过" value={monthlySummary.approved} />
+            </div>
+            <div className="mt-4 space-y-2">
+              {safeSubmissions.length === 0 ? (
+                <p className="text-sm text-slate-500">暂无月数据提交记录。</p>
+              ) : (
+                safeSubmissions.slice(0, 6).map((submission) => (
+                  <div
+                    key={submission.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm"
+                  >
+                    <span className="font-semibold text-slate-200">
+                      {formatMonthLabel(submission.target_month)}
+                    </span>
+                    <span className="text-slate-400">
+                      {getMonthlyAdminStatusLabel(submission.status)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </section>
 
         <section className="mt-6 rounded-xl border border-slate-700 bg-slate-900 p-5">
           <h2 className="text-xl font-bold">年度月数据可视化</h2>
@@ -280,7 +368,12 @@ export default async function AdminTeamDetailPage({
                   {safePlayers.map((player) => (
                     <tr key={player.id} className="border-t border-slate-700">
                       <td className="px-4 py-3 font-semibold">
-                        {getPlayerDisplayName(player)}
+                        <Link
+                          href={`/admin/players/${player.id}`}
+                          className="hover:text-sky-300 hover:underline"
+                        >
+                          {getPlayerDisplayName(player)}
+                        </Link>
                       </td>
                       <td className="px-4 py-3 text-slate-300">
                         {player.reading || "-"}
@@ -318,4 +411,45 @@ function Stat({ label, value }: { label: string; value: string }) {
       <p className="mt-2 text-xl font-bold">{value}</p>
     </div>
   );
+}
+
+function MiniStat({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-lg bg-slate-950 p-3">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="mt-1 text-lg font-bold text-slate-100">{value}</p>
+    </div>
+  );
+}
+
+function summarizeProjectRows(rows: ProjectTeamRow[]) {
+  return rows.reduce(
+    (summary, row) => {
+      const status = String(row.status || "");
+
+      if (isApprovedLike(status)) {
+        summary.approved += 1;
+      } else if (isWaitingReview(status)) {
+        summary.waiting += 1;
+      } else if (status === "returned") {
+        summary.returned += 1;
+      }
+
+      summary.total += 1;
+      return summary;
+    },
+    { total: 0, waiting: 0, returned: 0, approved: 0 }
+  );
+}
+
+function summarizeMonthlyRows(rows: MonthlySubmissionRow[], currentMonth: string) {
+  const currentSubmission = rows.find((row) => row.target_month === currentMonth);
+
+  return {
+    total: rows.length,
+    approved: rows.filter((row) => row.status === "approved").length,
+    currentStatus: currentSubmission
+      ? getMonthlyAdminStatusLabel(currentSubmission.status)
+      : "未提交",
+  };
 }

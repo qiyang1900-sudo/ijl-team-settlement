@@ -250,7 +250,12 @@ export default async function AdminPlayersPage() {
                   {safePlayers.map((player) => (
                     <tr key={player.id} className="border-t border-slate-700">
                       <td className="px-4 py-3 font-semibold">
-                        {getPlayerDisplayName(player)}
+                        <Link
+                          href={`/admin/players/${player.id}`}
+                          className="hover:text-sky-300 hover:underline"
+                        >
+                          {getPlayerDisplayName(player)}
+                        </Link>
                       </td>
                       <td className="px-4 py-3 text-slate-300">
                         {player.reading || "-"}
@@ -291,12 +296,13 @@ export default async function AdminPlayersPage() {
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {teamPlayers.map((player) => (
-                      <span
+                      <Link
                         key={player.id}
+                        href={`/admin/players/${player.id}`}
                         className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-200"
                       >
                         {getPlayerDisplayName(player)}
-                      </span>
+                      </Link>
                     ))}
                     {teamPlayers.length === 0 ? (
                       <span className="text-sm text-slate-500">暂无选手。</span>
