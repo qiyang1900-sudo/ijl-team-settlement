@@ -108,9 +108,9 @@ export type TeamMonthlyScore = {
 
 export const manualTeamScoreNotes = [
   "選手管理和チーム管理默认按满分录入，管理员可以在审核时人工减分并保存。",
-  "コンテンツ按 YouTube 30分、TikTok 15分、X 15分分别封顶计算；自动减分和人工减分都不会让单个板块低于0分。",
+  "コンテンツ按 YouTube 30分、TikTok 15分、X 15分分别封顶自动计算，不设置人工扣分。",
   "自动计算只使用审核通过的月数据；未审核通过的草稿、已提交、审核中、已驳回数据不会进入积分。",
-  "选手简介格式统一、指定投稿转发、视频内容质量、官方指定主题、直播时长40小时、TikTok账号开设这些项目仍作为人工确认项。",
+  "审核备注用于记录整体人工核查说明，不再按各板块分别填写备注。",
 ];
 
 const sectionMaximums = {
@@ -258,24 +258,24 @@ function buildSections(
     label: "YouTube",
     maxPoints: sectionMaximums.youtube,
     autoDeductions: youtubeAutoDeductions,
-    manualDeduction: review.youtubeManualDeduction,
-    manualNote: review.youtubeManualNote,
+    manualDeduction: 0,
+    manualNote: "",
   });
   const tiktok = buildContentSection({
     key: "tiktok",
     label: "TikTok / Shorts",
     maxPoints: sectionMaximums.tiktok,
     autoDeductions: tiktokAutoDeductions,
-    manualDeduction: review.tiktokManualDeduction,
-    manualNote: review.tiktokManualNote,
+    manualDeduction: 0,
+    manualNote: "",
   });
   const x = buildContentSection({
     key: "x",
     label: "X",
     maxPoints: sectionMaximums.x,
     autoDeductions: xAutoDeductions,
-    manualDeduction: review.xManualDeduction,
-    manualNote: review.xManualNote,
+    manualDeduction: 0,
+    manualNote: "",
   });
 
   return [
@@ -284,14 +284,14 @@ function buildSections(
       label: "選手管理",
       maxPoints: sectionMaximums.playerManagement,
       score: review.playerManagementScore,
-      note: review.playerManagementNote,
+      note: "",
     }),
     buildManualSection({
       key: "teamManagement",
       label: "チーム管理",
       maxPoints: sectionMaximums.teamManagement,
       score: review.teamManagementScore,
-      note: review.teamManagementNote,
+      note: "",
     }),
     youtube,
     tiktok,
@@ -481,31 +481,19 @@ function normalizeReviewValues(
       sectionMaximums.playerManagement,
       sectionMaximums.playerManagement
     ),
-    playerManagementNote: String(review?.player_management_note || ""),
+    playerManagementNote: "",
     teamManagementScore: boundedReviewNumber(
       review?.team_management_score,
       sectionMaximums.teamManagement,
       sectionMaximums.teamManagement
     ),
-    teamManagementNote: String(review?.team_management_note || ""),
-    youtubeManualDeduction: boundedReviewNumber(
-      review?.youtube_manual_deduction,
-      0,
-      sectionMaximums.youtube
-    ),
-    youtubeManualNote: String(review?.youtube_manual_note || ""),
-    tiktokManualDeduction: boundedReviewNumber(
-      review?.tiktok_manual_deduction,
-      0,
-      sectionMaximums.tiktok
-    ),
-    tiktokManualNote: String(review?.tiktok_manual_note || ""),
-    xManualDeduction: boundedReviewNumber(
-      review?.x_manual_deduction,
-      0,
-      sectionMaximums.x
-    ),
-    xManualNote: String(review?.x_manual_note || ""),
+    teamManagementNote: "",
+    youtubeManualDeduction: 0,
+    youtubeManualNote: "",
+    tiktokManualDeduction: 0,
+    tiktokManualNote: "",
+    xManualDeduction: 0,
+    xManualNote: "",
     reviewerNote: String(review?.reviewer_note || ""),
     finalizedAt: review?.finalized_at || null,
   };

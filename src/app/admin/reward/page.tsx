@@ -15,6 +15,12 @@ import {
   parseMonthlyPlayerRows,
   splitMonthlyRows,
 } from "@/lib/monthly-data";
+import {
+  buildMonthlyReviewAlerts,
+  formatAlertNumber,
+  formatAlertPercent,
+} from "@/lib/monthly-review-alerts";
+import type { MonthlyReviewAlert } from "@/lib/monthly-review-alerts";
 
 export const dynamic = "force-dynamic";
 
@@ -150,6 +156,10 @@ export default async function RewardPage() {
 
   const rows = (data || []) as MonthlySubmissionRow[];
   const grouped = groupRows(rows);
+  const alertMap = buildReviewAlertMap(rows);
+  const alertCount = Array.from(alertMap.values()).filter(
+    (alerts) => alerts.length > 0
+  ).length;
 
   return (
     <main className="min-h-screen bg-slate-950 p-8 text-white">
@@ -164,7 +174,7 @@ export default async function RewardPage() {
 
           <h1 className="mt-4 text-3xl font-bold">月数据审核</h1>
           <p className="mt-2 text-slate-400">
-            审核战队每月提交的选手薪资、X、YouTube 和俱乐部活动资料。
+            审核战队每月提交的选手薪资、X、YouTube 和俱乐部活动资料。数据波动提醒只提示人工确认，不会改变状态、分数或录入数据。
           </p>
         </div>
 
@@ -175,20 +185,46 @@ export default async function RewardPage() {
           </div>
         ) : (
           <>
-            <div className="mb-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="mb-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
               <StatCard label="已提交" count={grouped.submitted.length} color="yellow" />
               <StatCard label="审核中" count={grouped.reviewing.length} color="orange" />
+              <StatCard label="需人工确认" count={alertCount} color="amber" />
               <StatCard label="已驳回需补充" count={grouped.returned.length} color="red" />
               <StatCard label="已通过" count={grouped.approved.length} color="green" />
               <StatCard label="已保存" count={grouped.draft.length} color="blue" />
             </div>
 
             <div className="space-y-6">
-              <ReviewSection title="已提交" rows={grouped.submitted} color="yellow" />
-              <ReviewSection title="审核中" rows={grouped.reviewing} color="orange" />
-              <ReviewSection title="已驳回需补充" rows={grouped.returned} color="red" />
-              <ReviewSection title="已通过" rows={grouped.approved} color="green" />
-              <ReviewSection title="已保存" rows={grouped.draft} color="blue" />
+              <ReviewSection
+                title="已提交"
+                rows={grouped.submitted}
+                color="yellow"
+                alertMap={alertMap}
+              />
+              <ReviewSection
+                title="审核中"
+                rows={grouped.reviewing}
+                color="orange"
+                alertMap={alertMap}
+              />
+              <ReviewSection
+                title="已驳回需补充"
+                rows={grouped.returned}
+                color="red"
+                alertMap={alertMap}
+              />
+              <ReviewSection
+                title="已通过"
+                rows={grouped.approved}
+                color="green"
+                alertMap={alertMap}
+              />
+              <ReviewSection
+                title="已保存"
+                rows={grouped.draft}
+                color="blue"
+                alertMap={alertMap}
+              />
             </div>
           </>
         )}
@@ -215,6 +251,23 @@ function groupRows(rows: MonthlySubmissionRow[]) {
   };
 }
 
+function buildReviewAlertMap(rows: MonthlySubmissionRow[]) {
+  const alertMap = new Map<string, MonthlyReviewAlert[]>();
+
+  for (const row of rows) {
+    const status = normalizeMonthlyStatus(row.status);
+
+    if (status !== "submitted" && status !== "reviewing") {
+      alertMap.set(row.id, []);
+      continue;
+    }
+
+    alertMap.set(row.id, buildMonthlyReviewAlerts(row, rows));
+  }
+
+  return alertMap;
+}
+
 function StatCard({
   label,
   count,
@@ -222,11 +275,12 @@ function StatCard({
 }: {
   label: string;
   count: number;
-  color: "yellow" | "orange" | "red" | "green" | "blue";
+  color: "yellow" | "orange" | "amber" | "red" | "green" | "blue";
 }) {
   const colorClass = {
     yellow: "border-yellow-500 bg-yellow-950 text-yellow-200",
     orange: "border-orange-500 bg-orange-950 text-orange-200",
+    amber: "border-amber-400 bg-amber-950 text-amber-100",
     red: "border-red-500 bg-red-950 text-red-200",
     green: "border-green-500 bg-green-950 text-green-200",
     blue: "border-blue-500 bg-blue-950 text-blue-200",
@@ -246,10 +300,12 @@ function ReviewSection({
   title,
   rows,
   color,
+  alertMap,
 }: {
   title: string;
   rows: MonthlySubmissionRow[];
   color: "yellow" | "orange" | "red" | "green" | "blue";
+  alertMap: Map<string, MonthlyReviewAlert[]>;
 }) {
   const colorClass = {
     yellow: "border-yellow-500 bg-yellow-950 text-yellow-200",
@@ -278,7 +334,11 @@ function ReviewSection({
       ) : (
         <div className="space-y-4 p-3">
           {rows.map((row) => (
-            <ReviewRow key={row.id} row={row} />
+            <ReviewRow
+              key={row.id}
+              row={row}
+              alerts={alertMap.get(row.id) || []}
+            />
           ))}
         </div>
       )}
@@ -286,7 +346,13 @@ function ReviewSection({
   );
 }
 
-function ReviewRow({ row }: { row: MonthlySubmissionRow }) {
+function ReviewRow({
+  row,
+  alerts,
+}: {
+  row: MonthlySubmissionRow;
+  alerts: MonthlyReviewAlert[];
+}) {
   const status = normalizeMonthlyStatus(row.status);
   const { officialRow, playerRows: players } = splitMonthlyRows(
     parseMonthlyPlayerRows(row.player_rows)
@@ -326,6 +392,8 @@ function ReviewRow({ row }: { row: MonthlySubmissionRow }) {
         </div>
       ) : null}
 
+      {alerts.length > 0 ? <ReviewAlertPanel alerts={alerts} /> : null}
+
       <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
         <PlayerDataTable players={players} />
         <div className="space-y-4">
@@ -343,6 +411,57 @@ function ReviewRow({ row }: { row: MonthlySubmissionRow }) {
         />
       </div>
     </article>
+  );
+}
+
+function ReviewAlertPanel({ alerts }: { alerts: MonthlyReviewAlert[] }) {
+  return (
+    <div className="mt-4 rounded-lg border border-amber-400/40 bg-amber-950/25 p-3">
+      <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+        <div>
+          <p className="text-sm font-bold text-amber-100">数据波动提醒</p>
+          <p className="mt-1 text-xs text-amber-100/75">
+            与前三个月相比变化较大，仅提醒管理员人工确认，不影响数据和分数。
+          </p>
+        </div>
+        <span className="rounded-full bg-amber-400 px-3 py-1 text-xs font-bold text-slate-950">
+          {alerts.length} 项
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        {alerts.map((alert) => (
+          <div
+            key={`${alert.metric}-${alert.currentValue}-${alert.baselineValue}`}
+            className={`rounded-lg border p-3 ${
+              alert.level === "danger"
+                ? "border-rose-400/50 bg-rose-950/30"
+                : "border-amber-400/40 bg-slate-950/60"
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-bold text-slate-100">{alert.metric}</p>
+              <span className="rounded-full bg-slate-900 px-2 py-1 text-[11px] text-slate-300">
+                {alert.changePercent === null
+                  ? "当月为 0"
+                  : `${alert.changePercent > 0 ? "+" : ""}${formatAlertPercent(
+                      alert.changePercent
+                    )}`}
+              </span>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-slate-300">
+              当前 {formatAlertNumber(alert.currentValue)} / 基准{" "}
+              {formatAlertNumber(alert.baselineValue)}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-amber-100">
+              {alert.message}
+            </p>
+            <p className="mt-2 text-[11px] text-slate-500">
+              {alert.basisLabel} · {alert.thresholdLabel}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
