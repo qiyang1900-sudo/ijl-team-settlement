@@ -35,6 +35,9 @@ export type MonthlyPlayerRow = {
   youtubeSubscriberCount: string;
 };
 
+export const officialMonthlyRowHandle = "__official_account__";
+export const officialMonthlyRowRole = "official_account";
+
 export const emptyMonthlyPlayerRow = (index = 0): MonthlyPlayerRow => ({
   id: `player-${index + 1}`,
   playerId: "",
@@ -63,6 +66,55 @@ export const emptyMonthlyPlayerRow = (index = 0): MonthlyPlayerRow => ({
   youtubeTotalImpressions: "",
   youtubeSubscriberCount: "",
 });
+
+export function createOfficialMonthlyRow(
+  teamShortName: string | null | undefined,
+  index = 0
+): MonthlyPlayerRow {
+  const safeTeamShortName = String(teamShortName || "").trim() || "チーム";
+
+  return {
+    ...emptyMonthlyPlayerRow(index),
+    id: `official-${safeTeamShortName}`,
+    playerHandle: officialMonthlyRowHandle,
+    playerRole: officialMonthlyRowRole,
+    playerName: `${safeTeamShortName}公式`,
+  };
+}
+
+export function isOfficialMonthlyRow(row: MonthlyPlayerRow) {
+  return (
+    row.playerRole === officialMonthlyRowRole ||
+    row.playerHandle === officialMonthlyRowHandle
+  );
+}
+
+export function splitMonthlyRows(rows: MonthlyPlayerRow[]) {
+  const officialRow = rows.find(isOfficialMonthlyRow) || null;
+  const playerRows = rows.filter((row) => !isOfficialMonthlyRow(row));
+
+  return { officialRow, playerRows };
+}
+
+export function sumMonthlyField(
+  rows: MonthlyPlayerRow[],
+  key: keyof MonthlyPlayerRow
+) {
+  return rows.reduce((sum, row) => sum + numericMonthlyValue(row[key]), 0);
+}
+
+export function getMonthlyYoutubeViews(row: MonthlyPlayerRow) {
+  return (
+    numericMonthlyValue(row.youtubeVideoViews) +
+    numericMonthlyValue(row.youtubeShortViews) +
+    numericMonthlyValue(row.youtubeStreamViews)
+  );
+}
+
+export function numericMonthlyValue(value: unknown) {
+  const numberValue = Number(value || 0);
+  return Number.isFinite(numberValue) ? numberValue : 0;
+}
 
 export function normalizeMonthlyStatus(status: unknown): MonthlyDataStatus {
   const value = String(status || "");
@@ -165,8 +217,5 @@ export function formatMonthLabel(value: unknown) {
 }
 
 export function formatMonthlyNumber(value: unknown) {
-  const numericValue = Number(value || 0);
-  const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
-
-  return new Intl.NumberFormat("ja-JP").format(safeValue);
+  return new Intl.NumberFormat("ja-JP").format(numericMonthlyValue(value));
 }

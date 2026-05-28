@@ -4,12 +4,14 @@ import MonthPicker from "./MonthPicker";
 import MonthlyDataForm from "./MonthlyDataForm";
 import {
   MonthlyPlayerRow,
+  createOfficialMonthlyRow,
   emptyMonthlyPlayerRow,
   formatMonthLabel,
   getMonthlyStatusLabel,
   getMonthlyStatusTone,
   normalizeMonthlyStatus,
   parseMonthlyPlayerRows,
+  splitMonthlyRows,
 } from "@/lib/monthly-data";
 import { getPlayerDisplayName } from "@/lib/player-display";
 import { requireTeamAccess } from "@/lib/team-auth";
@@ -101,6 +103,8 @@ async function saveMonthlyData(formData: FormData) {
     String(formData.get("selected_month") || "");
   const actionType = String(formData.get("action_type") || "draft");
   const clubActivityLink = String(formData.get("club_activity_link") || "").trim();
+  const officialRows = parseMonthlyPlayerRows(formData.get("official_row"));
+  const officialRow = officialRows[0] || createOfficialMonthlyRow("");
   const playerRows = parseMonthlyPlayerRows(formData.get("player_rows"));
   const nextStatus = actionType === "submit" ? "submitted" : "draft";
   const now = new Date().toISOString();
@@ -118,7 +122,9 @@ async function saveMonthlyData(formData: FormData) {
     .eq("target_month", targetMonth)
     .maybeSingle();
 
-  const existingPlayerRows = parseMonthlyPlayerRows(existingSubmission?.player_rows);
+  const { playerRows: existingPlayerRows } = splitMonthlyRows(
+    parseMonthlyPlayerRows(existingSubmission?.player_rows)
+  );
   const rowsWithScreenshots = await uploadSalaryScreenshots({
     formData,
     playerRows,
@@ -162,7 +168,7 @@ async function saveMonthlyData(formData: FormData) {
     team_id: teamId,
     target_month: targetMonth,
     status: nextStatus,
-    player_rows: rowsWithScreenshots,
+    player_rows: [officialRow, ...rowsWithScreenshots],
     club_activity_link: clubActivityLink || null,
     return_reason: null,
     submitted_at:
@@ -404,10 +410,13 @@ export default async function TeamRewardPage({
   const selectedSubmission =
     submissions.find((row) => row.target_month === selectedMonth) || null;
   const status = normalizeMonthlyStatus(selectedSubmission?.status);
-  const savedPlayerRows = parseMonthlyPlayerRows(selectedSubmission?.player_rows);
+  const { officialRow: savedOfficialRow, playerRows: savedPlayerRows } =
+    splitMonthlyRows(parseMonthlyPlayerRows(selectedSubmission?.player_rows));
   const assignedPlayerRows = assignedPlayers.map((player, index) =>
     createPlayerRowFromRecord(player, index)
   );
+  const officialRow =
+    savedOfficialRow || createOfficialMonthlyRow(team?.short_name || "");
   const playerRows =
     assignedPlayerRows.length > 0
       ? mergePlayerRows(assignedPlayerRows, savedPlayerRows)
@@ -551,6 +560,7 @@ export default async function TeamRewardPage({
                 action={saveMonthlyData}
                 teamId={teamId}
                 selectedMonth={selectedMonth}
+                initialOfficialRow={officialRow}
                 initialPlayers={playerRows}
                 clubActivityLink={selectedSubmission?.club_activity_link || ""}
                 clubActivityImageUrl={selectedSubmission?.club_activity_image_url || null}

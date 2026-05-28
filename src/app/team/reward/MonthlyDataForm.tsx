@@ -1,12 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { MonthlyPlayerRow, formatMonthlyNumber } from "@/lib/monthly-data";
+import {
+  MonthlyPlayerRow,
+  formatMonthlyNumber,
+  sumMonthlyField,
+} from "@/lib/monthly-data";
 
 type MonthlyDataFormProps = {
   action: (formData: FormData) => void | Promise<void>;
   teamId: string;
   selectedMonth: string;
+  initialOfficialRow: MonthlyPlayerRow;
   initialPlayers: MonthlyPlayerRow[];
   clubActivityLink: string;
   clubActivityImageUrl?: string | null;
@@ -80,6 +85,7 @@ export default function MonthlyDataForm({
   action,
   teamId,
   selectedMonth,
+  initialOfficialRow,
   initialPlayers,
   clubActivityLink,
   clubActivityImageUrl,
@@ -87,6 +93,8 @@ export default function MonthlyDataForm({
   isLocked,
 }: MonthlyDataFormProps) {
   const [activityLink, setActivityLink] = useState(clubActivityLink || "");
+  const [officialRow, setOfficialRow] =
+    useState<MonthlyPlayerRow>(initialOfficialRow);
   const [players, setPlayers] = useState<MonthlyPlayerRow[]>(initialPlayers);
 
   const totalSalary = useMemo(
@@ -106,11 +114,20 @@ export default function MonthlyDataForm({
     );
   }
 
+  function updateOfficial(key: PlayerField, value: string) {
+    setOfficialRow((current) => ({ ...current, [key]: value }));
+  }
+
   const isSubmitDisabled = isLocked || players.length === 0;
 
   return (
     <form action={action} className="space-y-6">
       <input type="hidden" name="team_id" value={teamId} />
+      <input
+        type="hidden"
+        name="official_row"
+        value={JSON.stringify([officialRow])}
+      />
       <input type="hidden" name="player_rows" value={JSON.stringify(players)} />
       <input type="hidden" name="selected_month" value={selectedMonth} />
       <input type="hidden" name="target_month" value={selectedMonth} />
@@ -142,7 +159,9 @@ export default function MonthlyDataForm({
       <MetricSection
         title="② X"
         fields={xFields}
+        officialRow={officialRow}
         players={players}
+        updateOfficial={updateOfficial}
         updatePlayer={updatePlayer}
         disabled={isLocked}
       />
@@ -150,7 +169,9 @@ export default function MonthlyDataForm({
       <MetricSection
         title="③ YouTube"
         fields={youtubeFields}
+        officialRow={officialRow}
         players={players}
+        updateOfficial={updateOfficial}
         updatePlayer={updatePlayer}
         disabled={isLocked}
       />
@@ -230,16 +251,22 @@ export default function MonthlyDataForm({
 function MetricSection({
   title,
   fields,
+  officialRow,
   players,
+  updateOfficial,
   updatePlayer,
   disabled,
 }: {
   title: string;
   fields: Array<{ key: PlayerField; label: string; shortLabel: string }>;
+  officialRow: MonthlyPlayerRow;
   players: MonthlyPlayerRow[];
+  updateOfficial: (key: PlayerField, value: string) => void;
   updatePlayer: (index: number, key: PlayerField, value: string) => void;
   disabled: boolean;
 }) {
+  const totalRows = [officialRow, ...players];
+
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between gap-3">
@@ -268,6 +295,31 @@ function MetricSection({
             </tr>
           </thead>
           <tbody>
+            <tr className="border-t border-slate-200 bg-sky-50/60">
+              <th className="sticky left-0 z-10 w-44 min-w-44 border-r border-slate-200 bg-sky-50 px-3 py-2 align-middle">
+                <span className="block truncate text-sm font-semibold text-slate-950">
+                  公式アカウント
+                </span>
+                <span className="block truncate text-xs font-normal text-slate-400">
+                  {officialRow.playerName}
+                </span>
+              </th>
+              {fields.map((field) => (
+                <td key={field.key} className="w-28 min-w-28 px-2 py-2">
+                  <input
+                    type="number"
+                    min="0"
+                    value={String(officialRow[field.key] || "")}
+                    onChange={(event) =>
+                      updateOfficial(field.key, event.target.value)
+                    }
+                    disabled={disabled}
+                    aria-label={`公式アカウント ${field.label}`}
+                    className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm outline-none focus:border-slate-900 disabled:bg-slate-100"
+                  />
+                </td>
+              ))}
+            </tr>
             {players.map((player, index) => (
               <tr key={`${player.id}-${title}`} className="border-t border-slate-200">
                 <th className="sticky left-0 z-10 w-44 min-w-44 border-r border-slate-200 bg-white px-3 py-2 align-middle">
@@ -298,6 +350,18 @@ function MetricSection({
               </tr>
             ))}
           </tbody>
+          <tfoot className="border-t border-slate-300 bg-slate-100 text-xs font-bold text-slate-700">
+            <tr>
+              <th className="sticky left-0 z-10 w-44 min-w-44 border-r border-slate-200 bg-slate-100 px-3 py-2">
+                合計
+              </th>
+              {fields.map((field) => (
+                <td key={field.key} className="w-28 min-w-28 px-2 py-2">
+                  {formatMonthlyNumber(sumMonthlyField(totalRows, field.key))}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
         </table>
       </div>
     </section>

@@ -4,8 +4,11 @@ import { redirect } from "next/navigation";
 import {
   formatMonthLabel,
   formatMonthlyNumber,
+  getMonthlyYoutubeViews,
+  numericMonthlyValue,
   getMonthlyAdminStatusLabel,
   parseMonthlyPlayerRows,
+  splitMonthlyRows,
 } from "@/lib/monthly-data";
 import { getPlayerDisplayName } from "@/lib/player-display";
 import { getAdminStatusLabel, isApprovedLike, isWaitingReview } from "@/lib/status-labels";
@@ -197,16 +200,40 @@ export default async function AdminTeamDetailPage({
   const projectSummary = summarizeProjectRows(safeProjectTeams);
   const monthlySummary = summarizeMonthlyRows(safeSubmissions, currentMonth);
   const monthlyStats = safeSubmissions.slice(0, 12).reverse().map((submission) => {
-    const rows = parseMonthlyPlayerRows(submission.player_rows);
-    const salary = rows.reduce((sum, row) => {
-      const amount = Number(row.salaryAmount || 0);
-      return sum + (Number.isFinite(amount) ? amount : 0);
+    const { officialRow, playerRows } = splitMonthlyRows(
+      parseMonthlyPlayerRows(submission.player_rows)
+    );
+    const salary = playerRows.reduce((sum, row) => {
+      return sum + numericMonthlyValue(row.salaryAmount);
     }, 0);
+    const playerXImpressions = playerRows.reduce(
+      (sum, row) => sum + numericMonthlyValue(row.xImpressions),
+      0
+    );
+    const playerYoutubeViews = playerRows.reduce(
+      (sum, row) => sum + getMonthlyYoutubeViews(row),
+      0
+    );
+    const officialXImpressions = officialRow
+      ? numericMonthlyValue(officialRow.xImpressions)
+      : 0;
+    const officialYoutubeViews = officialRow
+      ? getMonthlyYoutubeViews(officialRow)
+      : 0;
 
     return {
       month: submission.target_month,
       salary,
-      players: rows.length,
+      players: playerRows.length,
+      officialXImpressions,
+      officialYoutubeViews,
+      playerXImpressions,
+      playerYoutubeViews,
+      totalExposure:
+        officialXImpressions +
+        officialYoutubeViews +
+        playerXImpressions +
+        playerYoutubeViews,
     };
   });
   const maxSalary = Math.max(...monthlyStats.map((row) => row.salary), 1);
@@ -343,6 +370,59 @@ export default async function AdminTeamDetailPage({
               ))
             )}
           </div>
+        </section>
+
+        <section className="mt-6 overflow-hidden rounded-xl border border-slate-700">
+          <div className="bg-slate-900 p-5">
+            <h2 className="text-xl font-bold">官方账号与战队月数据</h2>
+            <p className="mt-2 text-sm text-slate-400">
+              官方账号数据只进入战队统计，不进入单个选手详情。
+            </p>
+          </div>
+          <table className="w-full min-w-[900px] border-collapse bg-slate-900 text-left text-sm">
+            <thead className="bg-slate-800 text-slate-300">
+              <tr>
+                <th className="px-4 py-3">月份</th>
+                <th className="px-4 py-3">选手数</th>
+                <th className="px-4 py-3">官方 X Imp</th>
+                <th className="px-4 py-3">选手 X Imp</th>
+                <th className="px-4 py-3">官方 YouTube 视听</th>
+                <th className="px-4 py-3">选手 YouTube 视听</th>
+                <th className="px-4 py-3">总曝光</th>
+              </tr>
+            </thead>
+            <tbody>
+              {monthlyStats.length === 0 ? (
+                <tr>
+                  <td className="px-4 py-6 text-slate-500" colSpan={7}>
+                    暂无月数据。
+                  </td>
+                </tr>
+              ) : (
+                monthlyStats.map((row) => (
+                  <tr key={row.month} className="border-t border-slate-700">
+                    <td className="px-4 py-3">{formatMonthLabel(row.month)}</td>
+                    <td className="px-4 py-3 text-slate-300">{row.players}</td>
+                    <td className="px-4 py-3 text-slate-300">
+                      {formatMonthlyNumber(row.officialXImpressions)}
+                    </td>
+                    <td className="px-4 py-3 text-slate-300">
+                      {formatMonthlyNumber(row.playerXImpressions)}
+                    </td>
+                    <td className="px-4 py-3 text-slate-300">
+                      {formatMonthlyNumber(row.officialYoutubeViews)}
+                    </td>
+                    <td className="px-4 py-3 text-slate-300">
+                      {formatMonthlyNumber(row.playerYoutubeViews)}
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-slate-100">
+                      {formatMonthlyNumber(row.totalExposure)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </section>
 
         <section className="mt-6 rounded-xl border border-slate-700 bg-slate-900 p-5">

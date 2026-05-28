@@ -1,5 +1,15 @@
+import { Buffer } from "node:buffer";
 import { createClient } from "@supabase/supabase-js";
-import { parseMonthlyPlayerRows } from "@/lib/monthly-data";
+import {
+  MonthlyPlayerRow,
+  formatMonthLabel,
+  isOfficialMonthlyRow,
+  numericMonthlyValue,
+  parseMonthlyPlayerRows,
+  splitMonthlyRows,
+} from "@/lib/monthly-data";
+
+export const runtime = "nodejs";
 
 type MonthlySubmissionRow = {
   target_month: string;
@@ -9,6 +19,38 @@ type MonthlySubmissionRow = {
     short_name: string | null;
   } | null;
 };
+
+type SheetCell = string | number | null;
+type SheetRow = {
+  cells: SheetCell[];
+  style?: number;
+};
+type SheetData = {
+  name: string;
+  rows: SheetRow[];
+  merges: string[];
+  widths: number[];
+};
+
+const xFields: Array<{ key: keyof MonthlyPlayerRow; label: string }> = [
+  { key: "xTweetCount", label: "ツイート本数（引用含む）" },
+  { key: "xImpressions", label: "インプレッション" },
+  { key: "xEngagements", label: "エンゲージメント" },
+  { key: "xFanEventCount", label: "ファンイベント回数" },
+  { key: "xFollowerCount", label: "フォロワー数" },
+];
+
+const youtubeFields: Array<{ key: keyof MonthlyPlayerRow; label: string }> = [
+  { key: "youtubeVideoPostCount", label: "投稿本数（動画）" },
+  { key: "youtubeVideoViews", label: "視聴回数（動画）" },
+  { key: "youtubeShortPostCount", label: "投稿本数（ショート）" },
+  { key: "youtubeShortViews", label: "視聴回数（ショート）" },
+  { key: "youtubeLikeCount", label: "いいね数" },
+  { key: "youtubeStreamCount", label: "配信回数" },
+  { key: "youtubeStreamViews", label: "視聴回数（配信）" },
+  { key: "youtubeTotalImpressions", label: "合計インプレッション" },
+  { key: "youtubeSubscriberCount", label: "登録者数" },
+];
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -42,54 +84,543 @@ export async function GET(request: Request) {
     return new Response(error.message, { status: 500 });
   }
 
-  const lines = [
-    [
-      "月份",
-      "战队",
-      "选手",
-      "給与",
-      "X曝光",
-      "YouTube总曝光",
-      "YouTube登録者",
-    ],
-  ];
+  const submissions = (data || []) as unknown as MonthlySubmissionRow[];
+  const workbook = createXlsxWorkbook([
+    buildXSheet(submissions),
+    buildYoutubeSheet(submissions),
+  ]);
 
-  for (const submission of (data || []) as unknown as MonthlySubmissionRow[]) {
-    const teamName = submission.teams?.name || "";
-    const teamShortName = submission.teams?.short_name || "";
-
-    for (const player of parseMonthlyPlayerRows(submission.player_rows)) {
-      lines.push([
-        submission.target_month,
-        teamShortName ? `${teamName} (${teamShortName})` : teamName,
-        player.playerName,
-        player.salaryAmount || "0",
-        player.xImpressions || "0",
-        player.youtubeTotalImpressions || "0",
-        player.youtubeSubscriberCount || "0",
-      ]);
-    }
-  }
-
-  const csv = lines.map((line) => line.map(escapeCsv).join(",")).join("\n");
-
-  return new Response(`\uFEFF${csv}`, {
+  return new Response(workbook, {
     status: 200,
     headers: {
-      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Type":
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(
-        `league-summary_${fromMonth}_${toMonth}.csv`
+        `league-summary_${fromMonth}_${toMonth}.xlsx`
       )}`,
     },
   });
 }
 
-function escapeCsv(value: unknown) {
-  const text = String(value ?? "");
+function buildXSheet(submissions: MonthlySubmissionRow[]): SheetData {
+  const rows: SheetRow[] = [];
+  const merges: string[] = [];
+  const monthGroups = groupSubmissionsByMonth(submissions);
 
-  if (/[",\n]/.test(text)) {
-    return `"${text.replace(/"/g, '""')}"`;
+  for (const [month, monthSubmissions] of monthGroups) {
+    rows.push({
+      cells: [
+        shortMonthLabel(month),
+        "",
+        "手動入力",
+        "アナリティクス",
+        "アナリティクス",
+        "手動入力",
+        "アナリティクス",
+      ],
+      style: 1,
+    });
+    rows.push({
+      cells: ["チーム名", "選手名", ...xFields.map((field) => field.label)],
+      style: 2,
+    });
+
+    const officialRows: MonthlyPlayerRow[] = [];
+    const playerRows: MonthlyPlayerRow[] = [];
+
+    for (const submission of sortSubmissionsByTeam(monthSubmissions)) {
+      const allRows = parseMonthlyPlayerRows(submission.player_rows);
+      const { officialRow, playerRows: parsedPlayerRows } = splitMonthlyRows(allRows);
+      const blockRows = [
+        ...(officialRow ? [officialRow] : allRows.filter(isOfficialMonthlyRow)),
+        ...parsedPlayerRows,
+      ];
+      const startRow = rows.length + 1;
+
+      blockRows.forEach((row, index) => {
+        const isOfficial = isOfficialMonthlyRow(row);
+
+        if (isOfficial) {
+          officialRows.push(row);
+        } else {
+          playerRows.push(row);
+        }
+
+        rows.push({
+          cells: [
+            index === 0 ? getTeamExportName(submission) : "",
+            row.playerName || row.playerHandle || "-",
+            ...xFields.map((field) => numericMonthlyValue(row[field.key])),
+          ],
+        });
+      });
+
+      if (blockRows.length > 1) {
+        merges.push(`A${startRow}:A${startRow + blockRows.length - 1}`);
+      }
+    }
+
+    rows.push(...buildTotalRows("官方合计", "选手合计", officialRows, playerRows, xFields));
+    rows.push({ cells: [], style: 0 });
   }
 
-  return text;
+  return {
+    name: "X",
+    rows,
+    merges,
+    widths: [14, 18, 23, 16, 16, 16, 16],
+  };
 }
+
+function buildYoutubeSheet(submissions: MonthlySubmissionRow[]): SheetData {
+  const rows: SheetRow[] = [];
+  const merges: string[] = [];
+  const monthGroups = groupSubmissionsByMonth(submissions);
+
+  for (const [month, monthSubmissions] of monthGroups) {
+    rows.push({
+      cells: [
+        "youtube",
+        "",
+        "アナリティクス",
+        "アナリティクス",
+        "アナリティクス",
+        "アナリティクス",
+        "手動入力",
+        "アナリティクス",
+        "アナリティクス",
+        "アナリティクス",
+        "手動入力",
+      ],
+      style: 1,
+    });
+    rows.push({
+      cells: ["チーム名", "選手名", ...youtubeFields.map((field) => field.label)],
+      style: 2,
+    });
+    rows.push({ cells: [shortMonthLabel(month)], style: 1 });
+
+    const officialRows: MonthlyPlayerRow[] = [];
+    const playerRows: MonthlyPlayerRow[] = [];
+
+    for (const submission of sortSubmissionsByTeam(monthSubmissions)) {
+      const allRows = parseMonthlyPlayerRows(submission.player_rows);
+      const { officialRow, playerRows: parsedPlayerRows } = splitMonthlyRows(allRows);
+      const blockRows = [
+        ...(officialRow ? [officialRow] : allRows.filter(isOfficialMonthlyRow)),
+        ...parsedPlayerRows,
+      ];
+      const startRow = rows.length + 1;
+
+      blockRows.forEach((row, index) => {
+        const isOfficial = isOfficialMonthlyRow(row);
+
+        if (isOfficial) {
+          officialRows.push(row);
+        } else {
+          playerRows.push(row);
+        }
+
+        rows.push({
+          cells: [
+            index === 0 ? getTeamExportName(submission) : "",
+            row.playerName || row.playerHandle || "-",
+            ...youtubeFields.map((field) => numericMonthlyValue(row[field.key])),
+          ],
+        });
+      });
+
+      if (blockRows.length > 1) {
+        merges.push(`A${startRow}:A${startRow + blockRows.length - 1}`);
+      }
+    }
+
+    rows.push(...buildTotalRows("官推合计", "选手合计", officialRows, playerRows, youtubeFields));
+    rows.push({ cells: [], style: 0 });
+  }
+
+  return {
+    name: "youtube",
+    rows,
+    merges,
+    widths: [14, 18, 18, 18, 18, 18, 14, 14, 18, 20, 14],
+  };
+}
+
+function buildTotalRows(
+  officialLabel: string,
+  playerLabel: string,
+  officialRows: MonthlyPlayerRow[],
+  playerRows: MonthlyPlayerRow[],
+  fields: Array<{ key: keyof MonthlyPlayerRow; label: string }>
+): SheetRow[] {
+  return [
+    {
+      cells: [
+        officialLabel,
+        "",
+        ...fields.map((field) => sumRows(officialRows, field.key)),
+      ],
+      style: 3,
+    },
+    {
+      cells: [
+        playerLabel,
+        "",
+        ...fields.map((field) => sumRows(playerRows, field.key)),
+      ],
+      style: 4,
+    },
+    {
+      cells: [
+        "总合计",
+        "",
+        ...fields.map(
+          (field) => sumRows(officialRows, field.key) + sumRows(playerRows, field.key)
+        ),
+      ],
+      style: 5,
+    },
+  ];
+}
+
+function groupSubmissionsByMonth(submissions: MonthlySubmissionRow[]) {
+  const groups = new Map<string, MonthlySubmissionRow[]>();
+
+  for (const submission of submissions) {
+    const month = submission.target_month;
+    groups.set(month, [...(groups.get(month) || []), submission]);
+  }
+
+  return Array.from(groups.entries()).sort(([left], [right]) =>
+    left.localeCompare(right)
+  );
+}
+
+function sortSubmissionsByTeam(submissions: MonthlySubmissionRow[]) {
+  return [...submissions].sort((left, right) =>
+    getTeamExportName(left).localeCompare(getTeamExportName(right))
+  );
+}
+
+function getTeamExportName(submission: MonthlySubmissionRow) {
+  return submission.teams?.name || submission.teams?.short_name || "-";
+}
+
+function shortMonthLabel(month: string) {
+  const [, monthNumber] = month.split("-");
+
+  return monthNumber ? `${Number(monthNumber)}月` : formatMonthLabel(month);
+}
+
+function sumRows(rows: MonthlyPlayerRow[], key: keyof MonthlyPlayerRow) {
+  return rows.reduce((sum, row) => sum + numericMonthlyValue(row[key]), 0);
+}
+
+function createXlsxWorkbook(sheets: SheetData[]) {
+  const files = [
+    {
+      path: "[Content_Types].xml",
+      content: contentTypesXml(sheets.length),
+    },
+    {
+      path: "_rels/.rels",
+      content: rootRelsXml(),
+    },
+    {
+      path: "xl/workbook.xml",
+      content: workbookXml(sheets),
+    },
+    {
+      path: "xl/_rels/workbook.xml.rels",
+      content: workbookRelsXml(sheets.length),
+    },
+    {
+      path: "xl/styles.xml",
+      content: stylesXml(),
+    },
+    ...sheets.map((sheet, index) => ({
+      path: `xl/worksheets/sheet${index + 1}.xml`,
+      content: worksheetXml(sheet),
+    })),
+  ];
+
+  return zipStore(
+    files.map((file) => ({
+      path: file.path,
+      data: Buffer.from(file.content, "utf8"),
+    }))
+  );
+}
+
+function worksheetXml(sheet: SheetData) {
+  const maxColumns = Math.max(
+    sheet.widths.length,
+    ...sheet.rows.map((row) => row.cells.length),
+    1
+  );
+  const maxRows = Math.max(sheet.rows.length, 1);
+  const columns = sheet.widths
+    .map(
+      (width, index) =>
+        `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`
+    )
+    .join("");
+  const rowXml = sheet.rows
+    .map((row, rowIndex) => {
+      const rowNumber = rowIndex + 1;
+      const cells = row.cells
+        .map((value, cellIndex) =>
+          cellXml(value, rowNumber, cellIndex + 1, row.style || 0)
+        )
+        .join("");
+
+      return `<row r="${rowNumber}">${cells}</row>`;
+    })
+    .join("");
+  const mergeXml =
+    sheet.merges.length > 0
+      ? `<mergeCells count="${sheet.merges.length}">${sheet.merges
+          .map((ref) => `<mergeCell ref="${ref}"/>`)
+          .join("")}</mergeCells>`
+      : "";
+
+  return xmlDocument(
+    `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+      <dimension ref="A1:${columnName(maxColumns)}${maxRows}"/>
+      <sheetViews><sheetView workbookViewId="0"/></sheetViews>
+      <sheetFormatPr defaultRowHeight="18"/>
+      <cols>${columns}</cols>
+      <sheetData>${rowXml}</sheetData>
+      ${mergeXml}
+    </worksheet>`
+  );
+}
+
+function cellXml(
+  value: SheetCell,
+  rowNumber: number,
+  columnNumber: number,
+  style: number
+) {
+  const ref = `${columnName(columnNumber)}${rowNumber}`;
+
+  if (value === null || value === "") {
+    return style
+      ? `<c r="${ref}" s="${style}"/>`
+      : "";
+  }
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return `<c r="${ref}" s="${style}"><v>${value}</v></c>`;
+  }
+
+  return `<c r="${ref}" s="${style}" t="inlineStr"><is><t>${escapeXml(
+    String(value)
+  )}</t></is></c>`;
+}
+
+function contentTypesXml(sheetCount: number) {
+  const sheetOverrides = Array.from({ length: sheetCount }, (_, index) => {
+    const sheetNumber = index + 1;
+
+    return `<Override PartName="/xl/worksheets/sheet${sheetNumber}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`;
+  }).join("");
+
+  return xmlDocument(
+    `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+      <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+      <Default Extension="xml" ContentType="application/xml"/>
+      <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+      <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+      ${sheetOverrides}
+    </Types>`
+  );
+}
+
+function rootRelsXml() {
+  return xmlDocument(
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+      <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+    </Relationships>`
+  );
+}
+
+function workbookXml(sheets: SheetData[]) {
+  return xmlDocument(
+    `<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+      <sheets>
+        ${sheets
+          .map(
+            (sheet, index) =>
+              `<sheet name="${escapeXml(sheet.name)}" sheetId="${index + 1}" r:id="rId${
+                index + 1
+              }"/>`
+          )
+          .join("")}
+      </sheets>
+    </workbook>`
+  );
+}
+
+function workbookRelsXml(sheetCount: number) {
+  const sheetRels = Array.from({ length: sheetCount }, (_, index) => {
+    const sheetNumber = index + 1;
+
+    return `<Relationship Id="rId${sheetNumber}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${sheetNumber}.xml"/>`;
+  }).join("");
+
+  return xmlDocument(
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+      ${sheetRels}
+      <Relationship Id="rId${sheetCount + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+    </Relationships>`
+  );
+}
+
+function stylesXml() {
+  return xmlDocument(
+    `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+      <fonts count="2">
+        <font><sz val="11"/><name val="Calibri"/></font>
+        <font><b/><sz val="11"/><name val="Calibri"/></font>
+      </fonts>
+      <fills count="6">
+        <fill><patternFill patternType="none"/></fill>
+        <fill><patternFill patternType="gray125"/></fill>
+        <fill><patternFill patternType="solid"><fgColor rgb="FFBBD7FF"/><bgColor indexed="64"/></patternFill></fill>
+        <fill><patternFill patternType="solid"><fgColor rgb="FFD9EAF7"/><bgColor indexed="64"/></patternFill></fill>
+        <fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/><bgColor indexed="64"/></patternFill></fill>
+        <fill><patternFill patternType="solid"><fgColor rgb="FFE2F0D9"/><bgColor indexed="64"/></patternFill></fill>
+      </fills>
+      <borders count="2">
+        <border><left/><right/><top/><bottom/><diagonal/></border>
+        <border>
+          <left style="thin"><color rgb="FF808080"/></left>
+          <right style="thin"><color rgb="FF808080"/></right>
+          <top style="thin"><color rgb="FF808080"/></top>
+          <bottom style="thin"><color rgb="FF808080"/></bottom>
+          <diagonal/>
+        </border>
+      </borders>
+      <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+      <cellXfs count="6">
+        <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0"/>
+        <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFill="1" applyFont="1"/>
+        <xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFill="1" applyFont="1"/>
+        <xf numFmtId="0" fontId="1" fillId="4" borderId="1" xfId="0" applyFill="1" applyFont="1"/>
+        <xf numFmtId="0" fontId="1" fillId="5" borderId="1" xfId="0" applyFill="1" applyFont="1"/>
+        <xf numFmtId="0" fontId="1" fillId="3" borderId="1" xfId="0" applyFill="1" applyFont="1"/>
+      </cellXfs>
+      <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+    </styleSheet>`
+  );
+}
+
+function xmlDocument(content: string) {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>${content.replace(
+    />\s+</g,
+    "><"
+  )}`;
+}
+
+function columnName(columnNumber: number) {
+  let number = columnNumber;
+  let name = "";
+
+  while (number > 0) {
+    const remainder = (number - 1) % 26;
+    name = String.fromCharCode(65 + remainder) + name;
+    number = Math.floor((number - 1) / 26);
+  }
+
+  return name;
+}
+
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function zipStore(files: Array<{ path: string; data: Buffer }>) {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const name = Buffer.from(file.path, "utf8");
+    const crc = crc32(file.data);
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(0x0800, 6);
+    localHeader.writeUInt16LE(0, 8);
+    localHeader.writeUInt16LE(0, 10);
+    localHeader.writeUInt16LE(0, 12);
+    localHeader.writeUInt32LE(crc, 14);
+    localHeader.writeUInt32LE(file.data.length, 18);
+    localHeader.writeUInt32LE(file.data.length, 22);
+    localHeader.writeUInt16LE(name.length, 26);
+    localHeader.writeUInt16LE(0, 28);
+
+    localParts.push(localHeader, name, file.data);
+
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(0x0800, 8);
+    centralHeader.writeUInt16LE(0, 10);
+    centralHeader.writeUInt16LE(0, 12);
+    centralHeader.writeUInt16LE(0, 14);
+    centralHeader.writeUInt32LE(crc, 16);
+    centralHeader.writeUInt32LE(file.data.length, 20);
+    centralHeader.writeUInt32LE(file.data.length, 24);
+    centralHeader.writeUInt16LE(name.length, 28);
+    centralHeader.writeUInt16LE(0, 30);
+    centralHeader.writeUInt16LE(0, 32);
+    centralHeader.writeUInt16LE(0, 34);
+    centralHeader.writeUInt16LE(0, 36);
+    centralHeader.writeUInt32LE(0, 38);
+    centralHeader.writeUInt32LE(offset, 42);
+    centralParts.push(centralHeader, name);
+
+    offset += localHeader.length + name.length + file.data.length;
+  }
+
+  const centralDirectory = Buffer.concat(centralParts);
+  const endOfCentralDirectory = Buffer.alloc(22);
+  endOfCentralDirectory.writeUInt32LE(0x06054b50, 0);
+  endOfCentralDirectory.writeUInt16LE(0, 4);
+  endOfCentralDirectory.writeUInt16LE(0, 6);
+  endOfCentralDirectory.writeUInt16LE(files.length, 8);
+  endOfCentralDirectory.writeUInt16LE(files.length, 10);
+  endOfCentralDirectory.writeUInt32LE(centralDirectory.length, 12);
+  endOfCentralDirectory.writeUInt32LE(offset, 16);
+  endOfCentralDirectory.writeUInt16LE(0, 20);
+
+  return Buffer.concat([...localParts, centralDirectory, endOfCentralDirectory]);
+}
+
+function crc32(buffer: Buffer) {
+  let crc = 0xffffffff;
+
+  for (const byte of buffer) {
+    crc = (crc >>> 8) ^ crcTable[(crc ^ byte) & 0xff];
+  }
+
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+const crcTable = Array.from({ length: 256 }, (_, index) => {
+  let value = index;
+
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+  }
+
+  return value >>> 0;
+});
