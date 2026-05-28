@@ -68,6 +68,10 @@ type StorageClient = {
 
 const imageMaxSize = 2 * 1024 * 1024;
 
+function getCurrentMonthValue() {
+  return new Date().toISOString().slice(0, 7);
+}
+
 function createStoragePath(teamId: string, targetMonth: string, fileName: string) {
   const safeFileName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, "_");
   return `monthly-data/${teamId}/${targetMonth}-${Date.now()}-${safeFileName}`;
@@ -343,6 +347,30 @@ export default async function TeamRewardPage({
         playerTableError = playerTableError || currentPlayersError.message;
       } else {
         assignedPlayers = (currentPlayers || []) as unknown as PlayerRecord[];
+
+        if (
+          !assignmentError &&
+          selectedMonth === getCurrentMonthValue() &&
+          assignedPlayers.length > 0
+        ) {
+          const assignmentRows = assignedPlayers.map((player, index) => ({
+            target_month: selectedMonth,
+            team_id: teamId,
+            player_id: player.id,
+            sort_order: player.sort_order ?? index,
+            updated_at: new Date().toISOString(),
+          }));
+
+          const { error: upsertError } = await supabase
+            .from("monthly_player_assignments")
+            .upsert(assignmentRows, {
+              onConflict: "target_month,team_id,player_id",
+            });
+
+          if (!upsertError) {
+            isUsingMonthlyAssignments = true;
+          }
+        }
       }
     }
   }
