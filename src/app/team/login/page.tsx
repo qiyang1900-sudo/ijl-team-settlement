@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { setTeamSession, verifyTeamPassword } from "@/lib/team-auth";
+import LoginSubmitButton from "./LoginSubmitButton";
 
 type TeamOption = {
   id: string;
@@ -125,12 +126,7 @@ export default async function TeamLoginPage({
             </div>
           ) : null}
 
-          <button
-            type="submit"
-            className="block w-full rounded-lg bg-emerald-600 px-5 py-3 text-center text-sm font-semibold text-white hover:bg-emerald-500"
-          >
-            ログイン
-          </button>
+          <LoginSubmitButton />
         </form>
 
         <p className="mt-4 text-sm text-slate-500">
