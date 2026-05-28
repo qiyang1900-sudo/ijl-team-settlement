@@ -490,12 +490,7 @@ function SectionSummary({
         </p>
       </div>
       <p className="mt-2 text-xs text-slate-500">
-        {section.autoScore === null
-          ? "人工评分"
-          : `自动 ${section.autoScore} / 人工扣 ${Math.max(
-              0,
-              section.autoScore - section.score
-            )}`}
+        {section.autoScore === null ? "人工评分" : `自动评分 ${section.autoScore}`}
       </p>
       <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-800">
         <div
