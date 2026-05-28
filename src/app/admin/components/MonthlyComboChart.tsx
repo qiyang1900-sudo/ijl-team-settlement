@@ -13,6 +13,19 @@ type MonthlyComboChartProps = {
   lineLabel?: string;
   barColor?: string;
   lineColor?: string;
+  showInsights?: boolean;
+};
+
+type ChartInsight = {
+  key: string;
+  label: string;
+  seriesLabel: string;
+  currentValue: number;
+  previousLabel: string;
+  previousValue: number;
+  changePercent: number | null;
+  tone: "up" | "down";
+  message: string;
 };
 
 const width = 720;
@@ -31,6 +44,7 @@ export default function MonthlyComboChart({
   lineLabel = "推移",
   barColor = "#3b82f6",
   lineColor = "#ef4444",
+  showInsights = false,
 }: MonthlyComboChartProps) {
   const safePoints = points.map((point) => ({
     label: point.label,
@@ -56,6 +70,9 @@ export default function MonthlyComboChart({
     .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
     .join(" ");
   const xLabelEvery = Math.max(1, Math.ceil(safePoints.length / 12));
+  const insights = showInsights
+    ? buildChartInsights(safePoints, barLabel, lineLabel)
+    : [];
 
   if (safePoints.length === 0) {
     return (
@@ -202,8 +219,146 @@ export default function MonthlyComboChart({
           ) : null}
         </g>
       </svg>
+      {showInsights ? (
+        <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-slate-700">
+            <span>图表数据分析</span>
+            <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-500">
+              {insights.length > 0 ? `${insights.length} 项提醒` : "无明显异常"} · 展开 / 收起
+            </span>
+          </summary>
+          <div className="border-t border-slate-200 px-4 py-3">
+            {insights.length === 0 ? (
+              <p className="text-sm leading-6 text-slate-500">
+                当前筛选期间内没有超过阈值的突然上升或下降。建议后续把阈值做成可配置，用于适配不同数据类型。
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {insights.map((insight) => (
+                  <div
+                    key={insight.key}
+                    className={`rounded-lg border px-3 py-2 text-sm ${
+                      insight.tone === "up"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                        : "border-rose-200 bg-rose-50 text-rose-900"
+                    }`}
+                  >
+                    <p className="font-semibold">{insight.message}</p>
+                    <p className="mt-1 text-xs opacity-75">
+                      {insight.previousLabel} {formatMonthlyNumber(insight.previousValue)} →{" "}
+                      {insight.label} {formatMonthlyNumber(insight.currentValue)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </details>
+      ) : null}
     </section>
   );
+}
+
+function buildChartInsights(
+  points: Array<Required<MonthlyChartPoint>>,
+  barLabel: string,
+  lineLabel: string
+): ChartInsight[] {
+  const insights = [
+    ...buildSeriesInsights(points, "barValue", barLabel, {
+      up: 0.8,
+      down: -0.6,
+    }),
+    ...buildSeriesInsights(points, "lineValue", lineLabel, {
+      up: 0.5,
+      down: -0.4,
+    }),
+  ];
+
+  return insights
+    .sort((left, right) => {
+      const leftSeverity = left.changePercent === null ? 10 : Math.abs(left.changePercent);
+      const rightSeverity = right.changePercent === null ? 10 : Math.abs(right.changePercent);
+
+      return rightSeverity - leftSeverity;
+    })
+    .slice(0, 6);
+}
+
+function buildSeriesInsights(
+  points: Array<Required<MonthlyChartPoint>>,
+  key: "barValue" | "lineValue",
+  seriesLabel: string,
+  threshold: { up: number; down: number }
+): ChartInsight[] {
+  const insights: ChartInsight[] = [];
+
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const current = points[index];
+    const previousValue = previous[key];
+    const currentValue = current[key];
+
+    if (previousValue <= 0 && currentValue <= 0) {
+      continue;
+    }
+
+    if (previousValue > 0 && currentValue === 0) {
+      insights.push({
+        key: `${seriesLabel}-${current.label}-zero`,
+        label: current.label,
+        seriesLabel,
+        currentValue,
+        previousLabel: previous.label,
+        previousValue,
+        changePercent: null,
+        tone: "down",
+        message: `${current.label} 的 ${seriesLabel} 变为 0，建议确认是否漏录或平台数据缺失。`,
+      });
+      continue;
+    }
+
+    if (previousValue === 0 && currentValue > 0) {
+      insights.push({
+        key: `${seriesLabel}-${current.label}-from-zero`,
+        label: current.label,
+        seriesLabel,
+        currentValue,
+        previousLabel: previous.label,
+        previousValue,
+        changePercent: null,
+        tone: "up",
+        message: `${current.label} 的 ${seriesLabel} 从 0 恢复为有数据，建议确认是否为正常补录。`,
+      });
+      continue;
+    }
+
+    const changePercent = (currentValue - previousValue) / previousValue;
+
+    if (changePercent >= threshold.up || changePercent <= threshold.down) {
+      insights.push({
+        key: `${seriesLabel}-${current.label}-${changePercent.toFixed(3)}`,
+        label: current.label,
+        seriesLabel,
+        currentValue,
+        previousLabel: previous.label,
+        previousValue,
+        changePercent,
+        tone: changePercent > 0 ? "up" : "down",
+        message: `${current.label} 的 ${seriesLabel} 较上月${
+          changePercent > 0 ? "上升" : "下降"
+        } ${formatSignedPercent(changePercent)}，建议人工确认原因。`,
+      });
+    }
+  }
+
+  return insights;
+}
+
+function formatSignedPercent(value: number) {
+  const sign = value > 0 ? "+" : "";
+
+  return `${sign}${(value * 100).toFixed(1)}%`;
 }
 
 function safeNumber(value: unknown) {

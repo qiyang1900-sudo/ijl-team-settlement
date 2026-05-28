@@ -285,16 +285,29 @@ export default async function AdminTeamDetailPage({
           </section>
         ) : null}
 
-        <section className="mt-6 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-xl border border-slate-700 bg-slate-900 p-5">
-            <h2 className="text-xl font-bold">项目提交进度</h2>
-            <div className="mt-4 grid gap-2 sm:grid-cols-4">
+        <section className="mt-6 grid gap-4">
+          <details className="overflow-hidden rounded-xl border border-slate-700 bg-slate-900">
+            <summary className="cursor-pointer list-none p-5">
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                <div>
+                  <h2 className="text-xl font-bold">项目提交进度</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    查看该战队参与项目的审核状态。
+                  </p>
+                </div>
+                <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-300">
+                  展开 / 收起
+                </span>
+              </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-4">
               <MiniStat label="总项目" value={projectSummary.total} />
               <MiniStat label="待审核" value={projectSummary.waiting} />
               <MiniStat label="待补充" value={projectSummary.returned} />
               <MiniStat label="已通过" value={projectSummary.approved} />
             </div>
-            <div className="mt-4 space-y-2">
+            </summary>
+            <div className="border-t border-slate-800 p-5">
+              <div className="space-y-2">
               {safeProjectTeams.length === 0 ? (
                 <p className="text-sm text-slate-500">暂无项目提交记录。</p>
               ) : (
@@ -313,17 +326,31 @@ export default async function AdminTeamDetailPage({
                   </Link>
                 ))
               )}
+              </div>
             </div>
-          </div>
+          </details>
 
-          <div className="rounded-xl border border-slate-700 bg-slate-900 p-5">
-            <h2 className="text-xl font-bold">月数据提交进度</h2>
-            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          <details className="overflow-hidden rounded-xl border border-slate-700 bg-slate-900">
+            <summary className="cursor-pointer list-none p-5">
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                <div>
+                  <h2 className="text-xl font-bold">月数据提交进度</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    查看各月份月数据提交和审核状态。
+                  </p>
+                </div>
+                <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-semibold text-slate-300">
+                  展开 / 收起
+                </span>
+              </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
               <MiniStat label="总月份" value={monthlySummary.total} />
               <MiniStat label="本月" value={monthlySummary.currentStatus} />
               <MiniStat label="已通过" value={monthlySummary.approved} />
             </div>
-            <div className="mt-4 space-y-2">
+            </summary>
+            <div className="border-t border-slate-800 p-5">
+              <div className="space-y-2">
               {safeSubmissions.length === 0 ? (
                 <p className="text-sm text-slate-500">暂无月数据提交记录。</p>
               ) : (
@@ -341,8 +368,9 @@ export default async function AdminTeamDetailPage({
                   </div>
                 ))
               )}
+              </div>
             </div>
-          </div>
+          </details>
         </section>
 
         <section className="mt-6 rounded-xl border border-slate-700 bg-slate-900 p-5">
