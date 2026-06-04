@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -12,7 +12,7 @@ async function createTeam(formData: FormData) {
     throw new Error("Supabase 环境变量没有设置成功");
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
   const name = String(formData.get("name") || "");
   const shortName = String(formData.get("short_name") || "");

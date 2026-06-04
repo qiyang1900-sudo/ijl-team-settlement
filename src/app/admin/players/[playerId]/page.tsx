@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import {
   MonthlyPlayerRow,
@@ -92,7 +92,7 @@ export default async function AdminPlayerDetailPage({
     );
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const { data: player, error: playerError } = await supabase
     .from("league_players")
     .select(

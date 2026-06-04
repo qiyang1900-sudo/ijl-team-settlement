@@ -1,4 +1,5 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import {
   buildSubmissionReminderMessage,
   formatReminderMonth,
@@ -65,7 +66,7 @@ export async function POST(request: Request) {
       dryRun?: boolean;
     };
     const scope = payload.scope || "project_all";
-    const supabase = createClient(supabaseUrl, serviceRoleKey || supabaseAnonKey);
+    const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey, serviceRoleKey);
 
     if (!isReminderScope(scope)) {
       return Response.json({ error: "不支持的提醒类型。" }, { status: 400 });

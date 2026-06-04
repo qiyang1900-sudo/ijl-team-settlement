@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import {
   formatMonthLabel,
@@ -97,7 +97,7 @@ export default async function LeagueSummaryPage({
     );
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const currentMonth = getCurrentMonthValue();
   const { data: monthRows } = await supabase
     .from("monthly_data_submissions")

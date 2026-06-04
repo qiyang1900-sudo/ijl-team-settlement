@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { redirect } from "next/navigation";
 import { getInvoiceUploadUrl } from "@/lib/invoice-upload-links";
 import { getStatusTone, getTeamStatusLabel } from "@/lib/status-labels";
@@ -50,11 +50,11 @@ async function saveSubmission(formData: FormData) {
     throw new Error("Supabase環境変数が設定されていません。");
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
   const adminSupabase =
     serviceRoleKey && supabaseUrl
-      ? createClient(supabaseUrl, serviceRoleKey)
+      ? createSupabaseServerClient(supabaseUrl, undefined, serviceRoleKey)
       : supabase;
 
   const projectTeamId = String(formData.get("project_team_id") || "");
@@ -396,7 +396,7 @@ export default async function TeamSubmissionPage({
     );
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
   const { data: projectTeam, error } = await supabase
     .from("project_teams")

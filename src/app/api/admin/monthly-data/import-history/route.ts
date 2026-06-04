@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import historyData from "@/lib/historical-monthly-import-data.json";
 
 export const runtime = "nodejs";
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey || supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey, serviceRoleKey);
   const payload = historyData as HistoryPayload;
   const now = new Date().toISOString();
 

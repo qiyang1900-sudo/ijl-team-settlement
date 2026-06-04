@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getPlayerDisplayName } from "@/lib/player-display";
@@ -78,7 +78,7 @@ async function updatePlayerTeam(formData: FormData) {
     throw new Error("Supabase 环境变量没有设置成功。");
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const playerId = String(formData.get("player_id") || "");
   const teamId = String(formData.get("team_id") || "");
   let teamShortName: string | null = null;
@@ -132,7 +132,7 @@ async function syncCurrentRosterToMonth(formData: FormData) {
     throw new Error("请选择有效的月数据提交截止时间。");
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const { data: players, error: playersError } = await supabase
     .from("league_players")
     .select("id, current_team_id, sort_order")
@@ -208,7 +208,7 @@ export default async function AdminPlayersPage({
     );
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const { data: teams } = await supabase
     .from("teams")
     .select("id, name, short_name")

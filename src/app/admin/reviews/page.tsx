@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { formatDateTime } from "@/lib/date-format";
 import {
@@ -75,7 +75,7 @@ export default async function AdminReviewsPage() {
     );
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
   const { data: rows, error } = await supabase
     .from("project_teams")

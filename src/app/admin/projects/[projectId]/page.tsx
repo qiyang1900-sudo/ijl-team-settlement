@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { formatDateTime } from "@/lib/date-format";
 import {
@@ -36,7 +36,7 @@ export default async function ProjectDetailPage({
     );
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
   const { data: project, error: projectError } = await supabase
     .from("projects")

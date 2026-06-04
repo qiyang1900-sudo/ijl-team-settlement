@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import NewProjectSubmitButton from "./NewProjectSubmitButton";
@@ -51,7 +51,7 @@ async function createProject(formData: FormData) {
     throw new Error("Supabase 环境变量没有设置成功");
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
   const title = String(formData.get("title") || "");
   const description = String(formData.get("description") || "");
@@ -112,7 +112,7 @@ export default async function NewProjectPage() {
     );
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
   const { data: teams, error } = await supabase
     .from("teams")

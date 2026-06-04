@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatDateTime } from "@/lib/date-format";
@@ -27,7 +27,7 @@ async function deleteProject(formData: FormData) {
     throw new Error("Supabase 环境变量没有设置成功");
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, undefined, serviceRoleKey);
 
   const projectId = String(formData.get("project_id") || "");
 
@@ -118,7 +118,7 @@ export default async function AdminProjectsPage({
     );
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
   const { data: projects, error } = await supabase
     .from("projects")

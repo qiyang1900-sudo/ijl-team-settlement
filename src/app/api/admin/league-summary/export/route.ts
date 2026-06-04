@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import {
   MonthlyPlayerRow,
   formatMonthLabel,
@@ -88,7 +88,7 @@ export async function GET(request: Request) {
     return new Response("Supabase 环境变量没有设置成功。", { status: 500 });
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const { data, error } = await supabase
     .from("monthly_data_submissions")
     .select(

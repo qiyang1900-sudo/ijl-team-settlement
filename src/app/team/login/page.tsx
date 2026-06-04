@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { setTeamSession, verifyTeamPassword } from "@/lib/team-auth";
@@ -22,7 +22,7 @@ async function loginTeam(formData: FormData) {
     redirect("/team/login?error=missing");
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const { data: team } = await supabase
     .from("teams")
     .select("id, short_name, is_active")
@@ -59,7 +59,7 @@ export default async function TeamLoginPage({
   let teams: TeamOption[] = [];
 
   if (supabaseUrl && supabaseAnonKey) {
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
     const { data } = await supabase
       .from("teams")
