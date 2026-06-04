@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { SETTLEMENT_REPORT_TEMPLATE_BASE64 } from "@/lib/settlement-report-template";
 import { getTaxRateFromRows } from "@/lib/tax-rate";
 import {
@@ -26,7 +26,7 @@ export async function GET(
     });
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceRoleKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, undefined, supabaseServiceRoleKey);
 
   const { data: projectTeam, error: projectTeamError } = await supabase
     .from("project_teams")

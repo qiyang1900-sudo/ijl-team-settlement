@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { formatDateTime } from "@/lib/date-format";
 import { getStatusTone, getTeamStatusLabel } from "@/lib/status-labels";
@@ -58,7 +58,7 @@ export default async function TeamProjectsPage({
 
   await requireTeamAccess(teamId);
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
   const { data: team } = await supabase
     .from("teams")

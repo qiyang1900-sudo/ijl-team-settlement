@@ -23,12 +23,12 @@ create table if not exists discord_reminder_logs (
   unique (team_id, reminder_type, item_id, reminder_key)
 );
 
-grant select, insert, update, delete on table public.monthly_data_settings to anon;
-grant select, insert, update, delete on table public.monthly_data_settings to authenticated;
+revoke all privileges on table public.monthly_data_settings from anon;
+revoke all privileges on table public.monthly_data_settings from authenticated;
 grant select, insert, update, delete on table public.monthly_data_settings to service_role;
 
-grant select, insert, update, delete on table public.discord_reminder_logs to anon;
-grant select, insert, update, delete on table public.discord_reminder_logs to authenticated;
+revoke all privileges on table public.discord_reminder_logs from anon;
+revoke all privileges on table public.discord_reminder_logs from authenticated;
 grant select, insert, update, delete on table public.discord_reminder_logs to service_role;
 
 alter table monthly_data_settings enable row level security;

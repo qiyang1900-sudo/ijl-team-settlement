@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
@@ -74,7 +74,7 @@ async function updatePlayerTeam(formData: FormData) {
     throw new Error("Supabase 环境变量没有设置成功。");
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const playerId = String(formData.get("player_id") || "");
   const teamId = String(formData.get("team_id") || "");
   const returnTeamId = String(formData.get("return_team_id") || teamId);
@@ -127,7 +127,7 @@ export default async function AdminTeamDetailPage({
     );
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const { data: team } = await supabase
     .from("teams")
     .select("id, name, short_name, contact_name, contact_email")

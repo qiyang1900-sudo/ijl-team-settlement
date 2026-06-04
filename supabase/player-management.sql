@@ -23,12 +23,12 @@ create table if not exists monthly_player_assignments (
   unique (target_month, team_id, player_id)
 );
 
-grant select, insert, update, delete on table public.league_players to anon;
-grant select, insert, update, delete on table public.league_players to authenticated;
+revoke all privileges on table public.league_players from anon;
+revoke all privileges on table public.league_players from authenticated;
 grant select, insert, update, delete on table public.league_players to service_role;
 
-grant select, insert, update, delete on table public.monthly_player_assignments to anon;
-grant select, insert, update, delete on table public.monthly_player_assignments to authenticated;
+revoke all privileges on table public.monthly_player_assignments from anon;
+revoke all privileges on table public.monthly_player_assignments from authenticated;
 grant select, insert, update, delete on table public.monthly_player_assignments to service_role;
 
 alter table league_players enable row level security;

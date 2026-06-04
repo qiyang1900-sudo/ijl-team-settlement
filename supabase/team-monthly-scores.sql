@@ -25,8 +25,8 @@ create table if not exists team_monthly_scores (
 create index if not exists team_monthly_scores_target_month_idx
 on team_monthly_scores (target_month);
 
-grant select, insert, update, delete on table public.team_monthly_scores to anon;
-grant select, insert, update, delete on table public.team_monthly_scores to authenticated;
+revoke all privileges on table public.team_monthly_scores from anon;
+revoke all privileges on table public.team_monthly_scores from authenticated;
 grant select, insert, update, delete on table public.team_monthly_scores to service_role;
 
 alter table team_monthly_scores enable row level security;

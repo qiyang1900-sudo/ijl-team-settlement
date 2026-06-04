@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { requireTeamAccess } from "@/lib/team-auth";
 
 type TeamRecord = {
@@ -22,7 +22,7 @@ export default async function TeamDashboardPage({
   if (teamId && supabaseUrl && supabaseAnonKey) {
     await requireTeamAccess(teamId);
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
     const { data } = await supabase
       .from("teams")

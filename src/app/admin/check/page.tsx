@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 export default async function CheckPage() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -13,7 +13,7 @@ export default async function CheckPage() {
     );
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
   const { data, error } = await supabase
     .from("teams")

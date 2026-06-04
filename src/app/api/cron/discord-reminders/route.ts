@@ -1,4 +1,5 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { getMonthlyStatusLabel, normalizeMonthlyStatus } from "@/lib/monthly-data";
 import {
   buildSubmissionReminderMessage,
@@ -74,7 +75,7 @@ async function runDiscordReminders(request: Request) {
     );
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey || supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey, serviceRoleKey);
   const now = new Date();
   const todayKey = getTokyoDateKey(now);
   const [{ data: teams, error: teamError }, monthlyResult, projectResult] =

@@ -19,8 +19,8 @@ create table if not exists monthly_data_submissions (
   unique (team_id, target_month)
 );
 
-grant select, insert, update, delete on table public.monthly_data_submissions to anon;
-grant select, insert, update, delete on table public.monthly_data_submissions to authenticated;
+revoke all privileges on table public.monthly_data_submissions from anon;
+revoke all privileges on table public.monthly_data_submissions from authenticated;
 grant select, insert, update, delete on table public.monthly_data_submissions to service_role;
 
 alter table monthly_data_submissions enable row level security;

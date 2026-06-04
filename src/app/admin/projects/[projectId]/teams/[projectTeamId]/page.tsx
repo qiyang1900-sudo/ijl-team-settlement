@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { redirect } from "next/navigation";
 import { getAdminStatusLabel } from "@/lib/status-labels";
 import { formatTaxRate, getTaxRateFromRows } from "@/lib/tax-rate";
@@ -84,7 +84,7 @@ async function approveSubmission(formData: FormData) {
     throw new Error("Supabase 环境变量没有设置成功");
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
   const projectTeamId = String(formData.get("project_team_id") || "");
 
@@ -120,7 +120,7 @@ async function returnSubmission(formData: FormData) {
     throw new Error("Supabase 环境变量没有设置成功");
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
   const projectTeamId = String(formData.get("project_team_id") || "");
   const returnReason = String(formData.get("return_reason") || "");
@@ -166,7 +166,7 @@ export default async function AdminSubmissionDetailPage({
     );
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
   const { data: projectTeam, error: projectTeamError } = await supabase
     .from("project_teams")

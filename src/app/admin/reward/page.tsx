@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatDateTime } from "@/lib/date-format";
@@ -55,7 +55,7 @@ async function updateMonthlyDataStatus(formData: FormData) {
     throw new Error("Supabase 环境变量没有设置成功。");
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const submissionId = String(formData.get("submission_id") || "");
   const actionType = String(formData.get("action_type") || "");
   const returnReason = String(formData.get("return_reason") || "").trim();
@@ -114,7 +114,7 @@ async function deleteMonthlyDataSubmission(formData: FormData) {
     throw new Error("未找到月数据提交记录。");
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const { error } = await supabase
     .from("monthly_data_submissions")
     .delete()
@@ -140,7 +140,7 @@ export default async function RewardPage() {
     );
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const { data, error } = await supabase
     .from("monthly_data_submissions")
     .select(

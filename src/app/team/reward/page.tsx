@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { redirect } from "next/navigation";
 import MonthPicker from "./MonthPicker";
 import MonthlyDataForm from "./MonthlyDataForm";
@@ -94,10 +94,10 @@ async function saveMonthlyData(formData: FormData) {
     throw new Error("Supabase環境変数が設定されていません。");
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const storageClient =
     serviceRoleKey && supabaseUrl
-      ? createClient(supabaseUrl, serviceRoleKey)
+      ? createSupabaseServerClient(supabaseUrl, undefined, serviceRoleKey)
       : supabase;
 
   const teamId = String(formData.get("team_id") || "");
@@ -216,7 +216,7 @@ async function cancelMonthlyDataSubmission(formData: FormData) {
 
   await requireTeamAccess(teamId);
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const { data: submission, error: fetchError } = await supabase
     .from("monthly_data_submissions")
     .select("id, status")
@@ -283,7 +283,7 @@ export default async function TeamRewardPage({
   if (teamId && supabaseUrl && supabaseAnonKey) {
     await requireTeamAccess(teamId);
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
     const { data: teamData } = await supabase
       .from("teams")

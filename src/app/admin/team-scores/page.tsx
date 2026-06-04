@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -59,7 +59,7 @@ async function saveTeamScoreReview(formData: FormData) {
     throw new Error("战队或目标月份不正确。");
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey || supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey, serviceRoleKey);
   const now = new Date().toISOString();
   const draftReview: TeamScoreReviewRow = {
     team_id: teamId,
@@ -156,7 +156,7 @@ export default async function AdminTeamScoresPage({
     );
   }
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const currentMonth = getCurrentMonthValue();
   const { data: monthRows } = await supabase
     .from("monthly_data_submissions")
