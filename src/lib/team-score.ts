@@ -108,9 +108,10 @@ export type TeamMonthlyScore = {
 
 export const manualTeamScoreNotes = [
   "選手管理和チーム管理默认按满分录入，管理员可以在审核时人工减分并保存。",
-  "コンテンツ按 YouTube 30分、TikTok 15分、X 15分分别封顶自动计算，不设置人工扣分。",
+  "TikTok / Shorts 先按 Shorts 数据自动计算基础分，再由管理员手动补入 TikTok 扣分。",
+  "YouTube 30分、TikTok / Shorts 15分、X 15分分别封顶计算，单项不会扣成负分。",
   "自动计算只使用审核通过的月数据；未审核通过的草稿、已提交、审核中、已驳回数据不会进入积分。",
-  "审核备注用于记录整体人工核查说明，不再按各板块分别填写备注。",
+  "审核备注用于记录整体人工核查说明。",
 ];
 
 const sectionMaximums = {
@@ -266,7 +267,7 @@ function buildSections(
     label: "TikTok / Shorts",
     maxPoints: sectionMaximums.tiktok,
     autoDeductions: tiktokAutoDeductions,
-    manualDeduction: 0,
+    manualDeduction: review.tiktokManualDeduction,
     manualNote: "",
   });
   const x = buildContentSection({
@@ -490,7 +491,11 @@ function normalizeReviewValues(
     teamManagementNote: "",
     youtubeManualDeduction: 0,
     youtubeManualNote: "",
-    tiktokManualDeduction: 0,
+    tiktokManualDeduction: boundedReviewNumber(
+      review?.tiktok_manual_deduction,
+      0,
+      sectionMaximums.tiktok
+    ),
     tiktokManualNote: "",
     xManualDeduction: 0,
     xManualNote: "",
