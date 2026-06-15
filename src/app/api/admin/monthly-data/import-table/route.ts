@@ -501,11 +501,8 @@ async function importMonthlyRows({
       status: "approved",
       player_rows: playerRows,
       return_reason: null,
-      submitted_at: existing?.id ? undefined : now,
-      reviewing_at: existing?.id ? undefined : now,
       approved_at: now,
       updated_at: now,
-      created_at: existing?.id ? undefined : now,
       team_short_name: team.short_name,
       action: existing ? "updated" : "inserted",
     };
@@ -516,11 +513,8 @@ async function importMonthlyRows({
     status: row.status,
     player_rows: row.player_rows,
     return_reason: row.return_reason,
-    submitted_at: row.submitted_at,
-    reviewing_at: row.reviewing_at,
     approved_at: row.approved_at,
     updated_at: row.updated_at,
-    created_at: row.created_at,
   }));
 
   for (let index = 0; index < dbRows.length; index += 30) {
