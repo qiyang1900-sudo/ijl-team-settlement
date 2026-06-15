@@ -164,18 +164,26 @@ export default async function RewardPage() {
   return (
     <main className="min-h-screen bg-slate-950 p-8 text-white">
       <div className="mx-auto max-w-7xl">
-        <div className="mb-6">
-          <Link
-            href="/admin/dashboard"
-            className="text-sm text-slate-400 hover:text-white"
-          >
-            ← 返回管理员后台
-          </Link>
+        <div className="mb-6 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+          <div>
+            <Link
+              href="/admin/dashboard"
+              className="text-sm text-slate-400 hover:text-white"
+            >
+              ← 返回管理员后台
+            </Link>
 
-          <h1 className="mt-4 text-3xl font-bold">月数据审核</h1>
-          <p className="mt-2 text-slate-400">
-            审核战队每月提交的选手薪资、X、YouTube 和俱乐部活动资料。数据波动提醒只提示人工确认，不会改变状态、分数或录入数据。
-          </p>
+            <h1 className="mt-4 text-3xl font-bold">月数据审核</h1>
+            <p className="mt-2 text-slate-400">
+              审核战队每月提交的选手薪资、X、YouTube 和俱乐部活动资料。数据波动提醒只提示人工确认，不会改变状态、分数或录入数据。
+            </p>
+          </div>
+          <Link
+            href="/admin/monthly-import"
+            className="rounded-lg bg-white px-4 py-3 text-sm font-bold text-slate-950 hover:bg-slate-200"
+          >
+            历史月数据导入
+          </Link>
         </div>
 
         {error ? (
