@@ -79,7 +79,11 @@ async function saveTeamScoreReview(formData: FormData) {
     team_management_note: null,
     youtube_manual_deduction: 0,
     youtube_manual_note: null,
-    tiktok_manual_deduction: 0,
+    tiktok_manual_deduction: parseBoundedFormNumber(
+      formData.get("tiktok_manual_deduction"),
+      0,
+      15
+    ),
     tiktok_manual_note: null,
     x_manual_deduction: 0,
     x_manual_note: null,
@@ -293,7 +297,11 @@ export default async function AdminTeamScoresPage({
             <RuleChip label="選手管理" value="15分，默认满分，人工确认后可减分" />
             <RuleChip label="チーム管理" value="25分，默认满分，人工确认后可减分" />
             <RuleChip label="YouTube" value="30分封顶，视频/直播按板块扣分" />
-            <RuleChip label="TikTok / X" value="TikTok 15分，X 15分，单项不扣穿" />
+            <RuleChip
+              label="TikTok / Shorts"
+              value="Shorts 自动算基础分，TikTok 扣分由管理员手动补入"
+            />
+            <RuleChip label="X" value="15分封顶，按 X 投稿和曝光自动扣分" />
           </div>
           <div className="mt-4 rounded-lg bg-slate-950 p-4 text-sm text-slate-400">
             {manualTeamScoreNotes.map((note) => (
@@ -327,6 +335,7 @@ function ScoreCard({
 }) {
   const playerManagementSection = getSection(score, "playerManagement");
   const teamManagementSection = getSection(score, "teamManagement");
+  const tiktokSection = getSection(score, "tiktok");
   const canSave = canPersist && score.hasApprovedData;
   const reviewStatusLabel = !score.hasApprovedData
     ? "无通过数据"
@@ -400,7 +409,7 @@ function ScoreCard({
           <input type="hidden" name="team_id" value={score.teamId} />
           <input type="hidden" name="target_month" value={score.month} />
 
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-3">
             <ScoreNumberInput
               label="選手管理分数"
               name="player_management_score"
@@ -412,6 +421,13 @@ function ScoreCard({
               name="team_management_score"
               max={teamManagementSection.maxPoints}
               defaultValue={score.review.teamManagementScore}
+            />
+            <ScoreNumberInput
+              label="TikTok 手动扣分"
+              name="tiktok_manual_deduction"
+              max={tiktokSection.maxPoints}
+              defaultValue={score.review.tiktokManualDeduction}
+              hint={`Shorts 自动基础分：${tiktokSection.autoScore ?? 0}/${tiktokSection.maxPoints}`}
             />
           </div>
 
@@ -543,11 +559,13 @@ function ScoreNumberInput({
   name,
   max,
   defaultValue,
+  hint,
 }: {
   label: string;
   name: string;
   max: number;
   defaultValue: number;
+  hint?: string;
 }) {
   return (
     <label className="text-sm text-slate-300">
@@ -562,6 +580,9 @@ function ScoreNumberInput({
         className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white"
       />
       <span className="mt-1 block text-xs text-slate-500">0 - {max}</span>
+      {hint ? (
+        <span className="mt-1 block text-xs text-slate-500">{hint}</span>
+      ) : null}
     </label>
   );
 }
