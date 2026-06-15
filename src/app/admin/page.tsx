@@ -76,6 +76,16 @@ export default function AdminPage() {
           </Link>
 
           <Link
+            href="/admin/monthly-import"
+            className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-fuchsia-300 hover:shadow-md"
+          >
+            <h2 className="text-xl font-semibold">历史月数据导入</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              把旧表格粘贴导入到战队月数据，默认只补空白。
+            </p>
+          </Link>
+
+          <Link
             href="/admin/team-scores"
             className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md"
           >

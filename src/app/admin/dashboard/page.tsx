@@ -75,6 +75,16 @@ export default function AdminDashboardPage() {
           </Link>
 
           <Link
+            href="/admin/monthly-import"
+            className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-fuchsia-300 hover:shadow-md"
+          >
+            <h2 className="text-xl font-semibold">历史月数据导入</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              粘贴过往 X / YouTube 表格，预览确认后导入为已通过月数据。
+            </p>
+          </Link>
+
+          <Link
             href="/admin/team-scores"
             className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md"
           >
