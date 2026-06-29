@@ -6,6 +6,11 @@ import {
   formatMonthlyNumber,
   sumMonthlyField,
 } from "@/lib/monthly-data";
+import {
+  ClubActivityItem,
+  emptyClubActivityItem,
+  hasClubActivityContent,
+} from "@/lib/club-activities";
 
 type MonthlyDataFormProps = {
   action: (formData: FormData) => void | Promise<void>;
@@ -13,9 +18,7 @@ type MonthlyDataFormProps = {
   selectedMonth: string;
   initialOfficialRow: MonthlyPlayerRow;
   initialPlayers: MonthlyPlayerRow[];
-  clubActivityLink: string;
-  clubActivityImageUrl?: string | null;
-  clubActivityImageName?: string | null;
+  clubActivityItems: ClubActivityItem[];
   isLocked: boolean;
 };
 
@@ -299,12 +302,12 @@ export default function MonthlyDataForm({
   selectedMonth,
   initialOfficialRow,
   initialPlayers,
-  clubActivityLink,
-  clubActivityImageUrl,
-  clubActivityImageName,
+  clubActivityItems,
   isLocked,
 }: MonthlyDataFormProps) {
-  const [activityLink, setActivityLink] = useState(clubActivityLink || "");
+  const [activities, setActivities] = useState<ClubActivityItem[]>(
+    clubActivityItems.length > 0 ? clubActivityItems : [emptyClubActivityItem()]
+  );
   const [officialRow, setOfficialRow] =
     useState<MonthlyPlayerRow>(initialOfficialRow);
   const [players, setPlayers] = useState<MonthlyPlayerRow[]>(initialPlayers);
@@ -330,6 +333,33 @@ export default function MonthlyDataForm({
     setOfficialRow((current) => ({ ...current, [key]: value }));
   }
 
+  function updateActivity(index: number, patch: Partial<ClubActivityItem>) {
+    setActivities((current) =>
+      current.map((activity, activityIndex) =>
+        activityIndex === index ? { ...activity, ...patch } : activity
+      )
+    );
+  }
+
+  function addActivity() {
+    setActivities((current) => [
+      ...current,
+      emptyClubActivityItem(Date.now() + current.length),
+    ]);
+  }
+
+  function removeActivity(index: number) {
+    if (!window.confirm("このクラブ活動項目を削除しますか？")) {
+      return;
+    }
+
+    setActivities((current) => {
+      const next = current.filter((_, activityIndex) => activityIndex !== index);
+
+      return next.length > 0 ? next : [emptyClubActivityItem()];
+    });
+  }
+
   const isSubmitDisabled = isLocked || players.length === 0;
 
   return (
@@ -343,6 +373,11 @@ export default function MonthlyDataForm({
       <input type="hidden" name="player_rows" value={JSON.stringify(players)} />
       <input type="hidden" name="selected_month" value={selectedMonth} />
       <input type="hidden" name="target_month" value={selectedMonth} />
+      <input
+        type="hidden"
+        name="club_activity_items"
+        value={JSON.stringify(activities)}
+      />
 
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -390,52 +425,13 @@ export default function MonthlyDataForm({
         disabled={isLocked}
       />
 
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-bold">④ クラブ活動</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          リンクと画像はどちらも提出できます。必要な資料を登録してください。
-        </p>
-
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <label className="block">
-            <span className="text-xs font-semibold text-slate-500">リンク</span>
-            <input
-              name="club_activity_link"
-              value={activityLink}
-              onChange={(event) => setActivityLink(event.target.value)}
-              placeholder="https://"
-              disabled={isLocked}
-              className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-900 disabled:bg-slate-100"
-            />
-          </label>
-
-          <label className="block">
-            <span className="text-xs font-semibold text-slate-500">画像</span>
-            <input
-              type="file"
-              name="club_activity_image"
-              accept="image/*"
-              disabled={isLocked}
-              className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
-            />
-            {clubActivityImageName ? (
-              <span className="mt-1 block text-xs text-slate-500">
-                登録済み：{clubActivityImageName}
-              </span>
-            ) : null}
-          </label>
-        </div>
-
-        {clubActivityImageUrl ? (
-          <a
-            href={clubActivityImageUrl}
-            target="_blank"
-            className="mt-3 inline-block text-sm font-semibold text-sky-700 underline"
-          >
-            登録済み画像を開く
-          </a>
-        ) : null}
-      </section>
+      <ClubActivitySection
+        activities={activities}
+        updateActivity={updateActivity}
+        addActivity={addActivity}
+        removeActivity={removeActivity}
+        disabled={isLocked}
+      />
 
       <div className="flex flex-wrap gap-3">
         <button
@@ -459,6 +455,121 @@ export default function MonthlyDataForm({
         </button>
       </div>
     </form>
+  );
+}
+
+function ClubActivitySection({
+  activities,
+  updateActivity,
+  addActivity,
+  removeActivity,
+  disabled,
+}: {
+  activities: ClubActivityItem[];
+  updateActivity: (index: number, patch: Partial<ClubActivityItem>) => void;
+  addActivity: () => void;
+  removeActivity: (index: number) => void;
+  disabled: boolean;
+}) {
+  const submittedCount = activities.filter(hasClubActivityContent).length;
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-lg font-bold">④ クラブ活動</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            活動ごとにリンクと画像を登録できます。複数ある場合は項目を追加してください。
+          </p>
+        </div>
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
+          {submittedCount}件
+        </span>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {activities.map((activity, index) => (
+          <div
+            key={activity.id}
+            className="rounded-lg border border-slate-200 bg-slate-50 p-4"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-bold text-slate-800">
+                クラブ活動 {index + 1}
+              </h3>
+              <button
+                type="button"
+                onClick={() => removeActivity(index)}
+                disabled={disabled || activities.length <= 1}
+                className="text-xs font-semibold text-rose-600 underline disabled:cursor-not-allowed disabled:text-slate-300 disabled:no-underline"
+              >
+                削除
+              </button>
+            </div>
+
+            <div className="mt-3 grid gap-4 md:grid-cols-2">
+              <label className="block">
+                <span className="text-xs font-semibold text-slate-500">
+                  リンク
+                </span>
+                <input
+                  value={activity.link}
+                  onChange={(event) =>
+                    updateActivity(index, { link: event.target.value })
+                  }
+                  placeholder="https://"
+                  disabled={disabled}
+                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-slate-900 disabled:bg-slate-100"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-semibold text-slate-500">
+                  画像
+                </span>
+                <input
+                  type="file"
+                  name={`club_activity_image_${activity.id}`}
+                  accept="image/*"
+                  disabled={disabled}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) {
+                      updateActivity(index, { imageName: file.name });
+                    }
+                  }}
+                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:bg-slate-100"
+                />
+                {activity.imageName ? (
+                  <span className="mt-1 block text-xs text-slate-500">
+                    登録済み / 選択中：{activity.imageName}
+                  </span>
+                ) : null}
+              </label>
+            </div>
+
+            {activity.imageUrl ? (
+              <a
+                href={activity.imageUrl}
+                target="_blank"
+                className="mt-3 inline-block text-sm font-semibold text-sky-700 underline"
+              >
+                登録済み画像を開く
+              </a>
+            ) : null}
+          </div>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={addActivity}
+        disabled={disabled}
+        className="mt-4 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        項目追加
+      </button>
+    </section>
   );
 }
 

@@ -1,5 +1,11 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { redirect } from "next/navigation";
+import {
+  ClubActivityItem,
+  getPrimaryClubActivityItem,
+  parseClubActivityItems,
+  serializeClubActivityItems,
+} from "@/lib/club-activities";
 import MonthPicker from "./MonthPicker";
 import MonthlyDataForm from "./MonthlyDataForm";
 import {
@@ -105,7 +111,10 @@ async function saveMonthlyData(formData: FormData) {
     String(formData.get("target_month") || "") ||
     String(formData.get("selected_month") || "");
   const actionType = String(formData.get("action_type") || "draft");
-  const clubActivityLink = String(formData.get("club_activity_link") || "").trim();
+  const clubActivityItems = parseClubActivityItems({
+    link: formData.get("club_activity_items"),
+    keepEmpty: true,
+  });
   const officialRows = parseMonthlyPlayerRows(formData.get("official_row"));
   const officialRow = officialRows[0] || createOfficialMonthlyRow("");
   const playerRows = parseMonthlyPlayerRows(formData.get("player_rows"));
@@ -137,49 +146,32 @@ async function saveMonthlyData(formData: FormData) {
     storageClient,
   });
 
-  const clubActivityImage = formData.get("club_activity_image") as File | null;
-  const uploadedClubActivity =
-    clubActivityImage && clubActivityImage.size > 0
-      ? await uploadImage({
-          file: clubActivityImage,
-          teamId,
-          targetMonth,
-          storageClient,
-          prefix: "club-activity",
-        })
-      : null;
-
-  const previousClubImage = {
-    club_activity_image_url: existingSubmission?.club_activity_image_url || null,
-    club_activity_image_name: existingSubmission?.club_activity_image_name || null,
-    club_activity_image_mime_type:
-      existingSubmission?.club_activity_image_mime_type || null,
-    club_activity_image_storage_path:
-      existingSubmission?.club_activity_image_storage_path || null,
-  };
-
-  const imagePatch = uploadedClubActivity
-    ? {
-        club_activity_image_url: uploadedClubActivity.fileUrl,
-        club_activity_image_name: uploadedClubActivity.fileName,
-        club_activity_image_mime_type: uploadedClubActivity.mimeType,
-        club_activity_image_storage_path: uploadedClubActivity.storagePath,
-      }
-    : previousClubImage;
+  const uploadedClubActivityItems = await uploadClubActivityImages({
+    formData,
+    items: clubActivityItems,
+    teamId,
+    targetMonth,
+    storageClient,
+  });
+  const primaryClubActivity = getPrimaryClubActivityItem(uploadedClubActivityItems);
 
   const payload = {
     team_id: teamId,
     target_month: targetMonth,
     status: nextStatus,
     player_rows: [officialRow, ...rowsWithScreenshots],
-    club_activity_link: clubActivityLink || null,
+    club_activity_link: serializeClubActivityItems(uploadedClubActivityItems),
+    club_activity_image_url: primaryClubActivity?.imageUrl || null,
+    club_activity_image_name: primaryClubActivity?.imageName || null,
+    club_activity_image_mime_type: primaryClubActivity?.imageMimeType || null,
+    club_activity_image_storage_path:
+      primaryClubActivity?.imageStoragePath || null,
     return_reason: null,
     submitted_at:
       actionType === "submit"
         ? now
         : existingSubmission?.submitted_at || null,
     updated_at: now,
-    ...imagePatch,
   };
 
   const { error } = await supabase
@@ -435,6 +427,13 @@ export default async function TeamRewardPage({
     assignedPlayerRows.length > 0
       ? mergePlayerRows(assignedPlayerRows, savedPlayerRows)
       : savedPlayerRows;
+  const clubActivityItems = parseClubActivityItems({
+    link: selectedSubmission?.club_activity_link,
+    imageUrl: selectedSubmission?.club_activity_image_url,
+    imageName: selectedSubmission?.club_activity_image_name,
+    imageMimeType: selectedSubmission?.club_activity_image_mime_type,
+    imageStoragePath: selectedSubmission?.club_activity_image_storage_path,
+  });
   const isLocked = status === "submitted" || status === "reviewing" || status === "approved";
   const dashboardHref = `/team/dashboard?teamId=${encodeURIComponent(teamId)}`;
 
@@ -578,9 +577,7 @@ export default async function TeamRewardPage({
                 selectedMonth={selectedMonth}
                 initialOfficialRow={officialRow}
                 initialPlayers={playerRows}
-                clubActivityLink={selectedSubmission?.club_activity_link || ""}
-                clubActivityImageUrl={selectedSubmission?.club_activity_image_url || null}
-                clubActivityImageName={selectedSubmission?.club_activity_image_name || null}
+                clubActivityItems={clubActivityItems}
                 isLocked={isLocked}
               />
             </div>
@@ -711,6 +708,50 @@ async function uploadSalaryScreenshots({
   }
 
   return rows;
+}
+
+async function uploadClubActivityImages({
+  formData,
+  items,
+  teamId,
+  targetMonth,
+  storageClient,
+}: {
+  formData: FormData;
+  items: ClubActivityItem[];
+  teamId: string;
+  targetMonth: string;
+  storageClient: StorageClient;
+}) {
+  const nextItems: ClubActivityItem[] = [];
+
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    const file = formData.get(`club_activity_image_${item.id}`) as File | null;
+
+    if (!file || file.size <= 0) {
+      nextItems.push(item);
+      continue;
+    }
+
+    const uploaded = await uploadImage({
+      file,
+      teamId,
+      targetMonth,
+      storageClient,
+      prefix: `club-activity-${index + 1}`,
+    });
+
+    nextItems.push({
+      ...item,
+      imageUrl: uploaded.fileUrl,
+      imageName: uploaded.fileName,
+      imageMimeType: uploaded.mimeType,
+      imageStoragePath: uploaded.storagePath,
+    });
+  }
+
+  return nextItems;
 }
 
 async function uploadImage({

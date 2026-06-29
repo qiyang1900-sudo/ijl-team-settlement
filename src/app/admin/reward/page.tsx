@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatDateTime } from "@/lib/date-format";
+import { parseClubActivityItems } from "@/lib/club-activities";
 import DeleteMonthlySubmissionButton from "./DeleteMonthlySubmissionButton";
 import ImagePreview from "./ImagePreview";
 import {
@@ -580,29 +581,48 @@ function PlayerDataTable({ players }: { players: MonthlyPlayerRow[] }) {
 }
 
 function ActivityPanel({ row }: { row: MonthlySubmissionRow }) {
+  const activities = parseClubActivityItems({
+    link: row.club_activity_link,
+    imageUrl: row.club_activity_image_url,
+    imageName: row.club_activity_image_name,
+  });
+
   return (
     <div className="rounded-lg border border-slate-700 bg-slate-950 p-4">
       <h3 className="font-bold">俱乐部活动</h3>
-      {row.club_activity_link ? (
-        <a
-          href={row.club_activity_link}
-          target="_blank"
-          className="mt-3 block break-all text-sm text-sky-300 underline"
-        >
-          {row.club_activity_link}
-        </a>
-      ) : null}
-      {row.club_activity_image_url ? (
-        <div className="mt-3">
-          <ImagePreview
-            imageUrl={row.club_activity_image_url}
-            fileName={row.club_activity_image_name}
-          />
+      {activities.length > 0 ? (
+        <div className="mt-3 space-y-3">
+          {activities.map((activity, index) => (
+            <div
+              key={`${activity.id}-${index}`}
+              className="rounded-lg border border-slate-800 bg-slate-900/70 p-3"
+            >
+              <p className="text-xs font-semibold text-slate-400">
+                クラブ活動 {index + 1}
+              </p>
+              {activity.link ? (
+                <a
+                  href={activity.link}
+                  target="_blank"
+                  className="mt-2 block break-all text-sm text-sky-300 underline"
+                >
+                  {activity.link}
+                </a>
+              ) : null}
+              {activity.imageUrl ? (
+                <div className="mt-3">
+                  <ImagePreview
+                    imageUrl={activity.imageUrl}
+                    fileName={activity.imageName}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ))}
         </div>
-      ) : null}
-      {!row.club_activity_link && !row.club_activity_image_url ? (
+      ) : (
         <p className="mt-3 text-sm text-slate-400">未提交。</p>
-      ) : null}
+      )}
     </div>
   );
 }
