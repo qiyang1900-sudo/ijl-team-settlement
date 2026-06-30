@@ -81,7 +81,6 @@ export function parseMonthlyImportText(
   const rows: RawMonthlyImportRow[] = [];
   const skippedRows: MonthlyImportSkippedRow[] = [];
   let currentTeamInput = "";
-  const teamDataRowCounts = new Map<string, number>();
 
   parsedRows.forEach((cells, index) => {
     const sourceLine = index + 1;
@@ -143,13 +142,7 @@ export function parseMonthlyImportText(
       values[field.key] = parsedValue;
     });
 
-    const teamLookupKey = normalizeTeamLookupKey(currentTeamInput);
-    const currentTeamRowCount = teamDataRowCounts.get(teamLookupKey) || 0;
-    const isFirstTeamDataRow = currentTeamRowCount === 0;
-    teamDataRowCounts.set(teamLookupKey, currentTeamRowCount + 1);
-
-    const isOfficial =
-      isFirstTeamDataRow || isOfficialAccountName(accountName, currentTeamInput);
+    const isOfficial = isOfficialAccountName(accountName, currentTeamInput);
     const playerHandle = isOfficial
       ? ""
       : normalizePlayerHandle(accountName, currentTeamInput);
