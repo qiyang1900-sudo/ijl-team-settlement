@@ -493,36 +493,42 @@ function SectionSummary({
   disabled: boolean;
 }) {
   const deductedPoints = section.maxPoints - section.score;
+  const progressPercent =
+    section.maxPoints > 0
+      ? Math.max(0, Math.min(100, (section.score / section.maxPoints) * 100))
+      : 0;
 
   return (
-    <div className="flex min-h-[128px] flex-col rounded-lg bg-slate-950 p-3">
-      <div className="grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
-        <p className="text-sm font-semibold leading-5 text-slate-400">
-          {section.label}
-        </p>
-        <div className="flex items-center gap-1 text-sm font-bold text-white">
-          <input
-            aria-label={`${section.label}分数`}
-            type="number"
-            name={inputName}
-            min={0}
-            max={section.maxPoints}
-            step={1}
-            defaultValue={section.score}
-            disabled={disabled}
-            className="h-8 w-14 rounded-md border border-slate-700 bg-slate-900 px-2 text-right text-white outline-none focus:border-white disabled:opacity-70"
-          />
-          <span>/{section.maxPoints}</span>
-        </div>
-      </div>
-      <p className="mt-1 min-h-4 text-xs leading-4 text-slate-500">
+    <div className="flex min-h-[156px] flex-col rounded-lg bg-slate-950 p-3">
+      <p className="min-h-10 text-sm font-semibold leading-5 text-slate-400">
+        {section.label}
+      </p>
+
+      <label className="mt-2 flex h-12 items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-900/80 px-3">
+        <input
+          aria-label={`${section.label}分数`}
+          type="number"
+          name={inputName}
+          min={0}
+          max={section.maxPoints}
+          step={1}
+          defaultValue={section.score}
+          disabled={disabled}
+          className="w-16 bg-transparent text-right text-2xl font-bold text-white outline-none [appearance:textfield] disabled:opacity-70 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        />
+        <span className="shrink-0 text-sm font-semibold text-slate-400">
+          / {section.maxPoints}
+        </span>
+      </label>
+
+      <p className="mt-2 min-h-4 text-xs leading-4 text-slate-500">
         {section.autoScore === null ? "人工评分" : `自动评分 ${section.autoScore}`}
       </p>
       <div className="mt-auto pt-3">
         <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
           <div
             className="h-full rounded-full bg-emerald-400"
-            style={{ width: `${(section.score / section.maxPoints) * 100}%` }}
+            style={{ width: `${progressPercent}%` }}
           />
         </div>
         {deductedPoints > 0 ? (
