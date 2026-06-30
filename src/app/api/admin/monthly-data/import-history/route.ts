@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import historyData from "@/lib/historical-monthly-import-data.json";
+import { normalizePlayerLookupKey } from "@/lib/monthly-import";
 
 export const runtime = "nodejs";
 
@@ -21,6 +22,21 @@ type HistoryPayload = {
   retiredPlayers: HistoryPlayer[];
   submissions: HistorySubmission[];
 };
+
+type PlayerRecord = {
+  id: string;
+  handle: string | null;
+};
+
+type HistoryPlayerRow = Record<string, unknown> & {
+  playerId?: string;
+  playerHandle?: string;
+  playerName?: string;
+  playerRole?: string;
+};
+
+const retiredTeamLabel = "已退役";
+const officialPlayerHandle = "__official_account__";
 
 export async function POST(request: Request) {
   const url = new URL(request.url);
@@ -79,7 +95,7 @@ export async function POST(request: Request) {
     position_label: "退役",
     roster_role: "退役",
     current_team_id: null,
-    current_team_short_name: player.currentTeamShortName,
+    current_team_short_name: player.currentTeamShortName || retiredTeamLabel,
     sort_order: player.sortOrder,
     is_active: true,
     updated_at: now,
@@ -93,11 +109,41 @@ export async function POST(request: Request) {
     return Response.json({ error: retiredError.message }, { status: 500 });
   }
 
+  let playerLookup = await loadPlayerLookup(supabase);
+  const missingHistoryHandles = collectHistoryPlayerHandles(payload.submissions).filter(
+    (handle) => !playerLookup.has(normalizePlayerLookupKey(handle))
+  );
+
+  if (missingHistoryHandles.length > 0) {
+    const { error: missingPlayerError } = await supabase
+      .from("league_players")
+      .upsert(
+        missingHistoryHandles.map((handle, index) => ({
+          handle,
+          reading: null,
+          position_label: "退役",
+          roster_role: "退役",
+          current_team_id: null,
+          current_team_short_name: retiredTeamLabel,
+          sort_order: 9500 + index,
+          is_active: true,
+          updated_at: now,
+        })),
+        { onConflict: "handle" }
+      );
+
+    if (missingPlayerError) {
+      return Response.json({ error: missingPlayerError.message }, { status: 500 });
+    }
+
+    playerLookup = await loadPlayerLookup(supabase);
+  }
+
   const submissionRows = payload.submissions.map((submission) => ({
     team_id: teamIds.get(submission.teamShortName),
     target_month: submission.targetMonth,
     status: submission.status,
-    player_rows: submission.playerRows,
+    player_rows: hydrateHistoryPlayerRows(submission.playerRows, playerLookup),
     return_reason: null,
     submitted_at: now,
     reviewing_at: now,
@@ -120,10 +166,97 @@ export async function POST(request: Request) {
     ok: true,
     version: payload.version,
     retiredPlayers: retiredRows.length,
+    autoCreatedHistoryPlayers: missingHistoryHandles.length,
     submissions: submissionRows.length,
     playerRows: payload.submissions.reduce(
       (sum, submission) => sum + submission.playerRows.length,
       0
     ),
   });
+}
+
+async function loadPlayerLookup(
+  supabase: ReturnType<typeof createSupabaseServerClient>
+) {
+  const { data, error } = await supabase.from("league_players").select("id, handle");
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const entries: Array<[string, PlayerRecord]> = [];
+
+  for (const player of (data || []) as PlayerRecord[]) {
+    const key = normalizePlayerLookupKey(player.handle);
+
+    if (key) {
+      entries.push([key, player]);
+    }
+  }
+
+  return new Map(entries);
+}
+
+function collectHistoryPlayerHandles(submissions: HistorySubmission[]) {
+  const handles = new Map<string, string>();
+
+  for (const submission of submissions) {
+    for (const row of submission.playerRows) {
+      const handle = getHistoryPlayerHandle(row as HistoryPlayerRow);
+      const key = normalizePlayerLookupKey(handle);
+
+      if (key && !handles.has(key)) {
+        handles.set(key, handle);
+      }
+    }
+  }
+
+  return Array.from(handles.values());
+}
+
+function hydrateHistoryPlayerRows(
+  rows: unknown[],
+  playerLookup: Map<string, PlayerRecord>
+) {
+  return rows.map((row) => {
+    const monthlyRow = row as HistoryPlayerRow;
+    const handle = getHistoryPlayerHandle(monthlyRow);
+
+    if (!handle) {
+      return monthlyRow;
+    }
+
+    const player = playerLookup.get(normalizePlayerLookupKey(handle));
+
+    return {
+      ...monthlyRow,
+      playerId: player?.id || monthlyRow.playerId || "",
+      playerHandle: player?.handle || handle,
+    };
+  });
+}
+
+function getHistoryPlayerHandle(row: HistoryPlayerRow) {
+  if (isOfficialHistoryRow(row)) {
+    return "";
+  }
+
+  const handle = String(row.playerHandle || "").trim();
+
+  if (handle && handle !== officialPlayerHandle) {
+    return handle;
+  }
+
+  const playerName = String(row.playerName || "").trim();
+  const [, prefixedHandle] = playerName.match(/^(?:已退役|[A-Za-z0-9]+)_(.+)$/) || [];
+
+  return prefixedHandle || playerName;
+}
+
+function isOfficialHistoryRow(row: HistoryPlayerRow) {
+  return (
+    row.playerRole === "official_account" ||
+    row.playerHandle === officialPlayerHandle ||
+    String(row.playerName || "").includes("公式")
+  );
 }
