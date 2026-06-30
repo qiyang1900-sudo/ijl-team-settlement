@@ -561,7 +561,7 @@ function buildMonthlyRow(
     ? {
         ...createOfficialMonthlyRow(teamShortName, index),
         id: `official-${teamShortName}`,
-        playerName: row.raw.accountName || `${teamShortName}公式`,
+        playerName: `${teamShortName}公式`,
       }
     : {
         ...emptyMonthlyPlayerRow(index),
