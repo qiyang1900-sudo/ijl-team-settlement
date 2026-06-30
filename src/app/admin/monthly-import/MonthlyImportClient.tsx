@@ -71,6 +71,16 @@ type ImportResponse = {
   hint?: string;
 };
 
+type HistoryImportResponse = {
+  ok?: boolean;
+  version?: string;
+  retiredPlayers?: number;
+  autoCreatedHistoryPlayers?: number;
+  submissions?: number;
+  playerRows?: number;
+  error?: string;
+};
+
 export default function MonthlyImportClient({
   monthOptions,
   defaultMonth,
@@ -85,7 +95,7 @@ export default function MonthlyImportClient({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busyAction, setBusyAction] = useState<
-    "preview" | "fill" | "overwrite" | null
+    "preview" | "fill" | "overwrite" | "history" | null
   >(null);
   const fields = monthlyImportFieldSets[dataType];
   const canImport = Boolean(preview && preview.importableRowCount > 0);
@@ -161,10 +171,68 @@ export default function MonthlyImportClient({
     void submitImport({ dryRun: false, mode: "overwrite" });
   }
 
+  async function importBuiltInHistory() {
+    const confirmed = window.confirm(
+      "将使用系统内置的历史主数据覆盖导入 2025年05月〜2026年05月 的战队月数据。确定继续吗？"
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setBusyAction("history");
+    setMessage("");
+    setError("");
+
+    try {
+      const response = await fetch(
+        "/api/admin/monthly-data/import-history?confirm=import-history",
+        { method: "POST" }
+      );
+      const result = (await response.json()) as HistoryImportResponse;
+
+      if (!response.ok || result.error) {
+        throw new Error(result.error || "历史主数据导入失败。");
+      }
+
+      setMessage(
+        `历史主数据导入完成：版本 ${result.version || "-"}，覆盖 ${
+          result.submissions || 0
+        } 队次，明细 ${result.playerRows || 0} 行，退役/历史选手 ${
+          result.retiredPlayers || 0
+        } 名。`
+      );
+      setPreview(null);
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "历史主数据导入失败。"
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   return (
     <div className="mt-6 grid gap-6 lg:grid-cols-[420px_minmax(0,1fr)]">
       <section className="rounded-xl border border-slate-700 bg-slate-900 p-5">
         <div className="grid gap-4">
+          <div className="rounded-xl border border-indigo-400/40 bg-indigo-950/30 p-4">
+            <h2 className="text-base font-bold text-white">内置历史主数据</h2>
+            <p className="mt-2 text-sm leading-6 text-indigo-100/80">
+              使用已确认的 Excel 明细主数据，覆盖导入 2025年05月〜2026年05月。
+            </p>
+            <button
+              type="button"
+              onClick={importBuiltInHistory}
+              disabled={Boolean(busyAction)}
+              className="mt-4 w-full rounded-lg bg-indigo-400 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-indigo-300 disabled:cursor-wait disabled:opacity-60"
+            >
+              {busyAction === "history" ? "历史主数据导入中..." : "导入内置历史主数据"}
+            </button>
+          </div>
+
           <label className="block text-sm font-semibold text-slate-200">
             目标月份
             <select
