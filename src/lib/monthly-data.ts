@@ -37,6 +37,22 @@ export type MonthlyPlayerRow = {
 
 export const officialMonthlyRowHandle = "__official_account__";
 export const officialMonthlyRowRole = "official_account";
+const monthlyMetricKeys: Array<keyof MonthlyPlayerRow> = [
+  "xTweetCount",
+  "xImpressions",
+  "xEngagements",
+  "xFanEventCount",
+  "xFollowerCount",
+  "youtubeVideoPostCount",
+  "youtubeVideoViews",
+  "youtubeShortPostCount",
+  "youtubeShortViews",
+  "youtubeLikeCount",
+  "youtubeStreamCount",
+  "youtubeStreamViews",
+  "youtubeTotalImpressions",
+  "youtubeSubscriberCount",
+];
 
 export const emptyMonthlyPlayerRow = (index = 0): MonthlyPlayerRow => ({
   id: `player-${index + 1}`,
@@ -83,17 +99,31 @@ export function createOfficialMonthlyRow(
 }
 
 export function isOfficialMonthlyRow(row: MonthlyPlayerRow) {
+  const id = normalizeOfficialLookupText(row.id);
+  const handle = normalizeOfficialLookupText(row.playerHandle);
+  const name = normalizeOfficialLookupText(row.playerName);
+  const officialHandle = normalizeOfficialLookupText(officialMonthlyRowHandle);
+
   return (
     row.playerRole === officialMonthlyRowRole ||
-    row.playerHandle === officialMonthlyRowHandle
+    row.playerHandle === officialMonthlyRowHandle ||
+    id.startsWith("official") ||
+    id.includes("official") ||
+    handle === officialHandle ||
+    name.includes("公式")
   );
 }
 
 export function splitMonthlyRows(rows: MonthlyPlayerRow[]) {
-  const officialRow = rows.find(isOfficialMonthlyRow) || null;
+  const officialRows = rows.filter(isOfficialMonthlyRow);
+  const officialRow = combineOfficialRows(officialRows);
   const playerRows = rows.filter((row) => !isOfficialMonthlyRow(row));
 
-  return { officialRow, playerRows };
+  return {
+    officialRow,
+    officialRows: officialRow ? [officialRow] : [],
+    playerRows,
+  };
 }
 
 export function sumMonthlyField(
@@ -218,4 +248,38 @@ export function formatMonthLabel(value: unknown) {
 
 export function formatMonthlyNumber(value: unknown) {
   return new Intl.NumberFormat("ja-JP").format(numericMonthlyValue(value));
+}
+
+function combineOfficialRows(rows: MonthlyPlayerRow[]) {
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const base =
+    rows.find(
+      (row) =>
+        row.playerRole === officialMonthlyRowRole ||
+        row.playerHandle === officialMonthlyRowHandle
+    ) || rows[0];
+  const combined: MonthlyPlayerRow = {
+    ...base,
+    playerHandle: officialMonthlyRowHandle,
+    playerRole: officialMonthlyRowRole,
+  };
+
+  for (const key of monthlyMetricKeys) {
+    const values = rows.map((row) => numericMonthlyValue(row[key]));
+    const maxValue = Math.max(0, ...values);
+    combined[key] = maxValue > 0 ? String(maxValue) : "";
+  }
+
+  return combined;
+}
+
+function normalizeOfficialLookupText(value: unknown) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/[＿_・,，.。()（）"']/g, "")
+    .trim();
 }
