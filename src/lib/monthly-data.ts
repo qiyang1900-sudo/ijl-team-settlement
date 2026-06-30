@@ -37,6 +37,30 @@ export type MonthlyPlayerRow = {
 
 export const officialMonthlyRowHandle = "__official_account__";
 export const officialMonthlyRowRole = "official_account";
+const legacyOfficialAccountAliases = [
+  "a公式",
+  "awg公式",
+  "arnebwithwog",
+  "arnebwithwog公式",
+  "axizwave",
+  "axiz公式",
+  "dfm公式",
+  "detonationfocusme",
+  "detonationfocusme公式",
+  "fennel",
+  "fennel公式",
+  "qtdig",
+  "qtdig公式",
+  "rc公式",
+  "reject",
+  "reject公式",
+  "sz公式",
+  "scarz",
+  "scarz公式",
+  "zeta公式",
+  "zetadivision",
+  "zetadivision公式",
+];
 const monthlyMetricKeys: Array<keyof MonthlyPlayerRow> = [
   "xTweetCount",
   "xImpressions",
@@ -109,8 +133,13 @@ export function isOfficialMonthlyRow(row: MonthlyPlayerRow) {
     row.playerHandle === officialMonthlyRowHandle ||
     id.startsWith("official") ||
     id.includes("official") ||
+    id.includes("公式") ||
     handle === officialHandle ||
-    name.includes("公式")
+    handle.includes("公式") ||
+    name.includes("公式") ||
+    isLegacyOfficialAccountLookup(id) ||
+    isLegacyOfficialAccountLookup(handle) ||
+    isLegacyOfficialAccountLookup(name)
   );
 }
 
@@ -282,4 +311,10 @@ function normalizeOfficialLookupText(value: unknown) {
     .replace(/\s+/g, "")
     .replace(/[＿_・,，.。()（）"']/g, "")
     .trim();
+}
+
+function isLegacyOfficialAccountLookup(value: string) {
+  return legacyOfficialAccountAliases.some(
+    (alias) => value === alias || value.endsWith(alias)
+  );
 }
