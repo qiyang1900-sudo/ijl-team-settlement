@@ -61,6 +61,8 @@ type EnrichedImportRow = {
   warnings: string[];
 };
 
+const retiredTeamLabel = "已退役";
+
 export async function POST(request: Request) {
   try {
     const payload = (await request.json().catch(() => ({}))) as ImportPayload;
@@ -173,10 +175,10 @@ export async function POST(request: Request) {
           missingPlayers.map((row, index) => ({
             handle: row.playerHandle,
             reading: null,
-            position_label: "历史数据",
-            roster_role: "历史数据",
+            position_label: "退役",
+            roster_role: "退役",
             current_team_id: null,
-            current_team_short_name: row.teamShortName,
+            current_team_short_name: retiredTeamLabel,
             sort_order: 9000 + index,
             is_active: true,
             updated_at: now,
@@ -262,7 +264,7 @@ function enrichRows(
     }
 
     if (!raw.isOfficial && !player) {
-      warnings.push(`导入时会新增历史选手：${raw.playerHandle || raw.accountName}`);
+      warnings.push(`导入时会新增退役/历史选手：${raw.playerHandle || raw.accountName}`);
     }
 
     if (raw.isEmptyMetrics) {
