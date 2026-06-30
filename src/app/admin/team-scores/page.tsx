@@ -15,6 +15,7 @@ import {
   TeamScoreReview,
   buildTeamMonthlyScores,
   manualTeamScoreNotes,
+  sectionScoreOverrideMarker,
 } from "@/lib/team-score";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +62,17 @@ async function saveTeamScoreReview(formData: FormData) {
 
   const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey, serviceRoleKey);
   const now = new Date().toISOString();
+  const youtubeScore = parseBoundedFormNumber(
+    formData.get("youtube_score"),
+    30,
+    30
+  );
+  const tiktokScore = parseBoundedFormNumber(
+    formData.get("tiktok_score"),
+    15,
+    15
+  );
+  const xScore = parseBoundedFormNumber(formData.get("x_score"), 15, 15);
   const draftReview: TeamScoreReviewRow = {
     team_id: teamId,
     target_month: targetMonth,
@@ -77,16 +89,12 @@ async function saveTeamScoreReview(formData: FormData) {
       25
     ),
     team_management_note: null,
-    youtube_manual_deduction: 0,
-    youtube_manual_note: null,
-    tiktok_manual_deduction: parseBoundedFormNumber(
-      formData.get("tiktok_manual_deduction"),
-      0,
-      15
-    ),
-    tiktok_manual_note: null,
-    x_manual_deduction: 0,
-    x_manual_note: null,
+    youtube_manual_deduction: 30 - youtubeScore,
+    youtube_manual_note: sectionScoreOverrideMarker,
+    tiktok_manual_deduction: 15 - tiktokScore,
+    tiktok_manual_note: sectionScoreOverrideMarker,
+    x_manual_deduction: 15 - xScore,
+    x_manual_note: sectionScoreOverrideMarker,
     reviewer_note: parseOptionalText(formData.get("reviewer_note")),
     finalized_at: reviewStatus === "finalized" ? now : null,
   };
@@ -299,7 +307,7 @@ export default async function AdminTeamScoresPage({
             <RuleChip label="YouTube" value="30分封顶，视频/直播按板块扣分" />
             <RuleChip
               label="TikTok / Shorts"
-              value="Shorts 自动算基础分，TikTok 扣分由管理员手动补入"
+              value="15分封顶，Shorts 数据自动计算，最终分数可手动确认"
             />
             <RuleChip label="X" value="15分封顶，按 X 投稿和曝光自动扣分" />
           </div>
@@ -333,9 +341,6 @@ function ScoreCard({
   score: TeamMonthlyScore;
   canPersist: boolean;
 }) {
-  const playerManagementSection = getSection(score, "playerManagement");
-  const teamManagementSection = getSection(score, "teamManagement");
-  const tiktokSection = getSection(score, "tiktok");
   const canSave = canPersist && score.hasApprovedData;
   const reviewStatusLabel = !score.hasApprovedData
     ? "无通过数据"
@@ -369,108 +374,93 @@ function ScoreCard({
         </div>
       </div>
 
-      <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-5">
-        {score.sections.map((section) => (
-          <SectionSummary key={section.key} section={section} />
-        ))}
-      </div>
+      <form action={saveTeamScoreReview}>
+        <input type="hidden" name="team_id" value={score.teamId} />
+        <input type="hidden" name="target_month" value={score.month} />
 
-      <ScoreFoldout title="详细数据・人工审核" badge={`${score.deductions.length} 项扣分`}>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <MetricChip label="全队推文" value={score.metrics.totalTweets} />
-          <MetricChip label="官方推文" value={score.metrics.officialTweets} />
-          <MetricChip label="总曝光" value={score.metrics.totalImpressions} />
-          <MetricChip label="视频合计" value={score.metrics.totalVideosWithArchives} />
-          <MetricChip label="直播次数" value={score.metrics.totalStreams} />
-          <MetricChip label="Shorts/TikTok" value={score.metrics.totalShortPosts} />
+        <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-5">
+          {score.sections.map((section) => (
+            <SectionSummary
+              key={section.key}
+              section={section}
+              inputName={getSectionInputName(section.key)}
+              disabled={!canSave}
+            />
+          ))}
         </div>
 
-        <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-4">
-          <p className="text-sm font-semibold text-slate-300">扣分项</p>
-          {score.deductions.length === 0 ? (
-            <p className="mt-3 text-sm font-semibold text-emerald-300">
-              已计算项目全部达成，人工评分暂无扣分。
-            </p>
-          ) : (
-            <ol className="mt-3 max-h-44 space-y-2 overflow-auto pr-2 text-sm text-slate-200">
-              {score.deductions.map((deduction, index) => (
-                <li key={`${deduction.reason}-${index}`} className="leading-6">
-                  {index + 1}、{deduction.reason}
-                  <span className="ml-2 font-bold text-red-300">
-                    -{deduction.points}分
-                  </span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-
-        <form action={saveTeamScoreReview} className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-4">
-          <input type="hidden" name="team_id" value={score.teamId} />
-          <input type="hidden" name="target_month" value={score.month} />
-
-          <div className="grid gap-3 md:grid-cols-3">
-            <ScoreNumberInput
-              label="選手管理分数"
-              name="player_management_score"
-              max={playerManagementSection.maxPoints}
-              defaultValue={score.review.playerManagementScore}
-            />
-            <ScoreNumberInput
-              label="チーム管理分数"
-              name="team_management_score"
-              max={teamManagementSection.maxPoints}
-              defaultValue={score.review.teamManagementScore}
-            />
-            <ScoreNumberInput
-              label="TikTok 手动扣分"
-              name="tiktok_manual_deduction"
-              max={tiktokSection.maxPoints}
-              defaultValue={score.review.tiktokManualDeduction}
-              hint={`Shorts 自动基础分：${tiktokSection.autoScore ?? 0}/${tiktokSection.maxPoints}`}
-            />
+        <ScoreFoldout title="详细数据・人工审核" badge={`${score.deductions.length} 项扣分`}>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <MetricChip label="全队推文" value={score.metrics.totalTweets} />
+            <MetricChip label="官方推文" value={score.metrics.officialTweets} />
+            <MetricChip label="总曝光" value={score.metrics.totalImpressions} />
+            <MetricChip label="视频合计" value={score.metrics.totalVideosWithArchives} />
+            <MetricChip label="直播次数" value={score.metrics.totalStreams} />
+            <MetricChip label="Shorts/TikTok" value={score.metrics.totalShortPosts} />
           </div>
 
-          <label className="mt-3 block text-sm text-slate-300">
-            审核备注
-            <textarea
-              name="reviewer_note"
-              defaultValue={score.review.reviewerNote}
-              className="mt-2 min-h-20 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white"
-            />
-          </label>
-
-          {!canPersist ? (
-            <p className="mt-3 rounded-lg border border-amber-500 bg-amber-950 px-3 py-2 text-sm text-amber-100">
-              保存表尚未创建，暂时不能保存积分审核。
-            </p>
-          ) : null}
-          {!score.hasApprovedData ? (
-            <p className="mt-3 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-400">
-              该月没有审核通过的月数据，不能结束积分审核。
-            </p>
-          ) : null}
-
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              name="review_status"
-              value="draft"
-              disabled={!canSave}
-              className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              保存草稿
-            </button>
-            <button
-              name="review_status"
-              value="finalized"
-              disabled={!canSave}
-              className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              已审核结束
-            </button>
+          <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-4">
+            <p className="text-sm font-semibold text-slate-300">扣分项</p>
+            {score.deductions.length === 0 ? (
+              <p className="mt-3 text-sm font-semibold text-emerald-300">
+                已计算项目全部达成，人工评分暂无扣分。
+              </p>
+            ) : (
+              <ol className="mt-3 max-h-44 space-y-2 overflow-auto pr-2 text-sm text-slate-200">
+                {score.deductions.map((deduction, index) => (
+                  <li key={`${deduction.reason}-${index}`} className="leading-6">
+                    {index + 1}、{deduction.reason}
+                    <span className="ml-2 font-bold text-red-300">
+                      -{deduction.points}分
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )}
           </div>
-        </form>
-      </ScoreFoldout>
+
+          <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-4">
+            <label className="block text-sm text-slate-300">
+              审核备注
+              <textarea
+                name="reviewer_note"
+                defaultValue={score.review.reviewerNote}
+                className="mt-2 min-h-20 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white"
+              />
+            </label>
+
+            {!canPersist ? (
+              <p className="mt-3 rounded-lg border border-amber-500 bg-amber-950 px-3 py-2 text-sm text-amber-100">
+                保存表尚未创建，暂时不能保存积分审核。
+              </p>
+            ) : null}
+            {!score.hasApprovedData ? (
+              <p className="mt-3 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-400">
+                该月没有审核通过的月数据，不能结束积分审核。
+              </p>
+            ) : null}
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                name="review_status"
+                value="draft"
+                disabled={!canSave}
+                className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                保存草稿
+              </button>
+              <button
+                name="review_status"
+                value="finalized"
+                disabled={!canSave}
+                className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                已审核结束
+              </button>
+            </div>
+          </div>
+        </ScoreFoldout>
+      </form>
     </article>
   );
 }
@@ -495,20 +485,35 @@ function RuleChip({ label, value }: { label: string; value: string }) {
 
 function SectionSummary({
   section,
+  inputName,
+  disabled,
 }: {
   section: TeamMonthlyScore["sections"][number];
+  inputName: string;
+  disabled: boolean;
 }) {
   const deductedPoints = section.maxPoints - section.score;
 
   return (
-    <div className="flex min-h-[116px] flex-col rounded-lg bg-slate-950 p-3">
+    <div className="flex min-h-[128px] flex-col rounded-lg bg-slate-950 p-3">
       <div className="grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
-        <p className="break-words text-xs font-semibold leading-5 text-slate-400">
+        <p className="text-sm font-semibold leading-5 text-slate-400">
           {section.label}
         </p>
-        <p className="text-sm font-bold text-white">
-          {section.score}/{section.maxPoints}
-        </p>
+        <div className="flex items-center gap-1 text-sm font-bold text-white">
+          <input
+            aria-label={`${section.label}分数`}
+            type="number"
+            name={inputName}
+            min={0}
+            max={section.maxPoints}
+            step={1}
+            defaultValue={section.score}
+            disabled={disabled}
+            className="h-8 w-14 rounded-md border border-slate-700 bg-slate-900 px-2 text-right text-white outline-none focus:border-white disabled:opacity-70"
+          />
+          <span>/{section.maxPoints}</span>
+        </div>
       </div>
       <p className="mt-1 min-h-4 text-xs leading-4 text-slate-500">
         {section.autoScore === null ? "人工评分" : `自动评分 ${section.autoScore}`}
@@ -554,39 +559,6 @@ function ScoreFoldout({
   );
 }
 
-function ScoreNumberInput({
-  label,
-  name,
-  max,
-  defaultValue,
-  hint,
-}: {
-  label: string;
-  name: string;
-  max: number;
-  defaultValue: number;
-  hint?: string;
-}) {
-  return (
-    <label className="text-sm text-slate-300">
-      {label}
-      <input
-        type="number"
-        name={name}
-        min={0}
-        max={max}
-        step={1}
-        defaultValue={defaultValue}
-        className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-white outline-none focus:border-white"
-      />
-      <span className="mt-1 block text-xs text-slate-500">0 - {max}</span>
-      {hint ? (
-        <span className="mt-1 block text-xs text-slate-500">{hint}</span>
-      ) : null}
-    </label>
-  );
-}
-
 function MetricChip({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-lg bg-slate-950 p-3">
@@ -598,17 +570,16 @@ function MetricChip({ label, value }: { label: string; value: number }) {
   );
 }
 
-function getSection(
-  score: TeamMonthlyScore,
-  key: TeamMonthlyScore["sections"][number]["key"]
-) {
-  const section = score.sections.find((item) => item.key === key);
+function getSectionInputName(key: TeamMonthlyScore["sections"][number]["key"]) {
+  const names: Record<TeamMonthlyScore["sections"][number]["key"], string> = {
+    playerManagement: "player_management_score",
+    teamManagement: "team_management_score",
+    youtube: "youtube_score",
+    tiktok: "tiktok_score",
+    x: "x_score",
+  };
 
-  if (!section) {
-    throw new Error(`积分板块缺失：${key}`);
-  }
-
-  return section;
+  return names[key];
 }
 
 function parseBoundedFormNumber(

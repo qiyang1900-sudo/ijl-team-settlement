@@ -71,10 +71,13 @@ export type TeamScoreReviewValues = {
   playerManagementNote: string;
   teamManagementScore: number;
   teamManagementNote: string;
+  youtubeScore: number | null;
   youtubeManualDeduction: number;
   youtubeManualNote: string;
+  tiktokScore: number | null;
   tiktokManualDeduction: number;
   tiktokManualNote: string;
+  xScore: number | null;
   xManualDeduction: number;
   xManualNote: string;
   reviewerNote: string;
@@ -107,12 +110,14 @@ export type TeamMonthlyScore = {
 };
 
 export const manualTeamScoreNotes = [
-  "選手管理和チーム管理默认按满分录入，管理员可以在审核时人工减分并保存。",
-  "TikTok / Shorts 先按 Shorts 数据自动计算基础分，再由管理员手动补入 TikTok 扣分。",
+  "選手管理和チーム管理默认按满分录入，管理员可以直接修改最终分数并保存。",
+  "YouTube、TikTok / Shorts、X 会先自动计算分数，管理员可在上方卡片直接改为最终确认分数。",
   "YouTube 30分、TikTok / Shorts 15分、X 15分分别封顶计算，单项不会扣成负分。",
   "自动计算只使用审核通过的月数据；未审核通过的草稿、已提交、审核中、已驳回数据不会进入积分。",
   "审核备注用于记录整体人工核查说明。",
 ];
+
+export const sectionScoreOverrideMarker = "__section_score_override__";
 
 const sectionMaximums = {
   playerManagement: 15,
@@ -259,24 +264,21 @@ function buildSections(
     label: "YouTube",
     maxPoints: sectionMaximums.youtube,
     autoDeductions: youtubeAutoDeductions,
-    manualDeduction: 0,
-    manualNote: "",
+    scoreOverride: review.youtubeScore,
   });
   const tiktok = buildContentSection({
     key: "tiktok",
     label: "TikTok / Shorts",
     maxPoints: sectionMaximums.tiktok,
     autoDeductions: tiktokAutoDeductions,
-    manualDeduction: review.tiktokManualDeduction,
-    manualNote: "",
+    scoreOverride: review.tiktokScore,
   });
   const x = buildContentSection({
     key: "x",
     label: "X",
     maxPoints: sectionMaximums.x,
     autoDeductions: xAutoDeductions,
-    manualDeduction: 0,
-    manualNote: "",
+    scoreOverride: review.xScore,
   });
 
   return [
@@ -340,32 +342,30 @@ function buildContentSection({
   label,
   maxPoints,
   autoDeductions,
-  manualDeduction,
-  manualNote,
+  scoreOverride,
 }: {
   key: TeamScoreSectionKey;
   label: string;
   maxPoints: number;
   autoDeductions: TeamScoreDeduction[];
-  manualDeduction: number;
-  manualNote: string;
+  scoreOverride: number | null;
 }): TeamScoreSection {
   const cappedAutoDeduction = Math.min(
     maxPoints,
     autoDeductions.reduce((sum, deduction) => sum + deduction.points, 0)
   );
   const autoScore = Math.max(0, maxPoints - cappedAutoDeduction);
-  const effectiveManualDeduction = Math.min(
-    autoScore,
-    clampNumber(manualDeduction, 0, maxPoints)
-  );
-  const score = Math.max(0, autoScore - effectiveManualDeduction);
+  const score =
+    scoreOverride === null
+      ? autoScore
+      : clampNumber(scoreOverride, 0, maxPoints);
   const deductions = [...autoDeductions];
+  const manualDeduction = Math.max(0, autoScore - score);
 
-  if (effectiveManualDeduction > 0) {
+  if (manualDeduction > 0) {
     deductions.push({
-      reason: `${label}人工确认扣分${manualNote ? `：${manualNote}` : ""}`,
-      points: effectiveManualDeduction,
+      reason: `${label}人工确认调整（自动${autoScore}分 → 确认${score}分）`,
+      points: manualDeduction,
     });
   }
 
@@ -376,7 +376,7 @@ function buildContentSection({
     score,
     autoScore,
     deductions,
-    note: manualNote || null,
+    note: null,
   };
 }
 
@@ -489,19 +489,54 @@ function normalizeReviewValues(
       sectionMaximums.teamManagement
     ),
     teamManagementNote: "",
-    youtubeManualDeduction: 0,
+    youtubeScore: scoreOverrideFromStoredDeduction(
+      review?.youtube_manual_note,
+      review?.youtube_manual_deduction,
+      sectionMaximums.youtube
+    ),
+    youtubeManualDeduction: boundedReviewNumber(
+      review?.youtube_manual_deduction,
+      0,
+      sectionMaximums.youtube
+    ),
     youtubeManualNote: "",
+    tiktokScore: scoreOverrideFromStoredDeduction(
+      review?.tiktok_manual_note,
+      review?.tiktok_manual_deduction,
+      sectionMaximums.tiktok
+    ),
     tiktokManualDeduction: boundedReviewNumber(
       review?.tiktok_manual_deduction,
       0,
       sectionMaximums.tiktok
     ),
     tiktokManualNote: "",
-    xManualDeduction: 0,
+    xScore: scoreOverrideFromStoredDeduction(
+      review?.x_manual_note,
+      review?.x_manual_deduction,
+      sectionMaximums.x
+    ),
+    xManualDeduction: boundedReviewNumber(
+      review?.x_manual_deduction,
+      0,
+      sectionMaximums.x
+    ),
     xManualNote: "",
     reviewerNote: String(review?.reviewer_note || ""),
     finalizedAt: review?.finalized_at || null,
   };
+}
+
+function scoreOverrideFromStoredDeduction(
+  note: string | null | undefined,
+  deduction: number | string | null | undefined,
+  maxValue: number
+) {
+  if (note !== sectionScoreOverrideMarker) {
+    return null;
+  }
+
+  return maxValue - boundedReviewNumber(deduction, 0, maxValue);
 }
 
 function boundedReviewNumber(
