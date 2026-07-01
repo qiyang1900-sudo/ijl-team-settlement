@@ -92,8 +92,20 @@ export default function TeamMonthlyDataTabs({
             lineColor="#3b82f6"
             points={monthlyStats.map((row) => ({
               label: shortMonthLabel(row.month),
-              barValue: row.total.youtubeVideoAndShortViews,
+              barValue: row.total.youtubeVideoViews,
               lineValue: row.total.youtubeSubscriberCount,
+            }))}
+          />
+          <MonthlyComboChart
+            title="IJL联盟 Shorts / TikTok 短视频数据"
+            barLabel="短视频播放"
+            lineLabel="短视频投稿"
+            barColor="#f97316"
+            lineColor="#22c55e"
+            points={monthlyStats.map((row) => ({
+              label: shortMonthLabel(row.month),
+              barValue: row.total.youtubeShortViews,
+              lineValue: row.total.youtubeShortPostCount,
             }))}
           />
           <MonthlyComboChart
@@ -148,9 +160,9 @@ function YoutubeTotalPanel({ summary }: { summary: MonthlySummary }) {
   return (
     <section className="mt-5 overflow-hidden rounded-lg border border-slate-700">
       <div className="grid gap-3 bg-slate-950 p-4 sm:grid-cols-2 lg:grid-cols-6">
-        <MiniStat label="投稿数量" value={formatMonthlyNumber(summary.total.youtubeTotalPostCount)} />
+        <MiniStat label="投稿数量（含短视频）" value={formatMonthlyNumber(summary.total.youtubeTotalPostCount)} />
         <MiniStat label="视频播放" value={formatMonthlyNumber(summary.total.youtubeVideoViews)} />
-        <MiniStat label="短视频播放" value={formatMonthlyNumber(summary.total.youtubeShortViews)} />
+        <MiniStat label="短视频播放（Shorts+TT）" value={formatMonthlyNumber(summary.total.youtubeShortViews)} />
         <MiniStat label="直播观看" value={formatMonthlyNumber(summary.total.youtubeStreamViews)} />
         <MiniStat label="合計Imp" value={formatMonthlyNumber(summary.total.youtubeTotalImpressions)} />
         <MiniStat label="登録者数" value={formatMonthlyNumber(summary.total.youtubeSubscriberCount)} />

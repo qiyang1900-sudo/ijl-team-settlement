@@ -307,7 +307,7 @@ export default async function AdminTeamScoresPage({
             <RuleChip label="YouTube" value="30分封顶，视频/直播按板块扣分" />
             <RuleChip
               label="TikTok / Shorts"
-              value="15分封顶，Shorts 数据自动计算，最终分数可手动确认"
+              value="15分封顶，YouTube Shorts + TT 投稿数自动计算，最终分数可手动确认"
             />
             <RuleChip label="X" value="15分封顶，按 X 投稿和曝光自动扣分" />
           </div>
@@ -396,7 +396,9 @@ function ScoreCard({
             <MetricChip label="总曝光" value={score.metrics.totalImpressions} />
             <MetricChip label="视频合计" value={score.metrics.totalVideosWithArchives} />
             <MetricChip label="直播次数" value={score.metrics.totalStreams} />
-            <MetricChip label="Shorts/TikTok" value={score.metrics.totalShortPosts} />
+            <MetricChip label="YT Shorts" value={score.metrics.youtubeShortPosts} />
+            <MetricChip label="TT 投稿" value={score.metrics.tiktokShortPosts} />
+            <MetricChip label="Shorts+TT" value={score.metrics.totalShortPosts} />
           </div>
 
           <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-4">

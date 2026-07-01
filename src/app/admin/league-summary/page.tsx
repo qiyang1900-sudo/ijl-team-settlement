@@ -25,6 +25,7 @@ import {
   getPreviousYearMonth,
   historicalLeagueSummaryRows,
 } from "@/lib/league-summary-history";
+import { applyTiktokShortVideoToSummary } from "@/lib/tiktok-monthly-data";
 import MonthlyComboChart, {
   type ChartInsight,
 } from "../components/MonthlyComboChart";
@@ -162,7 +163,7 @@ export default async function LeagueSummaryPage({
   );
   const allMonthlySummaries = applyHistoricalLeagueSummaries(
     summarizeMonthlySubmissions(allRows)
-  );
+  ).map((summary) => applyTiktokShortVideoToSummary(summary));
   const monthlySummaries = allMonthlySummaries.filter(
     (summary) => summary.month >= fromMonth && summary.month <= toMonth
   );
@@ -217,16 +218,37 @@ export default async function LeagueSummaryPage({
     statusByTeamMonth,
     metrics: [
       {
-        key: "youtubeVideoAndShortViews",
-        label: "YouTube 投稿播放数",
+        key: "youtubeVideoViews",
+        label: "YouTube 视频播放数",
         type: "volume",
-        getValue: (summary) => summary.total.youtubeVideoAndShortViews,
+        getValue: (summary) => summary.total.youtubeVideoViews,
       },
       {
         key: "youtubeSubscriberCount",
         label: "YouTube 登録者数",
         type: "follower",
         getValue: (summary) => summary.total.youtubeSubscriberCount,
+      },
+    ],
+  });
+  const shortVideoInsights = buildLeagueTrendInsights({
+    selectedSummaries: monthlySummaries,
+    allSummaries: allMonthlySummaries,
+    teams,
+    teamSummariesByMonth,
+    statusByTeamMonth,
+    metrics: [
+      {
+        key: "shortVideoViews",
+        label: "Shorts / TikTok 短视频播放数",
+        type: "volume",
+        getValue: (summary) => summary.total.youtubeShortViews,
+      },
+      {
+        key: "shortVideoPostCount",
+        label: "Shorts / TikTok 短视频投稿数",
+        type: "count",
+        getValue: (summary) => summary.total.youtubeShortPostCount,
       },
     ],
   });
@@ -389,8 +411,22 @@ export default async function LeagueSummaryPage({
             insights={youtubePostInsights}
             points={monthlySummaries.map((row) => ({
               label: shortMonthLabel(row.month),
-              barValue: row.total.youtubeVideoAndShortViews,
+              barValue: row.total.youtubeVideoViews,
               lineValue: row.total.youtubeSubscriberCount,
+            }))}
+          />
+          <MonthlyComboChart
+            title="IJL联盟 Shorts / TikTok 短视频数据"
+            barLabel="短视频播放"
+            lineLabel="短视频投稿"
+            barColor="#f97316"
+            lineColor="#22c55e"
+            showInsights
+            insights={shortVideoInsights}
+            points={monthlySummaries.map((row) => ({
+              label: shortMonthLabel(row.month),
+              barValue: row.total.youtubeShortViews,
+              lineValue: row.total.youtubeShortPostCount,
             }))}
           />
           <MonthlyComboChart
@@ -447,11 +483,14 @@ function buildTeamSummariesByMonth(
   for (const submission of rows) {
     const team = teamById.get(submission.team_id);
     const splitRows = splitMonthlyRows(parseMonthlyPlayerRows(submission.player_rows));
-    const summary = buildMonthlySummary(
-      submission.target_month,
-      splitRows.officialRow ? [splitRows.officialRow] : [],
-      splitRows.playerRows,
-      1
+    const summary = applyTiktokShortVideoToSummary(
+      buildMonthlySummary(
+        submission.target_month,
+        splitRows.officialRow ? [splitRows.officialRow] : [],
+        splitRows.playerRows,
+        1
+      ),
+      team?.short_name || submission.teams?.short_name
     );
     const monthMap = map.get(submission.target_month) || new Map();
 
@@ -713,9 +752,9 @@ function summarizeByTeam(rows: MonthlySubmissionRow[]): TeamSummaryRow[] {
 
   return Array.from(groups.values())
     .map((row) => {
-      const summaries = Array.from(row.summariesByMonth.values()).sort((left, right) =>
-        left.month.localeCompare(right.month)
-      );
+      const summaries = Array.from(row.summariesByMonth.values())
+        .sort((left, right) => left.month.localeCompare(right.month))
+        .map((summary) => applyTiktokShortVideoToSummary(summary, row.shortName));
 
       return {
         team: row.team,
@@ -755,8 +794,8 @@ function LeagueSummaryTable({
               <th className="px-3 py-2">视频播放次数</th>
               <th className="px-3 py-2">直播观看次数</th>
               <th className="px-3 py-2">直播次数</th>
-              <th className="px-3 py-2">短视频投稿</th>
-              <th className="px-3 py-2">短视频播放次数</th>
+              <th className="px-3 py-2">短视频投稿（Shorts+TT）</th>
+              <th className="px-3 py-2">短视频播放（Shorts+TT）</th>
               <th className="px-3 py-2">点赞量</th>
             </tr>
           </thead>
@@ -808,7 +847,7 @@ function LeagueSummaryTotals({ summary }: { summary: MonthlySummary }) {
     { label: "总曝光", value: summary.total.xImpressions },
     { label: "总互动", value: summary.total.xEngagements },
     { label: "视频播放合计", value: summary.total.youtubeVideoViews },
-    { label: "短视频播放合计", value: summary.total.youtubeShortViews },
+    { label: "短视频播放合计（Shorts+TT）", value: summary.total.youtubeShortViews },
     { label: "直播观看合计", value: summary.total.youtubeStreamViews },
     { label: "直播次数合计", value: summary.total.youtubeStreamCount },
     { label: "合计播放数", value: summary.total.youtubeTotalPlayback },
@@ -845,7 +884,7 @@ function TeamSummaryTable({ rows }: { rows: TeamSummaryRow[] }) {
             <th className="px-4 py-3">战队合计曝光</th>
             <th className="px-4 py-3">战队合计互动</th>
             <th className="px-4 py-3">YT 粉丝数</th>
-            <th className="px-4 py-3">视频发布条数</th>
+            <th className="px-4 py-3">投稿条数（含短视频）</th>
             <th className="px-4 py-3">直播次数</th>
             <th className="px-4 py-3">总播放</th>
           </tr>
@@ -918,7 +957,7 @@ function MonthlyComparison({
           previous: previous?.total.youtubeVideoViews,
         },
         {
-          label: "短视频播放",
+          label: "短视频播放（Shorts+TT）",
           value: current.total.youtubeShortViews,
           previous: previous?.total.youtubeShortViews,
         },
