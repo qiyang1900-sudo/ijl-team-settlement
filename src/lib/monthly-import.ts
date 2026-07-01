@@ -1,4 +1,8 @@
-import type { MonthlyPlayerRow } from "./monthly-data";
+import {
+  normalizeNumericText,
+  numericMonthlyValue,
+  type MonthlyPlayerRow,
+} from "./monthly-data";
 
 export type MonthlyImportDataType = "x" | "youtube";
 export type MonthlyImportMode = "fill" | "overwrite";
@@ -62,7 +66,7 @@ export const monthlyImportFieldSets: Record<
 };
 
 const officialAccountAliases: Record<string, string[]> = {
-  AWG: ["awg公式", "arnebwithwog", "arnebwithwog公式"],
+  AWG: ["a公式", "awg公式", "arnebwithwog", "arnebwithwog公式"],
   AXIZ: ["axizwave", "axiz公式"],
   DFM: ["dfm公式", "detonationfocusme", "detonationfocusme公式"],
   FL: ["fennel公式", "fennel"],
@@ -90,7 +94,7 @@ export function parseMonthlyImportText(
       return;
     }
 
-    if (isHeaderRow(normalizedCells)) {
+    if (isHeaderRow(normalizedCells, fields)) {
       return;
     }
 
@@ -105,9 +109,12 @@ export function parseMonthlyImportText(
 
     const teamCell = normalizedCells[0] || "";
     const accountName = stripStatusMarks(normalizedCells[1] || "");
+    const inferredTeamInput = isMonthMarkerCell(teamCell)
+      ? inferOfficialTeamInput(accountName) || currentTeamInput
+      : teamCell;
 
-    if (teamCell) {
-      currentTeamInput = teamCell;
+    if (inferredTeamInput) {
+      currentTeamInput = inferredTeamInput;
     }
 
     if (!currentTeamInput) {
@@ -168,6 +175,7 @@ export function parseMonthlyImportText(
 
 export function normalizeTeamLookupKey(value: unknown) {
   return String(value || "")
+    .normalize("NFKC")
     .toLowerCase()
     .replace(/\s+/g, "")
     .replace(/[＿_・,，.。()（）"']/g, "")
@@ -176,6 +184,7 @@ export function normalizeTeamLookupKey(value: unknown) {
 
 export function normalizePlayerLookupKey(value: unknown) {
   return String(value || "")
+    .normalize("NFKC")
     .toLowerCase()
     .replace(/\s+/g, "")
     .replace(/[＿_・,，.。()（）"']/g, "")
@@ -242,9 +251,7 @@ function emptyTotals(fields: MonthlyImportMetricField[]) {
 }
 
 function numericImportValue(value: unknown) {
-  const numberValue = Number(value || 0);
-
-  return Number.isFinite(numberValue) ? numberValue : 0;
+  return numericMonthlyValue(value);
 }
 
 function parseDelimitedRows(rawText: string) {
@@ -311,26 +318,59 @@ function stripStatusMarks(value: string) {
 }
 
 function normalizeNumericCell(value: string) {
-  const cleaned = String(value || "")
-    .replace(/[,\s　円¥￥]/g, "")
-    .trim();
-
-  if (!cleaned || cleaned === "-" || cleaned === "ー") {
-    return "";
-  }
-
-  const match = cleaned.match(/-?\d+(?:\.\d+)?/);
-
-  return match ? match[0] : "";
+  return normalizeNumericText(value);
 }
 
-function isHeaderRow(cells: string[]) {
+function isHeaderRow(cells: string[], fields: MonthlyImportMetricField[]) {
   const joined = cells.join(" ");
 
   return (
     /チーム名|選手名|手動入力|アナリティクス/.test(joined) ||
-    /^\d{1,2}月$/.test(cells[0] || "")
+    (isMonthMarkerCell(cells[0]) && !hasImportDataOnMonthRow(cells, fields))
   );
+}
+
+function isMonthMarkerCell(value: unknown) {
+  return /^\d{1,2}月$/.test(String(value || "").normalize("NFKC").trim());
+}
+
+function hasImportDataOnMonthRow(
+  cells: string[],
+  fields: MonthlyImportMetricField[]
+) {
+  const accountName = stripStatusMarks(cells[1] || "");
+
+  if (!accountName) {
+    return false;
+  }
+
+  return fields.some((_, fieldIndex) => Boolean(cells[fieldIndex + 2]));
+}
+
+function inferOfficialTeamInput(accountName: string) {
+  const normalizedName = normalizeTeamLookupKey(stripStatusMarks(accountName));
+
+  if (!normalizedName) {
+    return "";
+  }
+
+  for (const [shortName, aliases] of Object.entries(officialAccountAliases)) {
+    const allAliases = [
+      shortName.toLowerCase(),
+      ...aliases,
+      ...buildTeamAliases(shortName),
+    ];
+
+    if (
+      normalizedName.includes("公式") &&
+      (allAliases.includes(normalizedName) ||
+        allAliases.some((alias) => normalizedName === alias))
+    ) {
+      return shortName;
+    }
+  }
+
+  return "";
 }
 
 function isTotalRow(cells: string[]) {

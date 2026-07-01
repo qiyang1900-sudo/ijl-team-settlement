@@ -171,8 +171,32 @@ export function getMonthlyYoutubeViews(row: MonthlyPlayerRow) {
 }
 
 export function numericMonthlyValue(value: unknown) {
-  const numberValue = Number(value || 0);
+  const numberValue = Number(normalizeNumericText(value) || 0);
   return Number.isFinite(numberValue) ? numberValue : 0;
+}
+
+export function normalizeNumericText(value: unknown) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value) : "";
+  }
+
+  const normalized = String(value)
+    .normalize("NFKC")
+    .replace(/[,\s円¥￥]/g, "")
+    .replace(/[−－ー]/g, "-")
+    .trim();
+
+  if (!normalized || /^-+$/.test(normalized)) {
+    return "";
+  }
+
+  const match = normalized.match(/-?\d+(?:\.\d+)?/);
+
+  return match ? match[0] : "";
 }
 
 export function normalizeMonthlyStatus(status: unknown): MonthlyDataStatus {
