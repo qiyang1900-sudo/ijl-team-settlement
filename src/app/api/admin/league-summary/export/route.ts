@@ -19,6 +19,7 @@ import {
   applyHistoricalLeagueSummaries,
   getPreviousYearMonth,
 } from "@/lib/league-summary-history";
+import { applyTiktokShortVideoToSummary } from "@/lib/tiktok-monthly-data";
 
 export const runtime = "nodejs";
 
@@ -116,7 +117,7 @@ export async function GET(request: Request) {
   );
   const allMonthlySummaries = applyHistoricalLeagueSummaries(
     summarizeMonthlySubmissions(allSubmissions)
-  );
+  ).map((summary) => applyTiktokShortVideoToSummary(summary));
   const monthlySummaries = allMonthlySummaries.filter(
     (summary) => summary.month >= fromMonth && summary.month <= toMonth
   );
@@ -171,8 +172,8 @@ function buildSummarySheet(
         "视频播放次数",
         "直播观看次数",
         "直播次数",
-        "短视频投稿",
-        "短视频播放次数",
+        "短视频投稿（Shorts+TT）",
+        "短视频播放（Shorts+TT）",
         "点赞量",
       ],
       style: 2,
@@ -246,7 +247,7 @@ function buildPeriodTotalRows(monthlySummaries: MonthlySummary[]): SheetRow[] {
     { label: "总曝光", value: summary.total.xImpressions },
     { label: "总互动", value: summary.total.xEngagements },
     { label: "视频播放合计", value: summary.total.youtubeVideoViews },
-    { label: "短视频播放合计", value: summary.total.youtubeShortViews },
+    { label: "短视频播放合计（Shorts+TT）", value: summary.total.youtubeShortViews },
     { label: "直播观看合计", value: summary.total.youtubeStreamViews },
     { label: "直播次数合计", value: summary.total.youtubeStreamCount },
     { label: "合计播放数", value: summary.total.youtubeTotalPlayback },
@@ -287,7 +288,7 @@ function buildComparisonRows(
       previous: previous?.total.youtubeVideoViews,
     },
     {
-      label: "短视频播放",
+      label: "短视频播放（Shorts+TT）",
       value: current.total.youtubeShortViews,
       previous: previous?.total.youtubeShortViews,
     },

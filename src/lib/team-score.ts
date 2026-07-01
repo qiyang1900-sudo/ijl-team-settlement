@@ -6,6 +6,7 @@ import {
 } from "./monthly-data";
 import type { MonthlyPlayerRow } from "./monthly-data";
 import { buildMonthlySummary } from "./monthly-summary";
+import { getTiktokMonthlySummary } from "./tiktok-monthly-data";
 
 export type TeamScoreTeam = {
   id: string;
@@ -105,6 +106,8 @@ export type TeamMonthlyScore = {
     totalStreams: number;
     totalVideosWithArchives: number;
     totalShortPosts: number;
+    youtubeShortPosts: number;
+    tiktokShortPosts: number;
   };
   hasApprovedData: boolean;
 };
@@ -112,6 +115,7 @@ export type TeamMonthlyScore = {
 export const manualTeamScoreNotes = [
   "選手管理和チーム管理默认按满分录入，管理员可以直接修改最终分数并保存。",
   "YouTube、TikTok / Shorts、X 会先自动计算分数，管理员可在上方卡片直接改为最终确认分数。",
+  "TikTok / Shorts 使用 YouTube Shorts 投稿数 + TT 投稿数合并判断。",
   "YouTube 30分、TikTok / Shorts 15分、X 15分分别封顶计算，单项不会扣成负分。",
   "自动计算只使用审核通过的月数据；未审核通过的草稿、已提交、审核中、已驳回数据不会进入积分。",
   "审核备注用于记录整体人工核查说明。",
@@ -211,6 +215,9 @@ function calculateTeamMonthlyScore(
   }
 
   const summary = buildMonthlySummary(month, officialRows, playerRows, submissions.length);
+  const tiktokSummary = getTiktokMonthlySummary(month, shortName);
+  const youtubeShortPosts = summary.total.youtubeShortPostCount;
+  const tiktokShortPosts = tiktokSummary.total.postCount;
   const metrics = {
     totalTweets: summary.total.xTweetCount,
     totalImpressions: summary.total.xImpressions,
@@ -227,7 +234,9 @@ function calculateTeamMonthlyScore(
       summary.total.youtubeVideoPostCount +
       summary.total.youtubeShortPostCount +
       summary.total.youtubeStreamCount,
-    totalShortPosts: summary.total.youtubeShortPostCount,
+    totalShortPosts: youtubeShortPosts + tiktokShortPosts,
+    youtubeShortPosts,
+    tiktokShortPosts,
   };
 
   const sections = buildSections(metrics, reviewValues);
@@ -418,9 +427,11 @@ function buildTiktokDeductions(metrics: TeamMonthlyScore["metrics"]) {
 
   if (metrics.totalShortPosts < 5) {
     deductions.push({
-      reason: `ショート／TikTok投稿5本未満（${formatMonthlyNumber(
+      reason: `ショート／TikTok投稿5本未満（YouTube Shorts ${formatMonthlyNumber(
+        metrics.youtubeShortPosts
+      )}本 + TikTok ${formatMonthlyNumber(metrics.tiktokShortPosts)}本 = ${formatMonthlyNumber(
         metrics.totalShortPosts
-      )}）`,
+      )}本）`,
       points: 10,
     });
   }
@@ -622,6 +633,8 @@ function emptyMetrics(): TeamMonthlyScore["metrics"] {
     totalStreams: 0,
     totalVideosWithArchives: 0,
     totalShortPosts: 0,
+    youtubeShortPosts: 0,
+    tiktokShortPosts: 0,
   };
 }
 

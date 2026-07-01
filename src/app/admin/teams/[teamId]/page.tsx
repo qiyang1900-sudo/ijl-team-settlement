@@ -16,6 +16,7 @@ import {
 } from "@/lib/monthly-summary";
 import { getPlayerDisplayName } from "@/lib/player-display";
 import { getAdminStatusLabel, isApprovedLike, isWaitingReview } from "@/lib/status-labels";
+import { applyTiktokShortVideoToSummary } from "@/lib/tiktok-monthly-data";
 import PlayerTeamSelect from "../../players/PlayerTeamSelect";
 import TeamMonthlyDataTabs from "./TeamMonthlyDataTabs";
 
@@ -210,7 +211,9 @@ export default async function AdminTeamDetailPage({
   const approvedSubmissions = safeSubmissions.filter(
     (submission) => submission.status === "approved"
   );
-  const monthlyStats = summarizeMonthlySubmissions(approvedSubmissions);
+  const monthlyStats = summarizeMonthlySubmissions(approvedSubmissions).map(
+    (summary) => applyTiktokShortVideoToSummary(summary, safeTeam.short_name)
+  );
   const { fromMonth, toMonth } = normalizeMonthRange({
     from,
     to,
