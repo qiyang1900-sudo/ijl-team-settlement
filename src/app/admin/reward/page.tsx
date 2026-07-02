@@ -14,6 +14,8 @@ import {
   getMonthlyAdminStatusLabel,
   getMonthlyStatusTone,
   getSalaryScreenshotSummary,
+  isMonthlyReminderEligibleMonth,
+  monthlyReminderStartMonth,
   normalizeMonthlyStatus,
   parseMonthlyPlayerRows,
   splitMonthlyRows,
@@ -194,9 +196,15 @@ export default async function RewardPage() {
   const alertCount = Array.from(alertMap.values()).filter(
     (alerts) => alerts.length > 0
   ).length;
-  const salaryMissingRows = rows.filter((row) => isSalaryScreenshotMissing(row));
-  const monthlyReminderCount =
-    grouped.notSubmitted.length + grouped.draft.length + grouped.returned.length;
+  const reminderRows = rows.filter((row) =>
+    isMonthlyReminderEligibleMonth(row.target_month)
+  );
+  const salaryMissingRows = reminderRows.filter((row) =>
+    isSalaryScreenshotMissing(row)
+  );
+  const monthlyReminderCount = reminderRows.filter((row) =>
+    isMonthlyReminderTarget(row.status)
+  ).length;
 
   return (
     <main className="min-h-screen bg-slate-950 p-8 text-white">
@@ -247,7 +255,7 @@ export default async function RewardPage() {
                     Discord 立即提醒
                   </h2>
                   <p className="mt-1 text-sm text-slate-300">
-                    可立即提醒所有月数据未提交/待补充战队，或提醒給与截图未提交战队。
+                    只提醒 {formatMonthLabel(monthlyReminderStartMonth)} 之后的月数据和給与截图。
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3">
@@ -569,7 +577,9 @@ function ReviewRow({
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {isMonthlyReminderTarget(row.status) && row.team_id ? (
+        {isMonthlyReminderEligibleMonth(row.target_month) &&
+        isMonthlyReminderTarget(row.status) &&
+        row.team_id ? (
           <ReminderButton
             scope="monthly_single"
             monthlySubmissionId={row.isSynthetic ? undefined : row.id}
@@ -580,7 +590,9 @@ function ReviewRow({
             compact
           />
         ) : null}
-        {isSalaryScreenshotMissing(row) && row.team_id ? (
+        {isMonthlyReminderEligibleMonth(row.target_month) &&
+        isSalaryScreenshotMissing(row) &&
+        row.team_id ? (
           <ReminderButton
             scope="monthly_salary_single"
             monthlySubmissionId={row.isSynthetic ? undefined : row.id}

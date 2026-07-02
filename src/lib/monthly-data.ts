@@ -43,6 +43,8 @@ export type SalaryScreenshotSummary = {
   label: string;
 };
 
+export const monthlyReminderStartMonth = "2026-06";
+
 export const officialMonthlyRowHandle = "__official_account__";
 export const officialMonthlyRowRole = "official_account";
 const legacyOfficialAccountAliases = [
@@ -188,6 +190,12 @@ export function getSalaryScreenshotSummary(
     isComplete,
     label,
   };
+}
+
+export function isMonthlyReminderEligibleMonth(targetMonth: unknown) {
+  const month = String(targetMonth || "").slice(0, 7);
+
+  return /^\d{4}-\d{2}$/.test(month) && month >= monthlyReminderStartMonth;
 }
 
 export function sumMonthlyField(

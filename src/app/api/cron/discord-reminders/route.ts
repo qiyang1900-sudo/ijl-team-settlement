@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import {
   getMonthlyStatusLabel,
   getSalaryScreenshotSummary,
+  isMonthlyReminderEligibleMonth,
   normalizeMonthlyStatus,
   parseMonthlyPlayerRows,
   splitMonthlyRows,
@@ -125,7 +126,9 @@ async function runDiscordReminders(request: Request) {
   const safeTeams = ((teams || []) as TeamRow[]).filter(
     (team) => team.discord_webhook_url
   );
-  const monthlySettings = (monthlyResult.data || []) as MonthlySettingRow[];
+  const monthlySettings = ((monthlyResult.data || []) as MonthlySettingRow[]).filter(
+    (setting) => isMonthlyReminderEligibleMonth(setting.target_month)
+  );
   const projects = ((projectResult.data || []) as ProjectRow[]).filter(
     (project) => project.status !== "archived"
   );

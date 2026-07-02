@@ -11,6 +11,7 @@ import {
 import {
   getMonthlyStatusLabel,
   getSalaryScreenshotSummary,
+  isMonthlyReminderEligibleMonth,
   normalizeMonthlyStatus,
   parseMonthlyPlayerRows,
   splitMonthlyRows,
@@ -236,6 +237,10 @@ async function sendMonthlyDataReminders({
     targetMonth,
   });
   const targetRows = rows.filter((row) => {
+    if (!isMonthlyReminderEligibleMonth(row.target_month)) {
+      return false;
+    }
+
     if (row.teams?.is_active === false) {
       return false;
     }
@@ -312,7 +317,8 @@ async function loadMonthlyReminderRows({
   }
 
   const allSettings = ((settings || []) as MonthlySettingRow[]).filter((setting) =>
-    targetMonth ? setting.target_month === targetMonth : true
+    (targetMonth ? setting.target_month === targetMonth : true) &&
+    isMonthlyReminderEligibleMonth(setting.target_month)
   );
   const settingByMonth = new Map(
     allSettings.map((setting) => [setting.target_month, setting])
