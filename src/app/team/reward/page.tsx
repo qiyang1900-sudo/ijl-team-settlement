@@ -120,7 +120,7 @@ async function saveMonthlyData(formData: FormData) {
   const officialRows = parseMonthlyPlayerRows(formData.get("official_row"));
   const officialRow = officialRows[0] || createOfficialMonthlyRow("");
   const playerRows = parseMonthlyPlayerRows(formData.get("player_rows"));
-  const isSalaryScreenshotAction = actionType === "salary_screenshots";
+  const isSalaryScreenshotAction = actionType.startsWith("salary_screenshots");
   const now = new Date().toISOString();
 
   if (!teamId || !targetMonth) {
@@ -145,23 +145,34 @@ async function saveMonthlyData(formData: FormData) {
     splitMonthlyRows(
       parseMonthlyPlayerRows(existingSubmission?.player_rows)
     );
-  const rowsWithScreenshots = await uploadSalaryScreenshots({
-    formData,
-    playerRows,
-    existingPlayerRows,
-    teamId,
-    targetMonth,
-    storageClient,
-  });
-
-  const uploadedClubActivityItems = await uploadClubActivityImages({
-    formData,
-    items: clubActivityItems,
-    teamId,
-    targetMonth,
-    storageClient,
-  });
-  const primaryClubActivity = getPrimaryClubActivityItem(uploadedClubActivityItems);
+  const rowsForPayload = isSalaryScreenshotAction
+    ? mergeSalaryRowsOnly({
+        salaryRows: await uploadSalaryScreenshots({
+          formData,
+          playerRows,
+          existingPlayerRows,
+          teamId,
+          targetMonth,
+          storageClient,
+        }),
+        existingPlayerRows,
+      })
+    : mergeMonthlyRowsPreservingSalary({
+        monthlyRows: playerRows,
+        existingPlayerRows,
+      });
+  const uploadedClubActivityItems = isSalaryScreenshotAction
+    ? null
+    : await uploadClubActivityImages({
+        formData,
+        items: clubActivityItems,
+        teamId,
+        targetMonth,
+        storageClient,
+      });
+  const primaryClubActivity = uploadedClubActivityItems
+    ? getPrimaryClubActivityItem(uploadedClubActivityItems)
+    : null;
 
   const payload = {
     team_id: teamId,
@@ -171,11 +182,11 @@ async function saveMonthlyData(formData: FormData) {
       isSalaryScreenshotAction && existingOfficialRow
         ? existingOfficialRow
         : officialRow,
-      ...rowsWithScreenshots,
+      ...rowsForPayload,
     ],
     club_activity_link: isSalaryScreenshotAction
       ? existingSubmission?.club_activity_link || null
-      : serializeClubActivityItems(uploadedClubActivityItems),
+      : serializeClubActivityItems(uploadedClubActivityItems || []),
     club_activity_image_url: isSalaryScreenshotAction
       ? existingSubmission?.club_activity_image_url || null
       : primaryClubActivity?.imageUrl || null,
@@ -297,8 +308,9 @@ export default async function TeamRewardPage({
   let playerTableError: string | null = null;
   let isUsingMonthlyAssignments = false;
   let tableError: string | null = null;
-  let monthlyDeadlineAt: string | null = null;
-  let salaryScreenshotDeadlineAt: string | null = null;
+  let monthlyDeadlineAt = buildDefaultMonthlyDeadlineAt(selectedMonth);
+  let salaryScreenshotDeadlineAt =
+    buildDefaultSalaryScreenshotDeadlineAt(selectedMonth);
 
   if (teamId && supabaseUrl && supabaseAnonKey) {
     await requireTeamAccess(teamId);
@@ -333,10 +345,11 @@ export default async function TeamRewardPage({
 
     monthlyDeadlineAt =
       ((settingData || null) as MonthlyDataSettingRow | null)?.deadline_at ||
-      null;
+      buildDefaultMonthlyDeadlineAt(selectedMonth);
     salaryScreenshotDeadlineAt =
       ((settingData || null) as MonthlyDataSettingRow | null)
-        ?.salary_screenshot_deadline_at || null;
+        ?.salary_screenshot_deadline_at ||
+      buildDefaultSalaryScreenshotDeadlineAt(selectedMonth);
 
     const { data: assignmentData, error: assignmentError } = await supabase
       .from("monthly_player_assignments")
@@ -506,8 +519,12 @@ export default async function TeamRewardPage({
           <Notice tone="sky" text="提出を取り消しました。内容を修正して再提出できます。" />
         ) : null}
 
-        {result === "salary_screenshots" ? (
-          <Notice tone="emerald" text="給与スクリーンショットを保存しました。" />
+        {result === "salary_screenshots_draft" ? (
+          <Notice tone="sky" text="給与スクリーンショットの下書きを保存しました。" />
+        ) : null}
+
+        {result === "salary_screenshots_submit" ? (
+          <Notice tone="emerald" text="給与スクリーンショットを審査提出しました。" />
         ) : null}
 
         {tableError ? (
@@ -723,6 +740,111 @@ function mergePlayerRows(
   ];
 }
 
+function mergeMonthlyRowsPreservingSalary({
+  monthlyRows,
+  existingPlayerRows,
+}: {
+  monthlyRows: MonthlyPlayerRow[];
+  existingPlayerRows: MonthlyPlayerRow[];
+}) {
+  return monthlyRows.map((monthlyRow, index) => {
+    const existingRow = findMatchingPlayerRow(
+      monthlyRow,
+      existingPlayerRows,
+      index
+    );
+
+    return {
+      ...monthlyRow,
+      salaryAmount: existingRow?.salaryAmount || "",
+      salaryScreenshotName: existingRow?.salaryScreenshotName || "",
+      salaryScreenshotUrl: existingRow?.salaryScreenshotUrl || "",
+      salaryScreenshotStoragePath:
+        existingRow?.salaryScreenshotStoragePath || "",
+      salaryScreenshotMimeType: existingRow?.salaryScreenshotMimeType || "",
+    };
+  });
+}
+
+function mergeSalaryRowsOnly({
+  salaryRows,
+  existingPlayerRows,
+}: {
+  salaryRows: MonthlyPlayerRow[];
+  existingPlayerRows: MonthlyPlayerRow[];
+}) {
+  return salaryRows.map((salaryRow, index) => {
+    const existingRow = findMatchingPlayerRow(
+      salaryRow,
+      existingPlayerRows,
+      index
+    );
+
+    return {
+      ...(existingRow || emptyMonthlyMetrics(salaryRow)),
+      id: salaryRow.id,
+      playerId: salaryRow.playerId,
+      playerHandle: salaryRow.playerHandle,
+      playerReading: salaryRow.playerReading,
+      playerPosition: salaryRow.playerPosition,
+      playerRole: salaryRow.playerRole,
+      playerName: salaryRow.playerName,
+      salaryAmount: salaryRow.salaryAmount,
+      salaryScreenshotName: salaryRow.salaryScreenshotName || "",
+      salaryScreenshotUrl: salaryRow.salaryScreenshotUrl || "",
+      salaryScreenshotStoragePath: salaryRow.salaryScreenshotStoragePath || "",
+      salaryScreenshotMimeType: salaryRow.salaryScreenshotMimeType || "",
+    };
+  });
+}
+
+function findMatchingPlayerRow(
+  row: MonthlyPlayerRow,
+  rows: MonthlyPlayerRow[],
+  fallbackIndex: number
+) {
+  return (
+    rows.find(
+      (candidate) =>
+        row.playerId && candidate.playerId && row.playerId === candidate.playerId
+    ) ||
+    rows.find(
+      (candidate) =>
+        row.playerName &&
+        candidate.playerName &&
+        row.playerName === candidate.playerName
+    ) ||
+    rows.find(
+      (candidate) =>
+        row.playerHandle &&
+        candidate.playerHandle &&
+        row.playerHandle === candidate.playerHandle
+    ) ||
+    rows[fallbackIndex] ||
+    null
+  );
+}
+
+function emptyMonthlyMetrics(row: MonthlyPlayerRow) {
+  return {
+    ...row,
+    xTweetCount: "",
+    xImpressions: "",
+    xEngagements: "",
+    xFanEventCount: "",
+    xFollowerCount: "",
+    youtubeVideoPostCount: "",
+    youtubeVideoViews: "",
+    youtubeShortPostCount: "",
+    youtubeShortViews: "",
+    youtubeLikeCount: "",
+    youtubeStreamCount: "",
+    youtubeStreamViews: "",
+    youtubeTotalImpressions: "",
+    youtubeSubscriberCount: "",
+  };
+}
+
 async function uploadSalaryScreenshots({
   formData,
   playerRows,
@@ -895,18 +1017,10 @@ function DeadlineNotice({
   overdueText,
 }: {
   label: string;
-  deadlineAt: string | null;
+  deadlineAt: string;
   helpText: string;
   overdueText: string;
 }) {
-  if (!deadlineAt) {
-    return (
-      <section className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-        {label}はまだ設定されていません。管理者からの案内を確認してください。
-      </section>
-    );
-  }
-
   const deadline = new Date(deadlineAt);
   const isOverdue = new Date().getTime() > deadline.getTime();
 
@@ -935,4 +1049,43 @@ function formatDeadlineDateTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function buildDefaultMonthlyDeadlineAt(monthValue: string) {
+  const parts = parseMonthValue(monthValue);
+
+  if (!parts) {
+    return new Date().toISOString();
+  }
+
+  const nextMonth = new Date(Date.UTC(parts.year, parts.month, 10, 14, 59, 0));
+
+  return nextMonth.toISOString();
+}
+
+function buildDefaultSalaryScreenshotDeadlineAt(monthValue: string) {
+  const parts = parseMonthValue(monthValue);
+
+  if (!parts) {
+    return new Date().toISOString();
+  }
+
+  const lastDayOfNextMonth = new Date(
+    Date.UTC(parts.year, parts.month + 1, 0, 14, 59, 0)
+  );
+
+  return lastDayOfNextMonth.toISOString();
+}
+
+function parseMonthValue(monthValue: string) {
+  const match = monthValue.match(/^(\d{4})-(\d{2})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+  };
 }

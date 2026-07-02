@@ -404,6 +404,7 @@ export default function MonthlyDataForm({
         updatePlayer={updatePlayer}
         isSalaryAmountDisabled={isLocked}
         isScreenshotDisabled={!canSaveSalaryScreenshots}
+        canSubmit={canSaveSalaryScreenshots && players.length > 0}
       />
 
       <MetricSection
@@ -436,36 +437,32 @@ export default function MonthlyDataForm({
         disabled={isLocked}
       />
 
-      <div className="flex flex-wrap gap-3">
-        <button
-          type="submit"
-          name="action_type"
-          value="draft"
-          disabled={isSubmitDisabled}
-          className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          下書き保存
-        </button>
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="text-sm font-bold text-slate-900">月データ</p>
+        <p className="mt-1 text-xs text-slate-500">
+          X、YouTube、クラブ活動の内容を保存・提出します。
+        </p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            type="submit"
+            name="action_type"
+            value="draft"
+            disabled={isSubmitDisabled}
+            className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            下書き保存
+          </button>
 
-        <button
-          type="submit"
-          name="action_type"
-          value="submit"
-          disabled={isSubmitDisabled}
-          className="rounded-lg bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          審査提出
-        </button>
-
-        <button
-          type="submit"
-          name="action_type"
-          value="salary_screenshots"
-          disabled={!canSaveSalaryScreenshots || players.length === 0}
-          className="rounded-lg bg-sky-600 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          給与スクリーンショット保存
-        </button>
+          <button
+            type="submit"
+            name="action_type"
+            value="submit"
+            disabled={isSubmitDisabled}
+            className="rounded-lg bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            審査提出
+          </button>
+        </div>
       </div>
     </form>
   );
@@ -841,11 +838,13 @@ function SalarySection({
   updatePlayer,
   isSalaryAmountDisabled,
   isScreenshotDisabled,
+  canSubmit,
 }: {
   players: MonthlyPlayerRow[];
   updatePlayer: (index: number, key: PlayerField, value: string) => void;
   isSalaryAmountDisabled: boolean;
   isScreenshotDisabled: boolean;
+  canSubmit: boolean;
 }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -955,6 +954,36 @@ function SalarySection({
           </table>
         </div>
       ) : null}
+
+      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <p className="text-sm font-bold text-slate-900">
+          給与スクリーンショット
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          選手給与と給与スクリーンショットのみ保存・提出します。
+        </p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            type="submit"
+            name="action_type"
+            value="salary_screenshots_draft"
+            disabled={!canSubmit}
+            className="rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            下書き保存
+          </button>
+
+          <button
+            type="submit"
+            name="action_type"
+            value="salary_screenshots_submit"
+            disabled={!canSubmit}
+            className="rounded-lg bg-sky-600 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            審査提出
+          </button>
+        </div>
+      </div>
     </section>
   );
 }
