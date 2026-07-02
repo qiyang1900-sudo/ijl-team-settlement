@@ -20,6 +20,7 @@ type MonthlyDataFormProps = {
   initialPlayers: MonthlyPlayerRow[];
   clubActivityItems: ClubActivityItem[];
   isLocked: boolean;
+  canSaveSalaryScreenshots: boolean;
 };
 
 type PlayerField = keyof MonthlyPlayerRow;
@@ -304,6 +305,7 @@ export default function MonthlyDataForm({
   initialPlayers,
   clubActivityItems,
   isLocked,
+  canSaveSalaryScreenshots,
 }: MonthlyDataFormProps) {
   const [activities, setActivities] = useState<ClubActivityItem[]>(
     clubActivityItems.length > 0 ? clubActivityItems : [emptyClubActivityItem()]
@@ -400,7 +402,8 @@ export default function MonthlyDataForm({
       <SalarySection
         players={players}
         updatePlayer={updatePlayer}
-        disabled={isLocked}
+        isSalaryAmountDisabled={isLocked}
+        isScreenshotDisabled={!canSaveSalaryScreenshots}
       />
 
       <MetricSection
@@ -452,6 +455,16 @@ export default function MonthlyDataForm({
           className="rounded-lg bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
           審査提出
+        </button>
+
+        <button
+          type="submit"
+          name="action_type"
+          value="salary_screenshots"
+          disabled={!canSaveSalaryScreenshots || players.length === 0}
+          className="rounded-lg bg-sky-600 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          給与スクリーンショット保存
         </button>
       </div>
     </form>
@@ -826,11 +839,13 @@ function formatOcrResult(
 function SalarySection({
   players,
   updatePlayer,
-  disabled,
+  isSalaryAmountDisabled,
+  isScreenshotDisabled,
 }: {
   players: MonthlyPlayerRow[];
   updatePlayer: (index: number, key: PlayerField, value: string) => void;
-  disabled: boolean;
+  isSalaryAmountDisabled: boolean;
+  isScreenshotDisabled: boolean;
 }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -890,7 +905,7 @@ function SalarySection({
                       onChange={(event) =>
                         updatePlayer(index, "salaryAmount", event.target.value)
                       }
-                      disabled={disabled}
+                      disabled={isSalaryAmountDisabled}
                       aria-label={`${player.playerName || `選手 ${index + 1}`} 選手給与`}
                       className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm outline-none focus:border-slate-900 disabled:bg-slate-100"
                     />
@@ -900,7 +915,7 @@ function SalarySection({
                       type="file"
                       name={`salary_screenshot_${index}`}
                       accept="image/*"
-                      disabled={disabled}
+                      disabled={isScreenshotDisabled}
                       className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs disabled:bg-slate-100"
                     />
                   </td>
