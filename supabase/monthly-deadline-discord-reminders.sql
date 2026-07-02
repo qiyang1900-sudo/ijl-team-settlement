@@ -4,9 +4,32 @@ alter table teams add column if not exists discord_mention_text text;
 create table if not exists monthly_data_settings (
   target_month text primary key,
   deadline_at timestamptz,
+  salary_screenshot_deadline_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table monthly_data_settings
+  add column if not exists salary_screenshot_deadline_at timestamptz;
+
+update monthly_data_settings
+set
+  deadline_at =
+    (
+      ((target_month || '-01')::date + interval '1 month' + interval '9 days' + interval '23 hours 59 minutes')
+      at time zone 'Asia/Tokyo'
+    ),
+  salary_screenshot_deadline_at =
+    (
+      (
+        date_trunc('month', (target_month || '-01')::date + interval '2 month')
+        - interval '1 day'
+        + interval '23 hours 59 minutes'
+      )
+      at time zone 'Asia/Tokyo'
+    ),
+  updated_at = now()
+where target_month ~ '^\d{4}-\d{2}$';
 
 create table if not exists discord_reminder_logs (
   id uuid primary key default gen_random_uuid(),
