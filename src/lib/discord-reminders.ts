@@ -11,7 +11,10 @@ export type DiscordReminderTeam = {
   discord_mention_text: string | null;
 };
 
-export type DiscordReminderKind = "monthly_data" | "project_submission";
+export type DiscordReminderKind =
+  | "monthly_data"
+  | "monthly_salary_screenshot"
+  | "project_submission";
 
 export type DiscordReminderResult =
   | "sent"

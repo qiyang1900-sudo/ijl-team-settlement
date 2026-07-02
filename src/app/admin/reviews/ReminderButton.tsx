@@ -16,13 +16,25 @@ type ReminderResponse = {
 export default function ReminderButton({
   scope,
   projectTeamId,
+  monthlySubmissionId,
+  teamId,
+  targetMonth,
   label,
   confirmMessage,
   disabled,
   compact = false,
 }: {
-  scope: "project_all" | "project_single";
+  scope:
+    | "project_all"
+    | "project_single"
+    | "monthly_all"
+    | "monthly_single"
+    | "monthly_salary_all"
+    | "monthly_salary_single";
   projectTeamId?: string;
+  monthlySubmissionId?: string;
+  teamId?: string;
+  targetMonth?: string;
   label: string;
   confirmMessage: string;
   disabled?: boolean;
@@ -49,7 +61,13 @@ export default function ReminderButton({
       const response = await fetch("/api/admin/submission-reminders", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ scope, projectTeamId }),
+        body: JSON.stringify({
+          scope,
+          projectTeamId,
+          monthlySubmissionId,
+          teamId,
+          targetMonth,
+        }),
       });
       const result = (await response.json()) as ReminderResponse;
 

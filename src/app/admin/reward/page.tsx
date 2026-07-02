@@ -5,6 +5,7 @@ import { formatDateTime } from "@/lib/date-format";
 import { parseClubActivityItems } from "@/lib/club-activities";
 import DeleteMonthlySubmissionButton from "./DeleteMonthlySubmissionButton";
 import ImagePreview from "./ImagePreview";
+import ReminderButton from "../reviews/ReminderButton";
 import {
   MonthlyDataStatus,
   MonthlyPlayerRow,
@@ -12,6 +13,9 @@ import {
   formatMonthlyNumber,
   getMonthlyAdminStatusLabel,
   getMonthlyStatusTone,
+  getSalaryScreenshotSummary,
+  isMonthlyReminderEligibleMonth,
+  monthlyReminderStartMonth,
   normalizeMonthlyStatus,
   parseMonthlyPlayerRows,
   splitMonthlyRows,
@@ -41,9 +45,27 @@ type MonthlySubmissionRow = {
   approved_at: string | null;
   updated_at: string | null;
   teams: {
+    id?: string | null;
     name: string | null;
     short_name: string | null;
+    is_active?: boolean | null;
   } | null;
+  deadline_at?: string | null;
+  salary_screenshot_deadline_at?: string | null;
+  isSynthetic?: boolean;
+};
+
+type TeamRow = {
+  id: string;
+  name: string | null;
+  short_name: string | null;
+  is_active: boolean | null;
+};
+
+type MonthlySettingRow = {
+  target_month: string;
+  deadline_at: string | null;
+  salary_screenshot_deadline_at?: string | null;
 };
 
 async function updateMonthlyDataStatus(formData: FormData) {
@@ -142,24 +164,46 @@ export default async function RewardPage() {
   }
 
   const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
-  const { data, error } = await supabase
-    .from("monthly_data_submissions")
-    .select(
+  const [submissionResult, settingsResult, teamsResult] = await Promise.all([
+    supabase
+      .from("monthly_data_submissions")
+      .select(
+        `
+        *,
+        teams (
+          id,
+          name,
+          short_name,
+          is_active
+        )
       `
-      *,
-      teams (
-        name,
-        short_name
       )
-    `
-    )
-    .order("updated_at", { ascending: false });
-
-  const rows = (data || []) as MonthlySubmissionRow[];
+      .order("updated_at", { ascending: false }),
+    supabase.from("monthly_data_settings").select("*"),
+    supabase
+      .from("teams")
+      .select("id, name, short_name, is_active")
+      .eq("is_active", true),
+  ]);
+  const error = submissionResult.error || settingsResult.error || teamsResult.error;
+  const rows = buildMonthlyReviewRows({
+    submissions: (submissionResult.data || []) as MonthlySubmissionRow[],
+    settings: (settingsResult.data || []) as MonthlySettingRow[],
+    teams: (teamsResult.data || []) as TeamRow[],
+  });
   const grouped = groupRows(rows);
   const alertMap = buildReviewAlertMap(rows);
   const alertCount = Array.from(alertMap.values()).filter(
     (alerts) => alerts.length > 0
+  ).length;
+  const reminderRows = rows.filter((row) =>
+    isMonthlyReminderEligibleMonth(row.target_month)
+  );
+  const salaryMissingRows = reminderRows.filter((row) =>
+    isSalaryScreenshotMissing(row)
+  );
+  const monthlyReminderCount = reminderRows.filter((row) =>
+    isMonthlyReminderTarget(row.status)
   ).length;
 
   return (
@@ -194,7 +238,8 @@ export default async function RewardPage() {
           </div>
         ) : (
           <>
-            <div className="mb-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+            <div className="mb-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
+              <StatCard label="未提交" count={grouped.notSubmitted.length} color="slate" />
               <StatCard label="已提交" count={grouped.submitted.length} color="yellow" />
               <StatCard label="审核中" count={grouped.reviewing.length} color="orange" />
               <StatCard label="需人工确认" count={alertCount} color="amber" />
@@ -203,7 +248,40 @@ export default async function RewardPage() {
               <StatCard label="已保存" count={grouped.draft.length} color="blue" />
             </div>
 
+            <div className="mb-6 rounded-xl border border-sky-400/40 bg-sky-950/30 p-4">
+              <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+                <div>
+                  <h2 className="text-base font-bold text-sky-100">
+                    Discord 立即提醒
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-300">
+                    只提醒 {formatMonthLabel(monthlyReminderStartMonth)} 之后的月数据和給与截图。
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <ReminderButton
+                    scope="monthly_all"
+                    label={`提醒月数据 ${monthlyReminderCount} 条`}
+                    confirmMessage="确定立即提醒所有月数据未提交、已保存或已驳回需补充的战队吗？"
+                    disabled={monthlyReminderCount === 0}
+                  />
+                  <ReminderButton
+                    scope="monthly_salary_all"
+                    label={`提醒給与截图 ${salaryMissingRows.length} 条`}
+                    confirmMessage="确定立即提醒所有給与截图未提交或部分提交的战队吗？"
+                    disabled={salaryMissingRows.length === 0}
+                  />
+                </div>
+              </div>
+            </div>
+
             <div className="space-y-6">
+              <ReviewSection
+                title="未提交"
+                rows={grouped.notSubmitted}
+                color="slate"
+                alertMap={alertMap}
+              />
               <ReviewSection
                 title="已提交"
                 rows={grouped.submitted}
@@ -242,8 +320,77 @@ export default async function RewardPage() {
   );
 }
 
+function buildMonthlyReviewRows({
+  submissions,
+  settings,
+  teams,
+}: {
+  submissions: MonthlySubmissionRow[];
+  settings: MonthlySettingRow[];
+  teams: TeamRow[];
+}) {
+  const settingByMonth = new Map(
+    settings.map((setting) => [setting.target_month, setting])
+  );
+  const submissionByTeamMonth = new Map(
+    submissions.map((row) => [`${row.team_id}:${row.target_month}`, row])
+  );
+  const activeTeams = teams.filter((team) => team.is_active !== false);
+  const syntheticRows = settings.flatMap((setting) =>
+    activeTeams
+      .filter((team) => !submissionByTeamMonth.has(`${team.id}:${setting.target_month}`))
+      .map((team) => ({
+        id: `missing-${setting.target_month}-${team.id}`,
+        team_id: team.id,
+        target_month: setting.target_month,
+        status: "not_submitted",
+        player_rows: [],
+        club_activity_link: null,
+        club_activity_image_url: null,
+        club_activity_image_name: null,
+        club_activity_image_mime_type: null,
+        club_activity_image_storage_path: null,
+        return_reason: null,
+        submitted_at: null,
+        reviewing_at: null,
+        returned_at: null,
+        approved_at: null,
+        updated_at: setting.deadline_at || setting.salary_screenshot_deadline_at || null,
+        teams: team,
+        deadline_at: setting.deadline_at,
+        salary_screenshot_deadline_at: setting.salary_screenshot_deadline_at || null,
+        isSynthetic: true,
+      }))
+  );
+  const rowsWithDeadlines = submissions.map((row) => {
+    const setting = settingByMonth.get(row.target_month);
+
+    return {
+      ...row,
+      deadline_at: setting?.deadline_at || null,
+      salary_screenshot_deadline_at:
+        setting?.salary_screenshot_deadline_at || null,
+    };
+  });
+
+  return [...rowsWithDeadlines, ...syntheticRows].sort((a, b) => {
+    const monthCompare = String(b.target_month).localeCompare(String(a.target_month));
+
+    if (monthCompare !== 0) {
+      return monthCompare;
+    }
+
+    return String(a.teams?.short_name || a.teams?.name || "").localeCompare(
+      String(b.teams?.short_name || b.teams?.name || "")
+    );
+  });
+}
+
 function groupRows(rows: MonthlySubmissionRow[]) {
   return {
+    notSubmitted: rows.filter(
+      (row) => normalizeMonthlyStatus(row.status) === "not_submitted"
+    ),
     draft: rows.filter((row) => normalizeMonthlyStatus(row.status) === "draft"),
     submitted: rows.filter(
       (row) => normalizeMonthlyStatus(row.status) === "submitted"
@@ -258,6 +405,26 @@ function groupRows(rows: MonthlySubmissionRow[]) {
       (row) => normalizeMonthlyStatus(row.status) === "approved"
     ),
   };
+}
+
+function getSalarySummaryForRow(row: MonthlySubmissionRow) {
+  const { playerRows } = splitMonthlyRows(parseMonthlyPlayerRows(row.player_rows));
+
+  return getSalaryScreenshotSummary(playerRows);
+}
+
+function isSalaryScreenshotMissing(row: MonthlySubmissionRow) {
+  return !getSalarySummaryForRow(row).isComplete;
+}
+
+function isMonthlyReminderTarget(status: string | null | undefined) {
+  const normalized = normalizeMonthlyStatus(status);
+
+  return (
+    normalized === "not_submitted" ||
+    normalized === "draft" ||
+    normalized === "returned"
+  );
 }
 
 function buildReviewAlertMap(rows: MonthlySubmissionRow[]) {
@@ -284,7 +451,7 @@ function StatCard({
 }: {
   label: string;
   count: number;
-  color: "yellow" | "orange" | "amber" | "red" | "green" | "blue";
+  color: "yellow" | "orange" | "amber" | "red" | "green" | "blue" | "slate";
 }) {
   const colorClass = {
     yellow: "border-yellow-500 bg-yellow-950 text-yellow-200",
@@ -293,6 +460,7 @@ function StatCard({
     red: "border-red-500 bg-red-950 text-red-200",
     green: "border-green-500 bg-green-950 text-green-200",
     blue: "border-blue-500 bg-blue-950 text-blue-200",
+    slate: "border-slate-700 bg-slate-900 text-slate-200",
   }[color];
 
   return (
@@ -313,7 +481,7 @@ function ReviewSection({
 }: {
   title: string;
   rows: MonthlySubmissionRow[];
-  color: "yellow" | "orange" | "red" | "green" | "blue";
+  color: "yellow" | "orange" | "red" | "green" | "blue" | "slate";
   alertMap: Map<string, MonthlyReviewAlert[]>;
 }) {
   const colorClass = {
@@ -322,6 +490,7 @@ function ReviewSection({
     red: "border-red-500 bg-red-950 text-red-200",
     green: "border-green-500 bg-green-950 text-green-200",
     blue: "border-blue-500 bg-blue-950 text-blue-200",
+    slate: "border-slate-700 bg-slate-900 text-slate-200",
   }[color];
 
   return (
@@ -366,6 +535,7 @@ function ReviewRow({
   const { officialRow, playerRows: players } = splitMonthlyRows(
     parseMonthlyPlayerRows(row.player_rows)
   );
+  const salarySummary = getSalarySummaryForRow(row);
   const totalSalary = players.reduce((sum, player) => {
     const amount = Number(player.salaryAmount || 0);
     return sum + (Number.isFinite(amount) ? amount : 0);
@@ -373,7 +543,7 @@ function ReviewRow({
 
   return (
     <article className="rounded-lg border border-slate-700 bg-slate-950/50 p-4">
-      <div className="grid gap-4 lg:grid-cols-[180px_120px_140px_140px_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[160px_110px_120px_150px_150px_140px_minmax(0,1fr)]">
         <CompactInfo
           label="战队"
           value={`${row.teams?.name || "-"}${row.teams?.short_name ? `（${row.teams.short_name}）` : ""}`}
@@ -385,12 +555,61 @@ function ReviewRow({
             {getMonthlyAdminStatusLabel(status)}
           </span>
         </div>
-        <CompactInfo label="选手給与合计" value={`${formatMonthlyNumber(totalSalary)} 円`} />
         <CompactInfo
-          label="提交时间"
-          value={row.submitted_at ? formatDateTime(row.submitted_at) : "-"}
+          label="月数据截止"
+          value={row.deadline_at ? formatDateTime(row.deadline_at) : "-"}
         />
+        <CompactInfo
+          label="給与截图截止"
+          value={
+            row.salary_screenshot_deadline_at
+              ? formatDateTime(row.salary_screenshot_deadline_at)
+              : "-"
+          }
+        />
+        <CompactInfo label="选手給与合计" value={`${formatMonthlyNumber(totalSalary)} 円`} />
+        <div className="min-w-0">
+          <p className="text-xs text-slate-500">給与截图</p>
+          <p className="mt-1 text-sm font-semibold text-slate-200">
+            {salarySummary.label}
+          </p>
+        </div>
       </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {isMonthlyReminderEligibleMonth(row.target_month) &&
+        isMonthlyReminderTarget(row.status) &&
+        row.team_id ? (
+          <ReminderButton
+            scope="monthly_single"
+            monthlySubmissionId={row.isSynthetic ? undefined : row.id}
+            teamId={row.team_id}
+            targetMonth={row.target_month}
+            label="月数据立即提醒"
+            confirmMessage={`确定立即提醒 ${row.teams?.short_name || row.teams?.name || "该战队"} 提交 ${formatMonthLabel(row.target_month)} 月数据吗？`}
+            compact
+          />
+        ) : null}
+        {isMonthlyReminderEligibleMonth(row.target_month) &&
+        isSalaryScreenshotMissing(row) &&
+        row.team_id ? (
+          <ReminderButton
+            scope="monthly_salary_single"
+            monthlySubmissionId={row.isSynthetic ? undefined : row.id}
+            teamId={row.team_id}
+            targetMonth={row.target_month}
+            label="給与截图提醒"
+            confirmMessage={`确定立即提醒 ${row.teams?.short_name || row.teams?.name || "该战队"} 提交 ${formatMonthLabel(row.target_month)} 給与截图吗？`}
+            compact
+          />
+        ) : null}
+      </div>
+
+      {row.submitted_at ? (
+        <div className="mt-3 text-xs text-slate-500">
+          提交时间：{formatDateTime(row.submitted_at)}
+        </div>
+      ) : null}
 
       {row.return_reason ? (
         <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-950/30 p-3">
@@ -403,22 +622,30 @@ function ReviewRow({
 
       {alerts.length > 0 ? <ReviewAlertPanel alerts={alerts} /> : null}
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
-        <PlayerDataTable players={players} />
-        <div className="space-y-4">
-          <OfficialDataPanel officialRow={officialRow} />
-          <ActivityPanel row={row} />
+      {row.isSynthetic ? (
+        <div className="mt-4 rounded-lg border border-slate-700 bg-slate-900/60 p-4 text-sm text-slate-400">
+          この戦隊はまだこの月の月データを提出していません。
         </div>
-      </div>
+      ) : (
+        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px]">
+          <PlayerDataTable players={players} />
+          <div className="space-y-4">
+            <OfficialDataPanel officialRow={officialRow} />
+            <ActivityPanel row={row} />
+          </div>
+        </div>
+      )}
 
-      <AdminActions row={row} status={status} />
+      {row.isSynthetic ? null : <AdminActions row={row} status={status} />}
 
-      <div className="mt-4 border-t border-slate-800 pt-4">
-        <DeleteMonthlySubmissionButton
-          submissionId={row.id}
-          action={deleteMonthlyDataSubmission}
-        />
-      </div>
+      {row.isSynthetic ? null : (
+        <div className="mt-4 border-t border-slate-800 pt-4">
+          <DeleteMonthlySubmissionButton
+            submissionId={row.id}
+            action={deleteMonthlyDataSubmission}
+          />
+        </div>
+      )}
     </article>
   );
 }

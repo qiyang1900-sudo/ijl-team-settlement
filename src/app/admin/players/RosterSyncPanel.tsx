@@ -14,16 +14,22 @@ export default function RosterSyncPanel({
   defaultMonth,
   syncedMonth,
   syncedDeadline,
+  syncedSalaryDeadline,
 }: {
   action: (formData: FormData) => void | Promise<void>;
   monthOptions: MonthOption[];
   defaultMonth: string;
   syncedMonth?: string;
   syncedDeadline?: string;
+  syncedSalaryDeadline?: string;
 }) {
   const [targetMonth, setTargetMonth] = useState(defaultMonth);
-  const defaultDeadline = useMemo(
-    () => buildDefaultDeadlineParts(targetMonth),
+  const defaultMonthlyDeadline = useMemo(
+    () => buildDefaultMonthlyDeadlineParts(targetMonth),
+    [targetMonth]
+  );
+  const defaultSalaryScreenshotDeadline = useMemo(
+    () => buildDefaultSalaryScreenshotDeadlineParts(targetMonth),
     [targetMonth]
   );
 
@@ -31,12 +37,18 @@ export default function RosterSyncPanel({
     if (syncedMonth) {
       window.alert(
         `月別名簿を更新しました：${formatMonthLabel(syncedMonth)}${
-          syncedDeadline ? `\n提出期限：${formatDateTime(syncedDeadline)}` : ""
+          syncedDeadline ? `\n月データ提出期限：${formatDateTime(syncedDeadline)}` : ""
+        }${
+          syncedSalaryDeadline
+            ? `\n給与スクリーンショット期限：${formatDateTime(
+                syncedSalaryDeadline
+              )}`
+            : ""
         }`
       );
       window.history.replaceState(null, "", window.location.pathname);
     }
-  }, [syncedDeadline, syncedMonth]);
+  }, [syncedDeadline, syncedMonth, syncedSalaryDeadline]);
 
   return (
     <details
@@ -54,8 +66,11 @@ export default function RosterSyncPanel({
         <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-100">
           已修改：{formatMonthLabel(syncedMonth)} 的月别名单。
           {syncedDeadline ? (
+            <span className="ml-2">月数据：{formatDateTime(syncedDeadline)}</span>
+          ) : null}
+          {syncedSalaryDeadline ? (
             <span className="ml-2">
-              提交截止时间：{formatDateTime(syncedDeadline)}
+              給与截图：{formatDateTime(syncedSalaryDeadline)}
             </span>
           ) : null}
         </div>
@@ -63,7 +78,7 @@ export default function RosterSyncPanel({
 
       <form
         action={action}
-        className="mt-4 grid gap-3 lg:grid-cols-[180px_1fr_auto] lg:items-end"
+        className="mt-4 grid gap-4 xl:grid-cols-[180px_minmax(0,1fr)_minmax(0,1fr)_auto] xl:items-end"
         onSubmit={(event) => {
           const formData = new FormData(event.currentTarget);
           const month = String(formData.get("target_month") || defaultMonth);
@@ -74,8 +89,15 @@ export default function RosterSyncPanel({
           ]
             .filter(Boolean)
             .join("/");
+          const salaryDeadlineText = [
+            formData.get("salary_screenshot_deadline_year"),
+            formData.get("salary_screenshot_deadline_month"),
+            formData.get("salary_screenshot_deadline_day"),
+          ]
+            .filter(Boolean)
+            .join("/");
           const confirmed = window.confirm(
-            `确定要按当前所属生成 ${formatMonthLabel(month)} 的月别名单吗？\n提交截止日期：${deadlineText}\n\n如果这个月份已经有名单，会被当前所属名单覆盖。`
+            `确定要按当前所属生成 ${formatMonthLabel(month)} 的月别名单吗？\n月数据提交截止：${deadlineText}\n給与截图截止：${salaryDeadlineText}\n\n如果这个月份已经有名单，会被当前所属名单覆盖。`
           );
 
           if (!confirmed) {
@@ -98,47 +120,71 @@ export default function RosterSyncPanel({
             ))}
           </select>
         </label>
-        <div>
-          <p className="text-sm text-slate-300">月数据提交截止时间</p>
-          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
-            <Select
-              name="deadline_year"
-              label="年"
-              options={buildYearOptions(targetMonth)}
-              value={defaultDeadline.year}
-            />
-            <Select
-              name="deadline_month"
-              label="月"
-              options={buildNumberOptions(1, 12)}
-              value={defaultDeadline.month}
-            />
-            <Select
-              name="deadline_day"
-              label="日"
-              options={buildNumberOptions(
-                1,
-                getDaysInMonth(defaultDeadline.year, defaultDeadline.month)
-              )}
-              value={defaultDeadline.day}
-            />
-            <Select
-              name="deadline_hour"
-              label="時"
-              options={buildNumberOptions(0, 23)}
-              value={defaultDeadline.hour}
-            />
-            <Select
-              name="deadline_minute"
-              label="分"
-              options={[0, 15, 30, 45, 59]}
-              value={defaultDeadline.minute}
-            />
-          </div>
-        </div>
+        <DeadlineSelectGroup
+          title="月数据提交截止时间"
+          prefix="deadline"
+          parts={defaultMonthlyDeadline}
+          targetMonth={targetMonth}
+        />
+        <DeadlineSelectGroup
+          title="給与截图提交截止时间"
+          prefix="salary_screenshot_deadline"
+          parts={defaultSalaryScreenshotDeadline}
+          targetMonth={targetMonth}
+        />
         <SubmitButton />
       </form>
     </details>
+  );
+}
+
+function DeadlineSelectGroup({
+  title,
+  prefix,
+  parts,
+  targetMonth,
+}: {
+  title: string;
+  prefix: string;
+  parts: DeadlineParts;
+  targetMonth: string;
+}) {
+  return (
+    <div>
+      <p className="text-sm text-slate-300">{title}</p>
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <Select
+          name={`${prefix}_year`}
+          label="年"
+          options={buildYearOptions(targetMonth)}
+          value={parts.year}
+        />
+        <Select
+          name={`${prefix}_month`}
+          label="月"
+          options={buildNumberOptions(1, 12)}
+          value={parts.month}
+        />
+        <Select
+          name={`${prefix}_day`}
+          label="日"
+          options={buildNumberOptions(1, getDaysInMonth(parts.year, parts.month))}
+          value={parts.day}
+        />
+        <Select
+          name={`${prefix}_hour`}
+          label="時"
+          options={buildNumberOptions(0, 23)}
+          value={parts.hour}
+        />
+        <Select
+          name={`${prefix}_minute`}
+          label="分"
+          options={[0, 15, 30, 45, 59]}
+          value={parts.minute}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -185,17 +231,37 @@ function Select({
   );
 }
 
-function buildDefaultDeadlineParts(monthValue: string) {
+type DeadlineParts = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+};
+
+function buildDefaultMonthlyDeadlineParts(monthValue: string): DeadlineParts {
   const [yearValue, monthPart] = monthValue.split("-").map(Number);
   const year = Number.isFinite(yearValue) ? yearValue : new Date().getFullYear();
   const month = Number.isFinite(monthPart) ? monthPart : new Date().getMonth() + 1;
+  const nextMonth = new Date(year, month, 1);
 
   return {
-    year,
-    month,
-    day: getDaysInMonth(year, month),
+    year: nextMonth.getFullYear(),
+    month: nextMonth.getMonth() + 1,
+    day: 10,
     hour: 23,
     minute: 59,
+  };
+}
+
+function buildDefaultSalaryScreenshotDeadlineParts(
+  monthValue: string
+): DeadlineParts {
+  const monthlyDeadline = buildDefaultMonthlyDeadlineParts(monthValue);
+
+  return {
+    ...monthlyDeadline,
+    day: getDaysInMonth(monthlyDeadline.year, monthlyDeadline.month),
   };
 }
 

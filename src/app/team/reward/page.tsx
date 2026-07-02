@@ -15,6 +15,7 @@ import {
   formatMonthLabel,
   getMonthlyStatusLabel,
   getMonthlyStatusTone,
+  getSalaryScreenshotSummary,
   normalizeMonthlyStatus,
   parseMonthlyPlayerRows,
   splitMonthlyRows,
@@ -42,6 +43,7 @@ type MonthlySubmissionRow = {
 };
 type MonthlyDataSettingRow = {
   deadline_at: string | null;
+  salary_screenshot_deadline_at?: string | null;
 };
 type TeamRecord = {
   id?: string | null;
@@ -118,7 +120,7 @@ async function saveMonthlyData(formData: FormData) {
   const officialRows = parseMonthlyPlayerRows(formData.get("official_row"));
   const officialRow = officialRows[0] || createOfficialMonthlyRow("");
   const playerRows = parseMonthlyPlayerRows(formData.get("player_rows"));
-  const nextStatus = actionType === "submit" ? "submitted" : "draft";
+  const isSalaryScreenshotAction = actionType.startsWith("salary_screenshots");
   const now = new Date().toISOString();
 
   if (!teamId || !targetMonth) {
@@ -133,44 +135,80 @@ async function saveMonthlyData(formData: FormData) {
     .eq("team_id", teamId)
     .eq("target_month", targetMonth)
     .maybeSingle();
+  const nextStatus = isSalaryScreenshotAction
+    ? normalizeMonthlyStatus(existingSubmission?.status)
+    : actionType === "submit"
+      ? "submitted"
+      : "draft";
 
-  const { playerRows: existingPlayerRows } = splitMonthlyRows(
-    parseMonthlyPlayerRows(existingSubmission?.player_rows)
-  );
-  const rowsWithScreenshots = await uploadSalaryScreenshots({
-    formData,
-    playerRows,
-    existingPlayerRows,
-    teamId,
-    targetMonth,
-    storageClient,
-  });
-
-  const uploadedClubActivityItems = await uploadClubActivityImages({
-    formData,
-    items: clubActivityItems,
-    teamId,
-    targetMonth,
-    storageClient,
-  });
-  const primaryClubActivity = getPrimaryClubActivityItem(uploadedClubActivityItems);
+  const { officialRow: existingOfficialRow, playerRows: existingPlayerRows } =
+    splitMonthlyRows(
+      parseMonthlyPlayerRows(existingSubmission?.player_rows)
+    );
+  const rowsForPayload = isSalaryScreenshotAction
+    ? mergeSalaryRowsOnly({
+        salaryRows: await uploadSalaryScreenshots({
+          formData,
+          playerRows,
+          existingPlayerRows,
+          teamId,
+          targetMonth,
+          storageClient,
+        }),
+        existingPlayerRows,
+      })
+    : mergeMonthlyRowsPreservingSalary({
+        monthlyRows: playerRows,
+        existingPlayerRows,
+      });
+  const uploadedClubActivityItems = isSalaryScreenshotAction
+    ? null
+    : await uploadClubActivityImages({
+        formData,
+        items: clubActivityItems,
+        teamId,
+        targetMonth,
+        storageClient,
+      });
+  const primaryClubActivity = uploadedClubActivityItems
+    ? getPrimaryClubActivityItem(uploadedClubActivityItems)
+    : null;
 
   const payload = {
     team_id: teamId,
     target_month: targetMonth,
     status: nextStatus,
-    player_rows: [officialRow, ...rowsWithScreenshots],
-    club_activity_link: serializeClubActivityItems(uploadedClubActivityItems),
-    club_activity_image_url: primaryClubActivity?.imageUrl || null,
-    club_activity_image_name: primaryClubActivity?.imageName || null,
-    club_activity_image_mime_type: primaryClubActivity?.imageMimeType || null,
-    club_activity_image_storage_path:
-      primaryClubActivity?.imageStoragePath || null,
-    return_reason: null,
+    player_rows: [
+      isSalaryScreenshotAction && existingOfficialRow
+        ? existingOfficialRow
+        : officialRow,
+      ...rowsForPayload,
+    ],
+    club_activity_link: isSalaryScreenshotAction
+      ? existingSubmission?.club_activity_link || null
+      : serializeClubActivityItems(uploadedClubActivityItems || []),
+    club_activity_image_url: isSalaryScreenshotAction
+      ? existingSubmission?.club_activity_image_url || null
+      : primaryClubActivity?.imageUrl || null,
+    club_activity_image_name: isSalaryScreenshotAction
+      ? existingSubmission?.club_activity_image_name || null
+      : primaryClubActivity?.imageName || null,
+    club_activity_image_mime_type: isSalaryScreenshotAction
+      ? existingSubmission?.club_activity_image_mime_type || null
+      : primaryClubActivity?.imageMimeType || null,
+    club_activity_image_storage_path: isSalaryScreenshotAction
+      ? existingSubmission?.club_activity_image_storage_path || null
+      : primaryClubActivity?.imageStoragePath || null,
+    return_reason: isSalaryScreenshotAction
+      ? existingSubmission?.return_reason || null
+      : null,
     submitted_at:
       actionType === "submit"
         ? now
         : existingSubmission?.submitted_at || null,
+    reviewing_at: existingSubmission?.reviewing_at || null,
+    returned_at: existingSubmission?.returned_at || null,
+    approved_at: existingSubmission?.approved_at || null,
     updated_at: now,
   };
 
@@ -270,7 +308,9 @@ export default async function TeamRewardPage({
   let playerTableError: string | null = null;
   let isUsingMonthlyAssignments = false;
   let tableError: string | null = null;
-  let monthlyDeadlineAt: string | null = null;
+  let monthlyDeadlineAt = buildDefaultMonthlyDeadlineAt(selectedMonth);
+  let salaryScreenshotDeadlineAt =
+    buildDefaultSalaryScreenshotDeadlineAt(selectedMonth);
 
   if (teamId && supabaseUrl && supabaseAnonKey) {
     await requireTeamAccess(teamId);
@@ -299,13 +339,17 @@ export default async function TeamRewardPage({
 
     const { data: settingData } = await supabase
       .from("monthly_data_settings")
-      .select("deadline_at")
+      .select("*")
       .eq("target_month", selectedMonth)
       .maybeSingle();
 
     monthlyDeadlineAt =
       ((settingData || null) as MonthlyDataSettingRow | null)?.deadline_at ||
-      null;
+      buildDefaultMonthlyDeadlineAt(selectedMonth);
+    salaryScreenshotDeadlineAt =
+      ((settingData || null) as MonthlyDataSettingRow | null)
+        ?.salary_screenshot_deadline_at ||
+      buildDefaultSalaryScreenshotDeadlineAt(selectedMonth);
 
     const { data: assignmentData, error: assignmentError } = await supabase
       .from("monthly_player_assignments")
@@ -427,6 +471,7 @@ export default async function TeamRewardPage({
     assignedPlayerRows.length > 0
       ? mergePlayerRows(assignedPlayerRows, savedPlayerRows)
       : savedPlayerRows;
+  const salaryScreenshotSummary = getSalaryScreenshotSummary(playerRows);
   const clubActivityItems = parseClubActivityItems({
     link: selectedSubmission?.club_activity_link,
     imageUrl: selectedSubmission?.club_activity_image_url,
@@ -435,6 +480,7 @@ export default async function TeamRewardPage({
     imageStoragePath: selectedSubmission?.club_activity_image_storage_path,
   });
   const isLocked = status === "submitted" || status === "reviewing" || status === "approved";
+  const canSaveSalaryScreenshots = status !== "reviewing";
   const dashboardHref = `/team/dashboard?teamId=${encodeURIComponent(teamId)}`;
 
   return (
@@ -471,6 +517,14 @@ export default async function TeamRewardPage({
 
         {result === "cancelled" ? (
           <Notice tone="sky" text="提出を取り消しました。内容を修正して再提出できます。" />
+        ) : null}
+
+        {result === "salary_screenshots_draft" ? (
+          <Notice tone="sky" text="給与スクリーンショットの下書きを保存しました。" />
+        ) : null}
+
+        {result === "salary_screenshots_submit" ? (
+          <Notice tone="emerald" text="給与スクリーンショットを審査提出しました。" />
         ) : null}
 
         {tableError ? (
@@ -533,7 +587,45 @@ export default async function TeamRewardPage({
                 </section>
               ) : null}
 
-              <DeadlineNotice deadlineAt={monthlyDeadlineAt} />
+              <div className="mb-5 grid gap-3 md:grid-cols-2">
+                <DeadlineNotice
+                  label="月データ提出期限"
+                  deadlineAt={monthlyDeadlineAt}
+                  helpText="この日時までに月データを提出してください。"
+                  overdueText="提出期限を過ぎています。未提出または差し戻し中の場合は、早めに提出してください。"
+                />
+                <DeadlineNotice
+                  label="給与スクリーンショット提出期限"
+                  deadlineAt={salaryScreenshotDeadlineAt}
+                  helpText="給与スクリーンショットはこの日時までに補足提出してください。"
+                  overdueText="給与スクリーンショットの提出期限を過ぎています。未提出の場合は早めにアップロードしてください。"
+                />
+              </div>
+
+              <section className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-bold text-slate-900">
+                      給与スクリーンショット提出状況
+                    </p>
+                    <p className="mt-1">
+                      {salaryScreenshotSummary.label}
+                      {salaryScreenshotSummary.total > 0
+                        ? `（未提出 ${salaryScreenshotSummary.missing} 名）`
+                        : ""}
+                    </p>
+                  </div>
+                  <span
+                    className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${
+                      salaryScreenshotSummary.isComplete
+                        ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                        : "bg-amber-50 text-amber-700 ring-amber-200"
+                    }`}
+                  >
+                    {salaryScreenshotSummary.isComplete ? "完了" : "要確認"}
+                  </span>
+                </div>
+              </section>
 
               {selectedSubmission?.return_reason ? (
                 <section className="mb-5 rounded-lg border border-rose-200 bg-rose-50 p-4 text-rose-800">
@@ -579,6 +671,7 @@ export default async function TeamRewardPage({
                 initialPlayers={playerRows}
                 clubActivityItems={clubActivityItems}
                 isLocked={isLocked}
+                canSaveSalaryScreenshots={canSaveSalaryScreenshots}
               />
             </div>
           </div>
@@ -645,6 +738,111 @@ function mergePlayerRows(
     ...mergedRows,
     ...savedRows.filter((savedRow) => !usedSavedRows.has(savedRow)),
   ];
+}
+
+function mergeMonthlyRowsPreservingSalary({
+  monthlyRows,
+  existingPlayerRows,
+}: {
+  monthlyRows: MonthlyPlayerRow[];
+  existingPlayerRows: MonthlyPlayerRow[];
+}) {
+  return monthlyRows.map((monthlyRow, index) => {
+    const existingRow = findMatchingPlayerRow(
+      monthlyRow,
+      existingPlayerRows,
+      index
+    );
+
+    return {
+      ...monthlyRow,
+      salaryAmount: existingRow?.salaryAmount || "",
+      salaryScreenshotName: existingRow?.salaryScreenshotName || "",
+      salaryScreenshotUrl: existingRow?.salaryScreenshotUrl || "",
+      salaryScreenshotStoragePath:
+        existingRow?.salaryScreenshotStoragePath || "",
+      salaryScreenshotMimeType: existingRow?.salaryScreenshotMimeType || "",
+    };
+  });
+}
+
+function mergeSalaryRowsOnly({
+  salaryRows,
+  existingPlayerRows,
+}: {
+  salaryRows: MonthlyPlayerRow[];
+  existingPlayerRows: MonthlyPlayerRow[];
+}) {
+  return salaryRows.map((salaryRow, index) => {
+    const existingRow = findMatchingPlayerRow(
+      salaryRow,
+      existingPlayerRows,
+      index
+    );
+
+    return {
+      ...(existingRow || emptyMonthlyMetrics(salaryRow)),
+      id: salaryRow.id,
+      playerId: salaryRow.playerId,
+      playerHandle: salaryRow.playerHandle,
+      playerReading: salaryRow.playerReading,
+      playerPosition: salaryRow.playerPosition,
+      playerRole: salaryRow.playerRole,
+      playerName: salaryRow.playerName,
+      salaryAmount: salaryRow.salaryAmount,
+      salaryScreenshotName: salaryRow.salaryScreenshotName || "",
+      salaryScreenshotUrl: salaryRow.salaryScreenshotUrl || "",
+      salaryScreenshotStoragePath: salaryRow.salaryScreenshotStoragePath || "",
+      salaryScreenshotMimeType: salaryRow.salaryScreenshotMimeType || "",
+    };
+  });
+}
+
+function findMatchingPlayerRow(
+  row: MonthlyPlayerRow,
+  rows: MonthlyPlayerRow[],
+  fallbackIndex: number
+) {
+  return (
+    rows.find(
+      (candidate) =>
+        row.playerId && candidate.playerId && row.playerId === candidate.playerId
+    ) ||
+    rows.find(
+      (candidate) =>
+        row.playerName &&
+        candidate.playerName &&
+        row.playerName === candidate.playerName
+    ) ||
+    rows.find(
+      (candidate) =>
+        row.playerHandle &&
+        candidate.playerHandle &&
+        row.playerHandle === candidate.playerHandle
+    ) ||
+    rows[fallbackIndex] ||
+    null
+  );
+}
+
+function emptyMonthlyMetrics(row: MonthlyPlayerRow) {
+  return {
+    ...row,
+    xTweetCount: "",
+    xImpressions: "",
+    xEngagements: "",
+    xFanEventCount: "",
+    xFollowerCount: "",
+    youtubeVideoPostCount: "",
+    youtubeVideoViews: "",
+    youtubeShortPostCount: "",
+    youtubeShortViews: "",
+    youtubeLikeCount: "",
+    youtubeStreamCount: "",
+    youtubeStreamViews: "",
+    youtubeTotalImpressions: "",
+    youtubeSubscriberCount: "",
+  };
 }
 
 async function uploadSalaryScreenshots({
@@ -812,34 +1010,32 @@ function Notice({ text, tone }: { text: string; tone: "sky" | "emerald" }) {
   );
 }
 
-function DeadlineNotice({ deadlineAt }: { deadlineAt: string | null }) {
-  if (!deadlineAt) {
-    return (
-      <section className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-        提出期限はまだ設定されていません。管理者からの案内を確認してください。
-      </section>
-    );
-  }
-
+function DeadlineNotice({
+  label,
+  deadlineAt,
+  helpText,
+  overdueText,
+}: {
+  label: string;
+  deadlineAt: string;
+  helpText: string;
+  overdueText: string;
+}) {
   const deadline = new Date(deadlineAt);
   const isOverdue = new Date().getTime() > deadline.getTime();
 
   return (
     <section
-      className={`mb-5 rounded-lg border p-4 text-sm shadow-sm ${
+      className={`rounded-lg border p-4 text-sm shadow-sm ${
         isOverdue
           ? "border-rose-200 bg-rose-50 text-rose-800"
           : "border-emerald-200 bg-emerald-50 text-emerald-800"
       }`}
     >
       <p className="font-bold">
-        月データ提出期限：{formatDeadlineDateTime(deadlineAt)}
+        {label}：{formatDeadlineDateTime(deadlineAt)}
       </p>
-      <p className="mt-1">
-        {isOverdue
-          ? "提出期限を過ぎています。未提出または差し戻し中の場合は、早めに提出してください。"
-          : "この日時までに月データを提出してください。"}
-      </p>
+      <p className="mt-1">{isOverdue ? overdueText : helpText}</p>
     </section>
   );
 }
@@ -853,4 +1049,43 @@ function formatDeadlineDateTime(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function buildDefaultMonthlyDeadlineAt(monthValue: string) {
+  const parts = parseMonthValue(monthValue);
+
+  if (!parts) {
+    return new Date().toISOString();
+  }
+
+  const nextMonth = new Date(Date.UTC(parts.year, parts.month, 10, 14, 59, 0));
+
+  return nextMonth.toISOString();
+}
+
+function buildDefaultSalaryScreenshotDeadlineAt(monthValue: string) {
+  const parts = parseMonthValue(monthValue);
+
+  if (!parts) {
+    return new Date().toISOString();
+  }
+
+  const lastDayOfNextMonth = new Date(
+    Date.UTC(parts.year, parts.month + 1, 0, 14, 59, 0)
+  );
+
+  return lastDayOfNextMonth.toISOString();
+}
+
+function parseMonthValue(monthValue: string) {
+  const match = monthValue.match(/^(\d{4})-(\d{2})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+  };
 }

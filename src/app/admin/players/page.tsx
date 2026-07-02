@@ -126,10 +126,18 @@ async function syncCurrentRosterToMonth(formData: FormData) {
   const targetMonth =
     String(formData.get("target_month") || "") ||
     new Date().toISOString().slice(0, 7);
-  const deadlineAt = buildDeadlineAt(formData);
+  const deadlineAt = buildDeadlineAt(formData, "deadline");
+  const salaryScreenshotDeadlineAt = buildDeadlineAt(
+    formData,
+    "salary_screenshot_deadline"
+  );
 
   if (!deadlineAt) {
     throw new Error("请选择有效的月数据提交截止时间。");
+  }
+
+  if (!salaryScreenshotDeadlineAt) {
+    throw new Error("请选择有效的給与截图提交截止时间。");
   }
 
   const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
@@ -167,16 +175,30 @@ async function syncCurrentRosterToMonth(formData: FormData) {
     }
   }
 
-  const { error: settingError } = await supabase
+  const settingPayload = {
+    target_month: targetMonth,
+    deadline_at: deadlineAt,
+    salary_screenshot_deadline_at: salaryScreenshotDeadlineAt,
+    updated_at: new Date().toISOString(),
+  };
+  let { error: settingError } = await supabase
     .from("monthly_data_settings")
-    .upsert(
-      {
-        target_month: targetMonth,
-        deadline_at: deadlineAt,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "target_month" }
-    );
+    .upsert(settingPayload, { onConflict: "target_month" });
+
+  if (
+    settingError &&
+    settingError.message.includes("salary_screenshot_deadline_at")
+  ) {
+    const fallbackPayload = {
+      target_month: targetMonth,
+      deadline_at: deadlineAt,
+      updated_at: new Date().toISOString(),
+    };
+    const fallbackResult = await supabase
+      .from("monthly_data_settings")
+      .upsert(fallbackPayload, { onConflict: "target_month" });
+    settingError = fallbackResult.error;
+  }
 
   if (settingError) {
     throw new Error(settingError.message);
@@ -185,17 +207,26 @@ async function syncCurrentRosterToMonth(formData: FormData) {
   redirect(
     `/admin/players?synced_month=${encodeURIComponent(
       targetMonth
-    )}&synced_deadline=${encodeURIComponent(deadlineAt)}`
+    )}&synced_deadline=${encodeURIComponent(
+      deadlineAt
+    )}&synced_salary_deadline=${encodeURIComponent(salaryScreenshotDeadlineAt)}`
   );
 }
 
 export default async function AdminPlayersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ synced_month?: string; synced_deadline?: string }>;
+  searchParams: Promise<{
+    synced_month?: string;
+    synced_deadline?: string;
+    synced_salary_deadline?: string;
+  }>;
 }) {
-  const { synced_month: syncedMonth, synced_deadline: syncedDeadline } =
-    await searchParams;
+  const {
+    synced_month: syncedMonth,
+    synced_deadline: syncedDeadline,
+    synced_salary_deadline: syncedSalaryDeadline,
+  } = await searchParams;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -293,6 +324,7 @@ export default async function AdminPlayersPage({
               defaultMonth={currentMonth}
               syncedMonth={syncedMonth}
               syncedDeadline={syncedDeadline}
+              syncedSalaryDeadline={syncedSalaryDeadline}
             />
 
             <PlayerRosterSelect
@@ -344,12 +376,12 @@ export default async function AdminPlayersPage({
   );
 }
 
-function buildDeadlineAt(formData: FormData) {
-  const year = Number(formData.get("deadline_year") || "");
-  const month = Number(formData.get("deadline_month") || "");
-  const day = Number(formData.get("deadline_day") || "");
-  const hour = Number(formData.get("deadline_hour") || "");
-  const minute = Number(formData.get("deadline_minute") || "");
+function buildDeadlineAt(formData: FormData, fieldPrefix: string) {
+  const year = Number(formData.get(`${fieldPrefix}_year`) || "");
+  const month = Number(formData.get(`${fieldPrefix}_month`) || "");
+  const day = Number(formData.get(`${fieldPrefix}_day`) || "");
+  const hour = Number(formData.get(`${fieldPrefix}_hour`) || "");
+  const minute = Number(formData.get(`${fieldPrefix}_minute`) || "");
 
   if (
     !Number.isInteger(year) ||

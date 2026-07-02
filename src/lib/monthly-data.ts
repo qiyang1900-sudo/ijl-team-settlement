@@ -35,6 +35,16 @@ export type MonthlyPlayerRow = {
   youtubeSubscriberCount: string;
 };
 
+export type SalaryScreenshotSummary = {
+  total: number;
+  submitted: number;
+  missing: number;
+  isComplete: boolean;
+  label: string;
+};
+
+export const monthlyReminderStartMonth = "2026-06";
+
 export const officialMonthlyRowHandle = "__official_account__";
 export const officialMonthlyRowRole = "official_account";
 const legacyOfficialAccountAliases = [
@@ -153,6 +163,39 @@ export function splitMonthlyRows(rows: MonthlyPlayerRow[]) {
     officialRows: officialRow ? [officialRow] : [],
     playerRows,
   };
+}
+
+export function getSalaryScreenshotSummary(
+  playerRows: MonthlyPlayerRow[]
+): SalaryScreenshotSummary {
+  const total = playerRows.length;
+  const submitted = playerRows.filter((row) =>
+    Boolean(String(row.salaryScreenshotUrl || row.salaryScreenshotName || "").trim())
+  ).length;
+  const missing = Math.max(0, total - submitted);
+  const isComplete = total > 0 && missing === 0;
+  const label =
+    total === 0
+      ? "未設定"
+      : isComplete
+        ? "提出済み"
+        : submitted > 0
+          ? `一部提出（${submitted}/${total}）`
+          : "未提出";
+
+  return {
+    total,
+    submitted,
+    missing,
+    isComplete,
+    label,
+  };
+}
+
+export function isMonthlyReminderEligibleMonth(targetMonth: unknown) {
+  const month = String(targetMonth || "").slice(0, 7);
+
+  return /^\d{4}-\d{2}$/.test(month) && month >= monthlyReminderStartMonth;
 }
 
 export function sumMonthlyField(
