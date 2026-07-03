@@ -9,6 +9,7 @@ import {
   type DiscordReminderTeam,
 } from "@/lib/discord-reminders";
 import {
+  buildMonthlyReminderSettings,
   getMonthlyStatusLabel,
   getSalaryScreenshotSummary,
   isMonthlyReminderEligibleMonth,
@@ -316,7 +317,9 @@ async function loadMonthlyReminderRows({
     throw new Error(settingsError.message);
   }
 
-  const allSettings = ((settings || []) as MonthlySettingRow[]).filter((setting) =>
+  const allSettings = buildMonthlyReminderSettings(
+    (settings || []) as MonthlySettingRow[]
+  ).filter((setting) =>
     (targetMonth ? setting.target_month === targetMonth : true) &&
     isMonthlyReminderEligibleMonth(setting.target_month)
   );

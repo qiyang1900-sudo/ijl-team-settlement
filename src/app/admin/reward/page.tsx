@@ -9,6 +9,7 @@ import ReminderButton from "../reviews/ReminderButton";
 import {
   MonthlyDataStatus,
   MonthlyPlayerRow,
+  buildMonthlyReminderSettings,
   formatMonthLabel,
   formatMonthlyNumber,
   getMonthlyAdminStatusLabel,
@@ -188,7 +189,9 @@ export default async function RewardPage() {
   const error = submissionResult.error || settingsResult.error || teamsResult.error;
   const rows = buildMonthlyReviewRows({
     submissions: (submissionResult.data || []) as MonthlySubmissionRow[],
-    settings: (settingsResult.data || []) as MonthlySettingRow[],
+    settings: buildMonthlyReminderSettings(
+      (settingsResult.data || []) as MonthlySettingRow[]
+    ),
     teams: (teamsResult.data || []) as TeamRow[],
   });
   const grouped = groupRows(rows);

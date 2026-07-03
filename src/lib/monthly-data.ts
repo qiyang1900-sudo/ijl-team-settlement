@@ -43,6 +43,12 @@ export type SalaryScreenshotSummary = {
   label: string;
 };
 
+export type MonthlyReminderSetting = {
+  target_month: string;
+  deadline_at: string | null;
+  salary_screenshot_deadline_at?: string | null;
+};
+
 export const monthlyReminderStartMonth = "2026-06";
 
 export const officialMonthlyRowHandle = "__official_account__";
@@ -196,6 +202,116 @@ export function isMonthlyReminderEligibleMonth(targetMonth: unknown) {
   const month = String(targetMonth || "").slice(0, 7);
 
   return /^\d{4}-\d{2}$/.test(month) && month >= monthlyReminderStartMonth;
+}
+
+export function buildMonthlyReminderSettings(
+  settings: MonthlyReminderSetting[],
+  now = new Date()
+) {
+  const settingByMonth = new Map(
+    settings
+      .filter((setting) => isMonthlyReminderEligibleMonth(setting.target_month))
+      .map((setting) => [setting.target_month, setting])
+  );
+
+  for (const month of getExpectedMonthlySubmissionMonths(now)) {
+    if (!settingByMonth.has(month)) {
+      settingByMonth.set(month, {
+        target_month: month,
+        deadline_at: null,
+        salary_screenshot_deadline_at: null,
+      });
+    }
+  }
+
+  return Array.from(settingByMonth.values())
+    .map((setting) => ({
+      ...setting,
+      deadline_at:
+        setting.deadline_at || buildDefaultMonthlyDeadlineAt(setting.target_month),
+      salary_screenshot_deadline_at:
+        setting.salary_screenshot_deadline_at ||
+        buildDefaultSalaryScreenshotDeadlineAt(setting.target_month),
+    }))
+    .sort((left, right) => left.target_month.localeCompare(right.target_month));
+}
+
+export function getExpectedMonthlySubmissionMonths(now = new Date()) {
+  const currentMonth = getTokyoMonthValue(now);
+  const latestTargetMonth = addMonthsToMonth(currentMonth, -1);
+  const months: string[] = [];
+
+  if (latestTargetMonth < monthlyReminderStartMonth) {
+    return months;
+  }
+
+  let cursor = monthlyReminderStartMonth;
+
+  while (cursor <= latestTargetMonth) {
+    months.push(cursor);
+    cursor = addMonthsToMonth(cursor, 1);
+  }
+
+  return months;
+}
+
+export function buildDefaultMonthlyDeadlineAt(monthValue: string) {
+  const parts = parseMonthValue(monthValue);
+
+  if (!parts) {
+    return new Date().toISOString();
+  }
+
+  return new Date(Date.UTC(parts.year, parts.month, 10, 14, 59, 0)).toISOString();
+}
+
+export function buildDefaultSalaryScreenshotDeadlineAt(monthValue: string) {
+  const parts = parseMonthValue(monthValue);
+
+  if (!parts) {
+    return new Date().toISOString();
+  }
+
+  return new Date(Date.UTC(parts.year, parts.month + 1, 0, 14, 59, 0)).toISOString();
+}
+
+function getTokyoMonthValue(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value || "1970";
+  const month = parts.find((part) => part.type === "month")?.value || "01";
+
+  return `${year}-${month}`;
+}
+
+function addMonthsToMonth(monthValue: string, offset: number) {
+  const parts = parseMonthValue(monthValue);
+
+  if (!parts) {
+    return monthValue;
+  }
+
+  const date = new Date(Date.UTC(parts.year, parts.month - 1 + offset, 1));
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+
+  return `${year}-${month}`;
+}
+
+function parseMonthValue(monthValue: string) {
+  const match = monthValue.match(/^(\d{4})-(\d{2})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+  };
 }
 
 export function sumMonthlyField(
