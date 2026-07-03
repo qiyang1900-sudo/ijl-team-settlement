@@ -19,6 +19,14 @@ export type MonthlyPlayerRow = {
   salaryScreenshotUrl?: string;
   salaryScreenshotStoragePath?: string;
   salaryScreenshotMimeType?: string;
+  xScreenshotName?: string;
+  xScreenshotUrl?: string;
+  xScreenshotStoragePath?: string;
+  xScreenshotMimeType?: string;
+  youtubeScreenshotName?: string;
+  youtubeScreenshotUrl?: string;
+  youtubeScreenshotStoragePath?: string;
+  youtubeScreenshotMimeType?: string;
   xTweetCount: string;
   xImpressions: string;
   xEngagements: string;
@@ -51,6 +59,7 @@ export type MonthlyReminderSetting = {
 
 export const monthlyReminderStartMonth = "2026-06";
 export const monthlyReminderLeadDays = 7;
+export const monthlyDataScreenshotRequiredStartMonth = "2026-07";
 
 export const officialMonthlyRowHandle = "__official_account__";
 export const officialMonthlyRowRole = "official_account";
@@ -108,6 +117,14 @@ export const emptyMonthlyPlayerRow = (index = 0): MonthlyPlayerRow => ({
   salaryScreenshotUrl: "",
   salaryScreenshotStoragePath: "",
   salaryScreenshotMimeType: "",
+  xScreenshotName: "",
+  xScreenshotUrl: "",
+  xScreenshotStoragePath: "",
+  xScreenshotMimeType: "",
+  youtubeScreenshotName: "",
+  youtubeScreenshotUrl: "",
+  youtubeScreenshotStoragePath: "",
+  youtubeScreenshotMimeType: "",
   xTweetCount: "",
   xImpressions: "",
   xEngagements: "",
@@ -203,6 +220,30 @@ export function isMonthlyReminderEligibleMonth(targetMonth: unknown) {
   const month = String(targetMonth || "").slice(0, 7);
 
   return /^\d{4}-\d{2}$/.test(month) && month >= monthlyReminderStartMonth;
+}
+
+export function isMonthlyDataScreenshotRequiredMonth(targetMonth: unknown) {
+  const month = String(targetMonth || "").slice(0, 7);
+
+  return (
+    /^\d{4}-\d{2}$/.test(month) &&
+    month >= monthlyDataScreenshotRequiredStartMonth
+  );
+}
+
+export function hasMonthlyMetricScreenshot(
+  row: MonthlyPlayerRow,
+  kind: "x" | "youtube"
+) {
+  if (kind === "x") {
+    return Boolean(
+      String(row.xScreenshotUrl || row.xScreenshotName || "").trim()
+    );
+  }
+
+  return Boolean(
+    String(row.youtubeScreenshotUrl || row.youtubeScreenshotName || "").trim()
+  );
 }
 
 export function buildMonthlyReminderSettings(

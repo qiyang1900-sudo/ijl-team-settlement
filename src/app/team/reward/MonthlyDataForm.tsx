@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   MonthlyPlayerRow,
   formatMonthlyNumber,
+  hasMonthlyMetricScreenshot,
   sumMonthlyField,
 } from "@/lib/monthly-data";
 import {
@@ -21,6 +22,7 @@ type MonthlyDataFormProps = {
   clubActivityItems: ClubActivityItem[];
   isLocked: boolean;
   canSaveSalaryScreenshots: boolean;
+  isDataScreenshotRequired: boolean;
 };
 
 type PlayerField = keyof MonthlyPlayerRow;
@@ -86,217 +88,6 @@ function toJapanesePlayerMeta(value?: string) {
   return japanesePlayerMeta[value] || value;
 }
 
-type TesseractGlobal = {
-  recognize: (
-    image: File,
-    language?: string,
-    options?: {
-      logger?: (message: { status?: string; progress?: number }) => void;
-    }
-  ) => Promise<{ data: { text: string } }>;
-};
-
-declare global {
-  interface Window {
-    Tesseract?: TesseractGlobal;
-  }
-}
-
-let tesseractLoader: Promise<TesseractGlobal> | null = null;
-
-function loadTesseract() {
-  if (typeof window === "undefined") {
-    return Promise.reject(new Error("ブラウザでのみ利用できます。"));
-  }
-
-  if (window.Tesseract) {
-    return Promise.resolve(window.Tesseract);
-  }
-
-  if (!tesseractLoader) {
-    tesseractLoader = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src =
-        "https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js";
-      script.async = true;
-      script.onload = () => {
-        if (window.Tesseract) {
-          resolve(window.Tesseract);
-        } else {
-          reject(new Error("OCR ライブラリの読み込みに失敗しました。"));
-        }
-      };
-      script.onerror = () =>
-        reject(new Error("OCR ライブラリの読み込みに失敗しました。"));
-      document.head.appendChild(script);
-    });
-  }
-
-  return tesseractLoader;
-}
-
-async function recognizeMetricsFromImage({
-  file,
-  fields,
-}: {
-  file: File;
-  fields: Array<{ key: PlayerField; label: string; shortLabel: string }>;
-}) {
-  const tesseract = await loadTesseract();
-  const result = await tesseract.recognize(file, "eng+jpn");
-  const text = normalizeOcrText(result.data.text);
-  const values: Partial<Record<PlayerField, string>> = {};
-
-  for (const field of fields) {
-    const value = pickNumberForField(text, field);
-
-    if (value !== null) {
-      values[field.key] = String(value);
-    }
-  }
-
-  if (Object.keys(values).length === 0) {
-    const orderedNumbers = extractNumberCandidates(text)
-      .map((candidate) => candidate.value)
-      .filter((value) => value >= 0)
-      .filter((value) => value < 300000000);
-
-    if (
-      orderedNumbers.length < fields.length ||
-      orderedNumbers.length > fields.length + 2
-    ) {
-      return {
-        values,
-        usedFallback: false,
-      };
-    }
-
-    orderedNumbers.slice(0, fields.length).forEach((value, index) => {
-      const field = fields[index];
-
-      if (field) {
-        values[field.key] = String(value);
-      }
-    });
-
-    return {
-      values,
-      usedFallback: orderedNumbers.length > 0,
-    };
-  }
-
-  return { values, usedFallback: false };
-}
-
-function pickNumberForField(
-  text: string,
-  field: { key: PlayerField; label: string; shortLabel: string }
-) {
-  const keywords = [
-    field.label,
-    field.shortLabel,
-    ...(ocrKeywordAliases[field.key] || []),
-  ].map(normalizeOcrText);
-  const candidates = extractNumberCandidates(text);
-  let bestCandidate: { value: number; distance: number } | null = null;
-
-  for (const keyword of keywords) {
-    if (!keyword) {
-      continue;
-    }
-
-    const keywordIndex = text.toLowerCase().indexOf(keyword.toLowerCase());
-
-    if (keywordIndex < 0) {
-      continue;
-    }
-
-    for (const candidate of candidates) {
-      const distance = candidate.index - keywordIndex;
-
-      if (distance < -24 || distance > 140) {
-        continue;
-      }
-
-      const absoluteDistance = Math.abs(distance);
-
-      if (!bestCandidate || absoluteDistance < bestCandidate.distance) {
-        bestCandidate = {
-          value: candidate.value,
-          distance: absoluteDistance,
-        };
-      }
-    }
-  }
-
-  return bestCandidate?.value ?? null;
-}
-
-const ocrKeywordAliases: Partial<Record<PlayerField, string[]>> = {
-  xTweetCount: ["tweet", "tweets", "post", "posts", "ポスト", "投稿"],
-  xImpressions: ["impression", "impressions", "表示回数", "閲覧", "閱讀"],
-  xEngagements: ["engagement", "engagements", "反応", "エンゲージ"],
-  xFanEventCount: ["event", "events", "イベント"],
-  xFollowerCount: ["follower", "followers", "フォロワー"],
-  youtubeVideoPostCount: ["video", "videos", "動画", "投稿"],
-  youtubeVideoViews: ["video views", "views", "動画再生", "視聴回数"],
-  youtubeShortPostCount: ["short", "shorts", "ショート"],
-  youtubeShortViews: ["short views", "ショート再生"],
-  youtubeLikeCount: ["like", "likes", "いいね"],
-  youtubeStreamCount: ["stream", "streams", "live", "配信", "ライブ"],
-  youtubeStreamViews: ["stream views", "live views", "配信再生", "ライブ視聴"],
-  youtubeTotalImpressions: ["impression", "impressions", "合計インプレッション"],
-  youtubeSubscriberCount: ["subscriber", "subscribers", "登録者"],
-};
-
-function extractNumberCandidates(text: string) {
-  const candidates: Array<{ value: number; index: number }> = [];
-  const matcher = /(\d[\d,]*(?:\.\d+)?)(\s*(?:万|億|k|K|m|M))?/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = matcher.exec(text)) !== null) {
-    const value = parseOcrNumber(match[1], match[2]);
-
-    if (value !== null) {
-      candidates.push({ value, index: match.index });
-    }
-  }
-
-  return candidates;
-}
-
-function parseOcrNumber(rawNumber: string, rawUnit?: string) {
-  const numberValue = Number(rawNumber.replace(/,/g, ""));
-
-  if (!Number.isFinite(numberValue)) {
-    return null;
-  }
-
-  const unit = String(rawUnit || "").trim().toLowerCase();
-  const multiplier = unit.includes("億")
-    ? 100000000
-    : unit.includes("万")
-      ? 10000
-      : unit === "m"
-        ? 1000000
-        : unit === "k"
-          ? 1000
-          : 1;
-
-  return Math.round(numberValue * multiplier);
-}
-
-function normalizeOcrText(value: string) {
-  return value
-    .replace(/[０-９]/g, (char) =>
-      String.fromCharCode(char.charCodeAt(0) - 0xfee0)
-    )
-    .replace(/[，、]/g, ",")
-    .replace(/[：]/g, ":")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 export default function MonthlyDataForm({
   action,
   teamId,
@@ -306,6 +97,7 @@ export default function MonthlyDataForm({
   clubActivityItems,
   isLocked,
   canSaveSalaryScreenshots,
+  isDataScreenshotRequired,
 }: MonthlyDataFormProps) {
   const [activities, setActivities] = useState<ClubActivityItem[]>(
     clubActivityItems.length > 0 ? clubActivityItems : [emptyClubActivityItem()]
@@ -416,6 +208,7 @@ export default function MonthlyDataForm({
         updateOfficial={updateOfficial}
         updatePlayer={updatePlayer}
         disabled={isLocked}
+        isScreenshotRequired={isDataScreenshotRequired}
       />
 
       <MetricSection
@@ -427,6 +220,7 @@ export default function MonthlyDataForm({
         updateOfficial={updateOfficial}
         updatePlayer={updatePlayer}
         disabled={isLocked}
+        isScreenshotRequired={isDataScreenshotRequired}
       />
 
       <ClubActivitySection
@@ -447,6 +241,7 @@ export default function MonthlyDataForm({
             type="submit"
             name="action_type"
             value="draft"
+            formNoValidate
             disabled={isSubmitDisabled}
             className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -592,6 +387,7 @@ function MetricSection({
   updateOfficial,
   updatePlayer,
   disabled,
+  isScreenshotRequired,
 }: {
   title: string;
   kind: MetricSectionKind;
@@ -601,8 +397,10 @@ function MetricSection({
   updateOfficial: (key: PlayerField, value: string) => void;
   updatePlayer: (index: number, key: PlayerField, value: string) => void;
   disabled: boolean;
+  isScreenshotRequired: boolean;
 }) {
   const totalRows = [officialRow, ...players];
+  const screenshotLabel = kind === "x" ? "Xデータ画像" : "YouTubeデータ画像";
 
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -610,7 +408,9 @@ function MetricSection({
         <div>
           <h2 className="text-base font-bold">{title}</h2>
           <p className="mt-1 text-xs text-slate-500">
-            画像読み取りは入力補助です。反映後の数字は必ず修正できます。
+            {isScreenshotRequired
+              ? "2026年7月以降は、公式アカウント・各選手ごとのデータスクリーンショット提出が必須です。数字は手入力してください。"
+              : "数字は手入力してください。必要に応じてデータスクリーンショットを添付できます。"}
           </p>
         </div>
         <span className="text-xs font-semibold text-slate-400">
@@ -634,7 +434,12 @@ function MetricSection({
                   {field.shortLabel}
                 </th>
               ))}
-              <th className="w-56 min-w-56 px-2 py-2">画像読み取り</th>
+              <th className="w-64 min-w-64 px-2 py-2">
+                {screenshotLabel}
+                {isScreenshotRequired ? (
+                  <span className="ml-1 text-rose-500">必須</span>
+                ) : null}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -662,17 +467,24 @@ function MetricSection({
                   />
                 </td>
               ))}
-              <td className="w-56 min-w-56 px-2 py-2">
-                <OcrCell
-                  fields={fields}
+              <td className="w-64 min-w-64 px-2 py-2">
+                <MetricScreenshotCell
                   disabled={disabled}
-                  onApply={(values) => {
-                    for (const [key, value] of Object.entries(values)) {
-                      if (typeof value === "string") {
-                        updateOfficial(key as PlayerField, value);
-                      }
-                    }
-                  }}
+                  inputName={`metric_screenshot_${kind}_official`}
+                  existingFileName={
+                    kind === "x"
+                      ? officialRow.xScreenshotName
+                      : officialRow.youtubeScreenshotName
+                  }
+                  existingFileUrl={
+                    kind === "x"
+                      ? officialRow.xScreenshotUrl
+                      : officialRow.youtubeScreenshotUrl
+                  }
+                  isRequired={
+                    isScreenshotRequired &&
+                    !hasMonthlyMetricScreenshot(officialRow, kind)
+                  }
                 />
               </td>
             </tr>
@@ -703,17 +515,24 @@ function MetricSection({
                     />
                   </td>
                 ))}
-                <td className="w-56 min-w-56 px-2 py-2">
-                  <OcrCell
-                    fields={fields}
+                <td className="w-64 min-w-64 px-2 py-2">
+                  <MetricScreenshotCell
                     disabled={disabled}
-                    onApply={(values) => {
-                      for (const [key, value] of Object.entries(values)) {
-                        if (typeof value === "string") {
-                          updatePlayer(index, key as PlayerField, value);
-                        }
-                      }
-                    }}
+                    inputName={`metric_screenshot_${kind}_${index}`}
+                    existingFileName={
+                      kind === "x"
+                        ? player.xScreenshotName
+                        : player.youtubeScreenshotName
+                    }
+                    existingFileUrl={
+                      kind === "x"
+                        ? player.xScreenshotUrl
+                        : player.youtubeScreenshotUrl
+                    }
+                    isRequired={
+                      isScreenshotRequired &&
+                      !hasMonthlyMetricScreenshot(player, kind)
+                    }
                   />
                 </td>
               </tr>
@@ -729,7 +548,7 @@ function MetricSection({
                   {formatMonthlyNumber(sumMonthlyField(totalRows, field.key))}
                 </td>
               ))}
-              <td className="w-56 min-w-56 px-2 py-2 text-xs text-slate-500">
+              <td className="w-64 min-w-64 px-2 py-2 text-xs text-slate-500">
                 -
               </td>
             </tr>
@@ -740,97 +559,61 @@ function MetricSection({
   );
 }
 
-function OcrCell({
-  fields,
+function MetricScreenshotCell({
   disabled,
-  onApply,
+  inputName,
+  existingFileName,
+  existingFileUrl,
+  isRequired,
 }: {
-  fields: Array<{ key: PlayerField; label: string; shortLabel: string }>;
   disabled: boolean;
-  onApply: (values: Partial<Record<PlayerField, string>>) => void;
+  inputName: string;
+  existingFileName?: string;
+  existingFileUrl?: string;
+  isRequired: boolean;
 }) {
-  const [file, setFile] = useState<File | null>(null);
-  const [status, setStatus] = useState("");
-  const [isReading, setIsReading] = useState(false);
-
-  async function handleRecognize() {
-    if (!file) {
-      setStatus("画像を選択してください。");
-      return;
-    }
-
-    setIsReading(true);
-    setStatus("画像を読み取り中...");
-
-    try {
-      const result = await recognizeMetricsFromImage({ file, fields });
-      const recognizedCount = Object.keys(result.values).length;
-
-      if (recognizedCount === 0) {
-        setStatus("数字を自動対応できませんでした。手入力してください。");
-      } else {
-        onApply(result.values);
-        const resultText = formatOcrResult(fields, result.values);
-        setStatus(
-          result.usedFallback
-            ? `${recognizedCount}項目を順番で推定しました：${resultText}。数字を確認してください。`
-            : `${recognizedCount}項目を反映しました：${resultText}。`
-        );
-      }
-    } catch (error) {
-      setStatus(
-        error instanceof Error
-          ? error.message
-          : "画像読み取りに失敗しました。"
-      );
-    } finally {
-      setIsReading(false);
-    }
-  }
+  const [selectedFileName, setSelectedFileName] = useState("");
 
   return (
     <div className="space-y-2">
       <input
         type="file"
+        name={inputName}
         accept="image/*"
-        disabled={disabled || isReading}
+        required={isRequired && !disabled}
+        disabled={disabled}
         onChange={(event) => {
-          setFile(event.target.files?.[0] || null);
-          setStatus("");
+          setSelectedFileName(event.target.files?.[0]?.name || "");
         }}
         className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs disabled:bg-slate-100"
       />
-      <button
-        type="button"
-        disabled={disabled || isReading || !file}
-        onClick={handleRecognize}
-        className="w-full rounded-md bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:bg-slate-300"
-      >
-        {isReading ? "読み取り中..." : "数字を反映"}
-      </button>
-      {status ? (
-        <p
-          className={`rounded-md px-2 py-1 text-[11px] leading-4 ${
-            status.includes("反映") || status.includes("推定")
-              ? "bg-emerald-50 text-emerald-700"
-              : "bg-slate-50 text-slate-500"
-          }`}
-        >
-          {status}
+      {isRequired ? (
+        <p className="text-[11px] font-semibold text-rose-600">
+          データスクリーンショット必須
+        </p>
+      ) : existingFileName ? (
+        <p className="text-[11px] text-slate-500">
+          登録済み：
+          {existingFileUrl ? (
+            <a
+              href={existingFileUrl}
+              target="_blank"
+              className="font-semibold text-sky-700 underline"
+            >
+              {existingFileName}
+            </a>
+          ) : (
+            existingFileName
+          )}
+        </p>
+      ) : null}
+      {selectedFileName ? (
+        <p className="rounded-md bg-emerald-50 px-2 py-1 text-[11px] leading-4 text-emerald-700">
+          選択中：{selectedFileName}
         </p>
       ) : null}
     </div>
   );
-}
-
-function formatOcrResult(
-  fields: Array<{ key: PlayerField; label: string; shortLabel: string }>,
-  values: Partial<Record<PlayerField, string>>
-) {
-  return fields
-    .filter((field) => values[field.key])
-    .map((field) => `${field.shortLabel} ${formatMonthlyNumber(values[field.key])}`)
-    .join(" / ");
 }
 
 function SalarySection({
@@ -967,6 +750,7 @@ function SalarySection({
             type="submit"
             name="action_type"
             value="salary_screenshots_draft"
+            formNoValidate
             disabled={!canSubmit}
             className="rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -977,6 +761,7 @@ function SalarySection({
             type="submit"
             name="action_type"
             value="salary_screenshots_submit"
+            formNoValidate
             disabled={!canSubmit}
             className="rounded-lg bg-sky-600 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
