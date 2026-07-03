@@ -20,6 +20,7 @@ type MonthlyDataFormProps = {
   initialPlayers: MonthlyPlayerRow[];
   clubActivityItems: ClubActivityItem[];
   isLocked: boolean;
+  canSaveSalaryScreenshots: boolean;
 };
 
 type PlayerField = keyof MonthlyPlayerRow;
@@ -304,6 +305,7 @@ export default function MonthlyDataForm({
   initialPlayers,
   clubActivityItems,
   isLocked,
+  canSaveSalaryScreenshots,
 }: MonthlyDataFormProps) {
   const [activities, setActivities] = useState<ClubActivityItem[]>(
     clubActivityItems.length > 0 ? clubActivityItems : [emptyClubActivityItem()]
@@ -400,7 +402,9 @@ export default function MonthlyDataForm({
       <SalarySection
         players={players}
         updatePlayer={updatePlayer}
-        disabled={isLocked}
+        isSalaryAmountDisabled={isLocked}
+        isScreenshotDisabled={!canSaveSalaryScreenshots}
+        canSubmit={canSaveSalaryScreenshots && players.length > 0}
       />
 
       <MetricSection
@@ -433,26 +437,32 @@ export default function MonthlyDataForm({
         disabled={isLocked}
       />
 
-      <div className="flex flex-wrap gap-3">
-        <button
-          type="submit"
-          name="action_type"
-          value="draft"
-          disabled={isSubmitDisabled}
-          className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          下書き保存
-        </button>
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <p className="text-sm font-bold text-slate-900">月データ</p>
+        <p className="mt-1 text-xs text-slate-500">
+          X、YouTube、クラブ活動の内容を保存・提出します。
+        </p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            type="submit"
+            name="action_type"
+            value="draft"
+            disabled={isSubmitDisabled}
+            className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            下書き保存
+          </button>
 
-        <button
-          type="submit"
-          name="action_type"
-          value="submit"
-          disabled={isSubmitDisabled}
-          className="rounded-lg bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          審査提出
-        </button>
+          <button
+            type="submit"
+            name="action_type"
+            value="submit"
+            disabled={isSubmitDisabled}
+            className="rounded-lg bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            審査提出
+          </button>
+        </div>
       </div>
     </form>
   );
@@ -826,11 +836,15 @@ function formatOcrResult(
 function SalarySection({
   players,
   updatePlayer,
-  disabled,
+  isSalaryAmountDisabled,
+  isScreenshotDisabled,
+  canSubmit,
 }: {
   players: MonthlyPlayerRow[];
   updatePlayer: (index: number, key: PlayerField, value: string) => void;
-  disabled: boolean;
+  isSalaryAmountDisabled: boolean;
+  isScreenshotDisabled: boolean;
+  canSubmit: boolean;
 }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -890,7 +904,7 @@ function SalarySection({
                       onChange={(event) =>
                         updatePlayer(index, "salaryAmount", event.target.value)
                       }
-                      disabled={disabled}
+                      disabled={isSalaryAmountDisabled}
                       aria-label={`${player.playerName || `選手 ${index + 1}`} 選手給与`}
                       className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm outline-none focus:border-slate-900 disabled:bg-slate-100"
                     />
@@ -900,7 +914,7 @@ function SalarySection({
                       type="file"
                       name={`salary_screenshot_${index}`}
                       accept="image/*"
-                      disabled={disabled}
+                      disabled={isScreenshotDisabled}
                       className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs disabled:bg-slate-100"
                     />
                   </td>
@@ -940,6 +954,36 @@ function SalarySection({
           </table>
         </div>
       ) : null}
+
+      <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <p className="text-sm font-bold text-slate-900">
+          給与スクリーンショット
+        </p>
+        <p className="mt-1 text-xs text-slate-500">
+          選手給与と給与スクリーンショットのみ保存・提出します。
+        </p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            type="submit"
+            name="action_type"
+            value="salary_screenshots_draft"
+            disabled={!canSubmit}
+            className="rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            下書き保存
+          </button>
+
+          <button
+            type="submit"
+            name="action_type"
+            value="salary_screenshots_submit"
+            disabled={!canSubmit}
+            className="rounded-lg bg-sky-600 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            審査提出
+          </button>
+        </div>
+      </div>
     </section>
   );
 }

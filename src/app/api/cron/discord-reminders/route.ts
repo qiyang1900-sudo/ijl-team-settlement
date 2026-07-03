@@ -1,6 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { getMonthlyStatusLabel, normalizeMonthlyStatus } from "@/lib/monthly-data";
+import {
+  buildMonthlyReminderSettings,
+  getMonthlyStatusLabel,
+  getSalaryScreenshotSummary,
+  isMonthlyReminderEligibleMonth,
+  normalizeMonthlyStatus,
+  parseMonthlyPlayerRows,
+  splitMonthlyRows,
+} from "@/lib/monthly-data";
 import {
   buildSubmissionReminderMessage,
   formatReminderMonth,
@@ -23,12 +31,15 @@ type TeamRow = {
 type MonthlySettingRow = {
   target_month: string;
   deadline_at: string | null;
+  salary_screenshot_deadline_at?: string | null;
 };
 
 type MonthlySubmissionRow = {
+  id?: string | null;
   team_id: string | null;
   target_month: string | null;
   status: string | null;
+  player_rows?: unknown;
 };
 
 type ProjectRow = {
@@ -88,8 +99,7 @@ async function runDiscordReminders(request: Request) {
         .eq("is_active", true),
       supabase
         .from("monthly_data_settings")
-        .select("target_month, deadline_at")
-        .not("deadline_at", "is", null),
+        .select("*"),
       supabase
         .from("projects")
         .select("id, title, deadline_at, status")
@@ -117,7 +127,10 @@ async function runDiscordReminders(request: Request) {
   const safeTeams = ((teams || []) as TeamRow[]).filter(
     (team) => team.discord_webhook_url
   );
-  const monthlySettings = (monthlyResult.data || []) as MonthlySettingRow[];
+  const monthlySettings = buildMonthlyReminderSettings(
+    (monthlyResult.data || []) as MonthlySettingRow[],
+    now
+  ).filter((setting) => isMonthlyReminderEligibleMonth(setting.target_month));
   const projects = ((projectResult.data || []) as ProjectRow[]).filter(
     (project) => project.status !== "archived"
   );
@@ -130,6 +143,9 @@ async function runDiscordReminders(request: Request) {
       `${row.team_id}:${row.target_month}`,
       String(row.status || ""),
     ])
+  );
+  const monthlySubmissionByTeamMonth = new Map(
+    monthlySubmissions.map((row) => [`${row.team_id}:${row.target_month}`, row])
   );
   const projectStatus = new Map(
     projectTeams.map((row) => [
@@ -195,6 +211,47 @@ async function runDiscordReminders(request: Request) {
     }
   }
 
+  for (const setting of monthlySettings) {
+    const schedule = getReminderSchedule(
+      setting.salary_screenshot_deadline_at || null,
+      now,
+      todayKey
+    );
+
+    if (!schedule) {
+      continue;
+    }
+
+    for (const team of safeTeams) {
+      const submission = monthlySubmissionByTeamMonth.get(
+        `${team.id}:${setting.target_month}`
+      );
+
+      if (isSalaryScreenshotDone(submission)) {
+        results.skipped += 1;
+        continue;
+      }
+
+      const content = buildSalaryScreenshotReminderMessage({
+        team,
+        setting,
+        submission,
+      });
+      const result = await sendDiscordReminderOnce({
+        supabase,
+        team,
+        reminderType: "monthly_salary_screenshot",
+        itemId: setting.target_month,
+        targetMonth: setting.target_month,
+        reminderKey: schedule.reminderKey,
+        content,
+        dryRun,
+      });
+
+      results[result] += 1;
+    }
+  }
+
   for (const project of projects) {
     const schedule = getReminderSchedule(project.deadline_at, now, todayKey);
 
@@ -248,7 +305,7 @@ async function loadMonthlySubmissions(
 
   const { data } = await supabase
     .from("monthly_data_submissions")
-    .select("team_id, target_month, status")
+    .select("id, team_id, target_month, status, player_rows")
     .in(
       "target_month",
       settings.map((setting) => setting.target_month)
@@ -291,6 +348,25 @@ function buildMonthlyReminderMessage({
     team,
     targetLabel: `${formatReminderMonth(setting.target_month)}月データ`,
     deadlineAt: setting.deadline_at,
+    statusLabel: statusText,
+  });
+}
+
+function buildSalaryScreenshotReminderMessage({
+  team,
+  setting,
+  submission,
+}: {
+  team: TeamRow;
+  setting: MonthlySettingRow;
+  submission?: MonthlySubmissionRow;
+}) {
+  const statusText = getSalaryScreenshotStatusLabel(submission);
+
+  return buildSubmissionReminderMessage({
+    team,
+    targetLabel: `${formatReminderMonth(setting.target_month)}月給与スクリーンショット`,
+    deadlineAt: setting.salary_screenshot_deadline_at || null,
     statusLabel: statusText,
   });
 }
@@ -370,6 +446,31 @@ function isMonthlySubmissionDone(status?: string) {
     normalized === "reviewing" ||
     normalized === "approved"
   );
+}
+
+function isSalaryScreenshotDone(submission?: MonthlySubmissionRow) {
+  if (!submission) {
+    return false;
+  }
+
+  const { playerRows } = splitMonthlyRows(
+    parseMonthlyPlayerRows(submission.player_rows)
+  );
+
+  return getSalaryScreenshotSummary(playerRows).isComplete;
+}
+
+function getSalaryScreenshotStatusLabel(submission?: MonthlySubmissionRow) {
+  if (!submission) {
+    return "未提出";
+  }
+
+  const { playerRows } = splitMonthlyRows(
+    parseMonthlyPlayerRows(submission.player_rows)
+  );
+  const summary = getSalaryScreenshotSummary(playerRows);
+
+  return summary.label;
 }
 
 function isProjectSubmissionDone(status?: string) {

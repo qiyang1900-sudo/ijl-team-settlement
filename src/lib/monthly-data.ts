@@ -35,6 +35,23 @@ export type MonthlyPlayerRow = {
   youtubeSubscriberCount: string;
 };
 
+export type SalaryScreenshotSummary = {
+  total: number;
+  submitted: number;
+  missing: number;
+  isComplete: boolean;
+  label: string;
+};
+
+export type MonthlyReminderSetting = {
+  target_month: string;
+  deadline_at: string | null;
+  salary_screenshot_deadline_at?: string | null;
+};
+
+export const monthlyReminderStartMonth = "2026-06";
+export const monthlyReminderLeadDays = 7;
+
 export const officialMonthlyRowHandle = "__official_account__";
 export const officialMonthlyRowRole = "official_account";
 const legacyOfficialAccountAliases = [
@@ -152,6 +169,213 @@ export function splitMonthlyRows(rows: MonthlyPlayerRow[]) {
     officialRow,
     officialRows: officialRow ? [officialRow] : [],
     playerRows,
+  };
+}
+
+export function getSalaryScreenshotSummary(
+  playerRows: MonthlyPlayerRow[]
+): SalaryScreenshotSummary {
+  const total = playerRows.length;
+  const submitted = playerRows.filter((row) =>
+    Boolean(String(row.salaryScreenshotUrl || row.salaryScreenshotName || "").trim())
+  ).length;
+  const missing = Math.max(0, total - submitted);
+  const isComplete = total > 0 && missing === 0;
+  const label =
+    total === 0
+      ? "未設定"
+      : isComplete
+        ? "提出済み"
+        : submitted > 0
+          ? `一部提出（${submitted}/${total}）`
+          : "未提出";
+
+  return {
+    total,
+    submitted,
+    missing,
+    isComplete,
+    label,
+  };
+}
+
+export function isMonthlyReminderEligibleMonth(targetMonth: unknown) {
+  const month = String(targetMonth || "").slice(0, 7);
+
+  return /^\d{4}-\d{2}$/.test(month) && month >= monthlyReminderStartMonth;
+}
+
+export function buildMonthlyReminderSettings(
+  settings: MonthlyReminderSetting[],
+  now = new Date()
+) {
+  const settingByMonth = new Map(
+    settings
+      .filter((setting) => isMonthlyReminderEligibleMonth(setting.target_month))
+      .map((setting) => [setting.target_month, setting])
+  );
+
+  for (const month of getExpectedMonthlySubmissionMonths(now)) {
+    if (!settingByMonth.has(month)) {
+      settingByMonth.set(month, {
+        target_month: month,
+        deadline_at: null,
+        salary_screenshot_deadline_at: null,
+      });
+    }
+  }
+
+  return Array.from(settingByMonth.values())
+    .map((setting) => ({
+      ...setting,
+      deadline_at:
+        setting.deadline_at || buildDefaultMonthlyDeadlineAt(setting.target_month),
+      salary_screenshot_deadline_at:
+        setting.salary_screenshot_deadline_at ||
+        buildDefaultSalaryScreenshotDeadlineAt(setting.target_month),
+    }))
+    .sort((left, right) => left.target_month.localeCompare(right.target_month));
+}
+
+export function isMonthlyDataReminderWindowOpen(
+  setting: { deadline_at?: string | null } | null | undefined,
+  now = new Date()
+) {
+  return isDeadlineReminderWindowOpen(setting?.deadline_at, now);
+}
+
+export function isSalaryScreenshotReminderWindowOpen(
+  setting: { salary_screenshot_deadline_at?: string | null } | null | undefined,
+  now = new Date()
+) {
+  return isDeadlineReminderWindowOpen(
+    setting?.salary_screenshot_deadline_at || null,
+    now
+  );
+}
+
+export function isDeadlineReminderWindowOpen(
+  deadlineAt: string | null | undefined,
+  now = new Date()
+) {
+  if (!deadlineAt) {
+    return false;
+  }
+
+  const deadline = new Date(deadlineAt);
+
+  if (Number.isNaN(deadline.getTime())) {
+    return false;
+  }
+
+  if (now.getTime() > deadline.getTime()) {
+    return true;
+  }
+
+  const daysUntil = getTokyoDayDiff(now, deadline);
+
+  return daysUntil >= 0 && daysUntil <= monthlyReminderLeadDays;
+}
+
+export function getExpectedMonthlySubmissionMonths(now = new Date()) {
+  const currentMonth = getTokyoMonthValue(now);
+  const latestTargetMonth = addMonthsToMonth(currentMonth, -1);
+  const months: string[] = [];
+
+  if (latestTargetMonth < monthlyReminderStartMonth) {
+    return months;
+  }
+
+  let cursor = monthlyReminderStartMonth;
+
+  while (cursor <= latestTargetMonth) {
+    months.push(cursor);
+    cursor = addMonthsToMonth(cursor, 1);
+  }
+
+  return months;
+}
+
+export function buildDefaultMonthlyDeadlineAt(monthValue: string) {
+  const parts = parseMonthValue(monthValue);
+
+  if (!parts) {
+    return new Date().toISOString();
+  }
+
+  return new Date(Date.UTC(parts.year, parts.month, 10, 14, 59, 0)).toISOString();
+}
+
+export function buildDefaultSalaryScreenshotDeadlineAt(monthValue: string) {
+  const parts = parseMonthValue(monthValue);
+
+  if (!parts) {
+    return new Date().toISOString();
+  }
+
+  return new Date(Date.UTC(parts.year, parts.month + 1, 0, 14, 59, 0)).toISOString();
+}
+
+function getTokyoMonthValue(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value || "1970";
+  const month = parts.find((part) => part.type === "month")?.value || "01";
+
+  return `${year}-${month}`;
+}
+
+function getTokyoDateKey(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value || "1970";
+  const month = parts.find((part) => part.type === "month")?.value || "01";
+  const day = parts.find((part) => part.type === "day")?.value || "01";
+
+  return `${year}-${month}-${day}`;
+}
+
+function getTokyoDayDiff(from: Date, to: Date) {
+  return toUtcDayNumber(to) - toUtcDayNumber(from);
+}
+
+function toUtcDayNumber(date: Date) {
+  const [year, month, day] = getTokyoDateKey(date).split("-").map(Number);
+
+  return Math.floor(Date.UTC(year, month - 1, day) / 86400000);
+}
+
+function addMonthsToMonth(monthValue: string, offset: number) {
+  const parts = parseMonthValue(monthValue);
+
+  if (!parts) {
+    return monthValue;
+  }
+
+  const date = new Date(Date.UTC(parts.year, parts.month - 1 + offset, 1));
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+
+  return `${year}-${month}`;
+}
+
+function parseMonthValue(monthValue: string) {
+  const match = monthValue.match(/^(\d{4})-(\d{2})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
   };
 }
 
