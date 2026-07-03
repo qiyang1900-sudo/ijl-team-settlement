@@ -245,7 +245,7 @@ export default async function RewardPage() {
           <>
             <div className="mb-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
               <StatCard label="未提交" count={grouped.notSubmitted.length} color="slate" />
-              <StatCard label="已提交" count={grouped.submitted.length} color="yellow" />
+              <StatCard label="待审核" count={grouped.submitted.length} color="yellow" />
               <StatCard label="审核中" count={grouped.reviewing.length} color="orange" />
               <StatCard label="需人工确认" count={alertCount} color="amber" />
               <StatCard label="已驳回需补充" count={grouped.returned.length} color="red" />
@@ -288,7 +288,7 @@ export default async function RewardPage() {
                 alertMap={alertMap}
               />
               <ReviewSection
-                title="已提交"
+                title="待审核"
                 rows={grouped.submitted}
                 color="yellow"
                 alertMap={alertMap}
