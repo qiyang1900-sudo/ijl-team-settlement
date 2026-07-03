@@ -42,6 +42,7 @@ type MonthlySubmissionRow = {
   updated_at?: string | null;
 };
 type MonthlyDataSettingRow = {
+  target_month?: string | null;
   deadline_at: string | null;
   salary_screenshot_deadline_at?: string | null;
 };
@@ -81,9 +82,10 @@ type StorageClient = {
 };
 
 const imageMaxSize = 2 * 1024 * 1024;
+const monthlySubmissionStartMonth = "2026-06";
 
 function getCurrentMonthValue() {
-  return new Date().toISOString().slice(0, 7);
+  return getTokyoMonthValue(new Date());
 }
 
 function createStoragePath(teamId: string, targetMonth: string, fileName: string) {
@@ -296,14 +298,14 @@ export default async function TeamRewardPage({
   searchParams: Promise<{ teamId?: string; month?: string; result?: string }>;
 }) {
   const { teamId, month, result } = await searchParams;
-  const selectedMonth =
-    month ||
-    new Date().toISOString().slice(0, 7);
+  const requestedMonth = normalizeMonthValue(month);
+  let selectedMonth = requestedMonth || getDefaultRewardSelectedMonth();
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   let team: TeamRecord | null = null;
   let submissions: MonthlySubmissionRow[] = [];
+  let monthlySettings: MonthlyDataSettingRow[] = [];
   let assignedPlayers: PlayerRecord[] = [];
   let playerTableError: string | null = null;
   let isUsingMonthlyAssignments = false;
@@ -337,11 +339,22 @@ export default async function TeamRewardPage({
       submissions = data || [];
     }
 
-    const { data: settingData } = await supabase
+    const { data: settingsData } = await supabase
       .from("monthly_data_settings")
-      .select("*")
-      .eq("target_month", selectedMonth)
-      .maybeSingle();
+      .select("*");
+
+    monthlySettings = (settingsData || []) as MonthlyDataSettingRow[];
+
+    if (!requestedMonth) {
+      selectedMonth = getDefaultRewardSelectedMonth({
+        submissions,
+        settings: monthlySettings,
+      });
+    }
+
+    const settingData =
+      monthlySettings.find((setting) => setting.target_month === selectedMonth) ||
+      null;
 
     monthlyDeadlineAt =
       ((settingData || null) as MonthlyDataSettingRow | null)?.deadline_at ||
@@ -1088,4 +1101,120 @@ function parseMonthValue(monthValue: string) {
     year: Number(match[1]),
     month: Number(match[2]),
   };
+}
+
+function normalizeMonthValue(value: unknown) {
+  const monthValue = String(value || "").slice(0, 7);
+
+  return /^\d{4}-\d{2}$/.test(monthValue) ? monthValue : null;
+}
+
+function getDefaultRewardSelectedMonth({
+  submissions = [],
+  settings = [],
+  now = new Date(),
+}: {
+  submissions?: MonthlySubmissionRow[];
+  settings?: MonthlyDataSettingRow[];
+  now?: Date;
+} = {}) {
+  const currentMonth = getTokyoMonthValue(now);
+  const previousMonth = addMonthsToMonth(currentMonth, -1);
+  const candidates = new Set<string>([currentMonth]);
+
+  if (previousMonth >= monthlySubmissionStartMonth) {
+    candidates.add(previousMonth);
+  }
+
+  for (const setting of settings) {
+    const monthValue = normalizeMonthValue(setting.target_month);
+
+    if (monthValue) {
+      candidates.add(monthValue);
+    }
+  }
+
+  for (const submission of submissions) {
+    const monthValue = normalizeMonthValue(submission.target_month);
+
+    if (monthValue) {
+      candidates.add(monthValue);
+    }
+  }
+
+  const settingByMonth = new Map(
+    settings.flatMap((setting) => {
+      const monthValue = normalizeMonthValue(setting.target_month);
+
+      return monthValue ? [[monthValue, setting] as const] : [];
+    })
+  );
+  const statusByMonth = new Map(
+    submissions.flatMap((submission) => {
+      const monthValue = normalizeMonthValue(submission.target_month);
+
+      return monthValue
+        ? [[monthValue, normalizeMonthlyStatus(submission.status)] as const]
+        : [];
+    })
+  );
+  const scoredMonths = Array.from(candidates)
+    .filter((monthValue) => monthValue >= monthlySubmissionStartMonth)
+    .map((monthValue) => {
+      const deadlineAt =
+        settingByMonth.get(monthValue)?.deadline_at ||
+        buildDefaultMonthlyDeadlineAt(monthValue);
+      const deadline = new Date(deadlineAt);
+      const distance = Number.isNaN(deadline.getTime())
+        ? Number.MAX_SAFE_INTEGER
+        : Math.abs(deadline.getTime() - now.getTime());
+      const status = statusByMonth.get(monthValue) || "not_submitted";
+
+      return {
+        monthValue,
+        distance,
+        isDone:
+          status === "submitted" ||
+          status === "reviewing" ||
+          status === "approved",
+      };
+    });
+  const pendingMonths = scoredMonths.filter((month) => !month.isDone);
+  const targetPool = pendingMonths.length > 0 ? pendingMonths : scoredMonths;
+
+  return (
+    targetPool.sort((left, right) => {
+      if (left.distance !== right.distance) {
+        return left.distance - right.distance;
+      }
+
+      return right.monthValue.localeCompare(left.monthValue);
+    })[0]?.monthValue || currentMonth
+  );
+}
+
+function getTokyoMonthValue(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value || "1970";
+  const month = parts.find((part) => part.type === "month")?.value || "01";
+
+  return `${year}-${month}`;
+}
+
+function addMonthsToMonth(monthValue: string, offset: number) {
+  const parts = parseMonthValue(monthValue);
+
+  if (!parts) {
+    return monthValue;
+  }
+
+  const date = new Date(Date.UTC(parts.year, parts.month - 1 + offset, 1));
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+
+  return `${year}-${month}`;
 }
