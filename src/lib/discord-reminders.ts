@@ -154,10 +154,35 @@ export async function sendDiscordReminderOnce({
 }
 
 export function formatDiscordMention(value: string | null | undefined) {
-  const mention = String(value || "").trim();
+  const rawMention = String(value || "").trim();
+
+  if (!rawMention) {
+    return null;
+  }
+
+  const mentions = rawMention
+    .split(/[\s,，、;；]+/)
+    .map(formatDiscordMentionPart)
+    .filter(Boolean);
+
+  return Array.from(new Set(mentions)).join(" ") || null;
+}
+
+function formatDiscordMentionPart(value: string) {
+  const mention = value.trim();
 
   if (!mention) {
-    return null;
+    return "";
+  }
+
+  const userMention = mention.match(/^<@!?(\d{5,})>$/);
+
+  if (userMention) {
+    return `<@${userMention[1]}>`;
+  }
+
+  if (/^<@&\d{5,}>$/.test(mention)) {
+    return mention;
   }
 
   if (/^\d{5,}$/.test(mention)) {
