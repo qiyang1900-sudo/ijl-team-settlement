@@ -110,15 +110,16 @@ export function TeamEditDialog({
           </label>
 
           <label className="block text-sm text-slate-300 md:col-span-2">
-            负责人 Discord 用户ID / mention
-            <input
+            负责人 Discord 用户ID / mention（可填写多人）
+            <textarea
               name="discord_mention_text"
               defaultValue={team.discord_mention_text || ""}
-              placeholder="复制用户 ID，或填写 <@用户ID> / <@&角色ID>"
+              rows={3}
+              placeholder={"例：123456789012345678 987654321098765432\n或：<@123456789012345678> <@987654321098765432>"}
               className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white outline-none focus:border-white"
             />
             <span className="mt-2 block text-xs text-slate-500">
-              只填数字也可以，系统会自动转成 Discord mention 来通知负责人。
+              只填数字也可以。多个负责人可用空格、逗号或换行分隔，系统会自动转成 Discord mention 一起通知。
             </span>
           </label>
 
