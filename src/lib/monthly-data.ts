@@ -460,7 +460,7 @@ export function getMonthlyAdminStatusLabel(status: unknown) {
   const labels: Record<MonthlyDataStatus, string> = {
     not_submitted: "未提交",
     draft: "已保存",
-    submitted: "已提交",
+    submitted: "待审核",
     reviewing: "审核中",
     returned: "已驳回需补充",
     approved: "已通过",

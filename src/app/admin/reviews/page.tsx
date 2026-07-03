@@ -184,6 +184,11 @@ export default async function AdminReviewsPage() {
       isMonthlyDataReminderWindowOpen(row) &&
       isMonthlyReviewReminderTarget(row.status)
   );
+  const monthlySubmittedRows = monthlyRows.filter(
+    (row) =>
+      isMonthlyReminderEligibleMonth(row.target_month) &&
+      normalizeMonthlyStatus(row.status) === "submitted"
+  );
 
   const submitted = allRows.filter((row) => isSubmittedReviewRow(row));
   const resubmitted = allRows.filter((row) =>
@@ -220,7 +225,7 @@ export default async function AdminReviewsPage() {
         ) : (
           <>
             <div className="mb-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-              <StatCard label="待审核" count={submitted.length} color="yellow" />
+              <StatCard label="待审核" count={submitted.length + monthlySubmittedRows.length} color="yellow" />
               <StatCard label="待再次提交" count={returned.length} color="red" />
               <StatCard label="再次提交待审核" count={resubmitted.length} color="orange" />
               <StatCard label="审核通过" count={approved.length} color="green" />
@@ -277,8 +282,10 @@ export default async function AdminReviewsPage() {
               )}
             </div>
 
+            <MonthlySubmittedSection rows={monthlySubmittedRows} />
+
             <div className="space-y-8">
-              <ReviewSection title="待审核" rows={submitted} color="yellow" />
+              <ReviewSection title="项目待审核" rows={submitted} color="yellow" />
               <ReviewSection title="再次提交待审核" rows={resubmitted} color="orange" />
               <ReviewSection title="待再次提交" rows={returned} color="red" />
               <ReviewSection title="审核通过" rows={approved} color="green" />
@@ -288,6 +295,76 @@ export default async function AdminReviewsPage() {
         )}
       </div>
     </main>
+  );
+}
+
+function MonthlySubmittedSection({
+  rows,
+}: {
+  rows: MonthlySubmissionReviewRow[];
+}) {
+  return (
+    <details
+      className="mb-8 overflow-hidden rounded-xl border border-yellow-500 bg-slate-900"
+      open={rows.length > 0}
+    >
+      <summary className="cursor-pointer list-none border-b border-yellow-500 bg-yellow-950 px-4 py-3 text-yellow-200">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-base font-bold">
+            月数据待审核 <span className="text-sm font-normal">({rows.length})</span>
+          </h2>
+          <span className="text-xs opacity-75">展开 / 收起</span>
+        </div>
+      </summary>
+
+      {rows.length === 0 ? (
+        <p className="px-4 py-3 text-sm text-slate-400">
+          暂无月数据待审核。
+        </p>
+      ) : (
+        <div className="grid gap-2 p-3 md:grid-cols-2">
+          {rows.map((row) => (
+            <MonthlySubmittedRow key={row.id} row={row} />
+          ))}
+        </div>
+      )}
+    </details>
+  );
+}
+
+function MonthlySubmittedRow({ row }: { row: MonthlySubmissionReviewRow }) {
+  const team = row.teams;
+  const status = normalizeMonthlyStatus(row.status);
+
+  return (
+    <article className="rounded-lg border border-yellow-400/30 bg-slate-950/50 p-3">
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+        <div className="min-w-0">
+          <p className="text-xs text-slate-500">战队</p>
+          <p className="mt-1 truncate text-sm font-semibold text-slate-100">
+            {team?.name || "-"}
+            {team?.short_name ? `（${team.short_name}）` : ""}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {formatMonthLabel(row.target_month)} 月数据
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:items-end">
+          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${getMonthlyStatusTone(status)}`}>
+            {getMonthlyAdminStatusLabel(status)}
+          </span>
+          <span className="text-xs text-slate-500">
+            提交：{row.submitted_at ? formatDateTime(row.submitted_at) : "-"}
+          </span>
+          <Link
+            href="/admin/reward"
+            className="text-sm font-semibold text-yellow-200 underline hover:text-white"
+          >
+            去月数据审核
+          </Link>
+        </div>
+      </div>
+    </article>
   );
 }
 
