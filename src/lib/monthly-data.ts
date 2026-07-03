@@ -50,6 +50,7 @@ export type MonthlyReminderSetting = {
 };
 
 export const monthlyReminderStartMonth = "2026-06";
+export const monthlyReminderLeadDays = 7;
 
 export const officialMonthlyRowHandle = "__official_account__";
 export const officialMonthlyRowRole = "official_account";
@@ -236,6 +237,46 @@ export function buildMonthlyReminderSettings(
     .sort((left, right) => left.target_month.localeCompare(right.target_month));
 }
 
+export function isMonthlyDataReminderWindowOpen(
+  setting: { deadline_at?: string | null } | null | undefined,
+  now = new Date()
+) {
+  return isDeadlineReminderWindowOpen(setting?.deadline_at, now);
+}
+
+export function isSalaryScreenshotReminderWindowOpen(
+  setting: { salary_screenshot_deadline_at?: string | null } | null | undefined,
+  now = new Date()
+) {
+  return isDeadlineReminderWindowOpen(
+    setting?.salary_screenshot_deadline_at || null,
+    now
+  );
+}
+
+export function isDeadlineReminderWindowOpen(
+  deadlineAt: string | null | undefined,
+  now = new Date()
+) {
+  if (!deadlineAt) {
+    return false;
+  }
+
+  const deadline = new Date(deadlineAt);
+
+  if (Number.isNaN(deadline.getTime())) {
+    return false;
+  }
+
+  if (now.getTime() > deadline.getTime()) {
+    return true;
+  }
+
+  const daysUntil = getTokyoDayDiff(now, deadline);
+
+  return daysUntil >= 0 && daysUntil <= monthlyReminderLeadDays;
+}
+
 export function getExpectedMonthlySubmissionMonths(now = new Date()) {
   const currentMonth = getTokyoMonthValue(now);
   const latestTargetMonth = addMonthsToMonth(currentMonth, -1);
@@ -285,6 +326,30 @@ function getTokyoMonthValue(date: Date) {
   const month = parts.find((part) => part.type === "month")?.value || "01";
 
   return `${year}-${month}`;
+}
+
+function getTokyoDateKey(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value || "1970";
+  const month = parts.find((part) => part.type === "month")?.value || "01";
+  const day = parts.find((part) => part.type === "day")?.value || "01";
+
+  return `${year}-${month}-${day}`;
+}
+
+function getTokyoDayDiff(from: Date, to: Date) {
+  return toUtcDayNumber(to) - toUtcDayNumber(from);
+}
+
+function toUtcDayNumber(date: Date) {
+  const [year, month, day] = getTokyoDateKey(date).split("-").map(Number);
+
+  return Math.floor(Date.UTC(year, month - 1, day) / 86400000);
 }
 
 function addMonthsToMonth(monthValue: string, offset: number) {

@@ -6,6 +6,15 @@ import {
   getStatusTone,
   isApprovedLike,
 } from "@/lib/status-labels";
+import {
+  buildMonthlyReminderSettings,
+  formatMonthLabel,
+  getMonthlyAdminStatusLabel,
+  getMonthlyStatusTone,
+  isMonthlyDataReminderWindowOpen,
+  isMonthlyReminderEligibleMonth,
+  normalizeMonthlyStatus,
+} from "@/lib/monthly-data";
 import ReminderButton from "./ReminderButton";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +35,35 @@ type ReviewRowData = {
     name: string | null;
     short_name: string | null;
   } | null;
+};
+
+type MonthlySubmissionReviewRow = {
+  id: string;
+  team_id: string;
+  target_month: string;
+  status: string;
+  submitted_at: string | null;
+  teams: {
+    id?: string | null;
+    name: string | null;
+    short_name: string | null;
+    is_active?: boolean | null;
+  } | null;
+  deadline_at?: string | null;
+  isSynthetic?: boolean;
+};
+
+type MonthlySettingRow = {
+  target_month: string;
+  deadline_at: string | null;
+  salary_screenshot_deadline_at?: string | null;
+};
+
+type TeamRow = {
+  id: string;
+  name: string | null;
+  short_name: string | null;
+  is_active: boolean | null;
 };
 
 function isResubmittedStatus(status: string) {
@@ -77,32 +115,75 @@ export default async function AdminReviewsPage() {
 
   const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
-  const { data: rows, error } = await supabase
-    .from("project_teams")
-    .select(
-      `
-      id,
-      status,
-      submitted_at,
-      returned_at,
-      approved_at,
-      return_reason,
-      projects (
-        id,
-        title,
-        description,
-        deadline_at
-      ),
-      teams (
-        id,
-        name,
-        short_name
-      )
-    `
-    )
-    .order("created_at", { ascending: false });
+  const [projectResult, monthlyResult, settingsResult, teamsResult] =
+    await Promise.all([
+      supabase
+        .from("project_teams")
+        .select(
+          `
+          id,
+          status,
+          submitted_at,
+          returned_at,
+          approved_at,
+          return_reason,
+          projects (
+            id,
+            title,
+            description,
+            deadline_at
+          ),
+          teams (
+            id,
+            name,
+            short_name
+          )
+        `
+        )
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("monthly_data_submissions")
+        .select(
+          `
+          id,
+          team_id,
+          target_month,
+          status,
+          submitted_at,
+          teams (
+            id,
+            name,
+            short_name,
+            is_active
+          )
+        `
+        ),
+      supabase.from("monthly_data_settings").select("*"),
+      supabase
+        .from("teams")
+        .select("id, name, short_name, is_active")
+        .eq("is_active", true),
+    ]);
 
-  const allRows = (rows || []) as unknown as ReviewRowData[];
+  const error =
+    projectResult.error ||
+    monthlyResult.error ||
+    settingsResult.error ||
+    teamsResult.error;
+  const allRows = (projectResult.data || []) as unknown as ReviewRowData[];
+  const monthlyRows = buildMonthlySubmissionReviewRows({
+    submissions: (monthlyResult.data || []) as unknown as MonthlySubmissionReviewRow[],
+    settings: buildMonthlyReminderSettings(
+      (settingsResult.data || []) as MonthlySettingRow[]
+    ),
+    teams: (teamsResult.data || []) as TeamRow[],
+  });
+  const monthlyReminderRows = monthlyRows.filter(
+    (row) =>
+      isMonthlyReminderEligibleMonth(row.target_month) &&
+      isMonthlyDataReminderWindowOpen(row) &&
+      isMonthlyReviewReminderTarget(row.status)
+  );
 
   const submitted = allRows.filter((row) => isSubmittedReviewRow(row));
   const resubmitted = allRows.filter((row) =>
@@ -163,6 +244,37 @@ export default async function AdminReviewsPage() {
                   disabled={notSubmitted.length + returned.length === 0}
                 />
               </div>
+            </div>
+
+            <div className="mb-6 rounded-xl border border-amber-400/40 bg-amber-950/20 p-4">
+              <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+                <div>
+                  <h2 className="text-base font-bold text-amber-100">
+                    月数据提交提醒
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-300">
+                    截止前7天开始自动显示未提交、已保存、已驳回需补充的战队。
+                  </p>
+                </div>
+                <ReminderButton
+                  scope="monthly_all"
+                  label={`一键提醒月数据 ${monthlyReminderRows.length} 队`}
+                  confirmMessage="确定立即提醒所有进入提醒窗口且未完成月数据提交的战队吗？"
+                  disabled={monthlyReminderRows.length === 0}
+                />
+              </div>
+
+              {monthlyReminderRows.length === 0 ? (
+                <p className="mt-4 text-sm text-slate-500">
+                  当前没有进入提醒窗口的月数据未提交记录。
+                </p>
+              ) : (
+                <div className="mt-4 grid gap-2 md:grid-cols-2">
+                  {monthlyReminderRows.map((row) => (
+                    <MonthlyReminderRow key={row.id} row={row} />
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="space-y-8">
@@ -354,5 +466,99 @@ function ReasonPreview({ reason }: { reason: string }) {
         {reason}
       </p>
     </div>
+  );
+}
+
+function MonthlyReminderRow({ row }: { row: MonthlySubmissionReviewRow }) {
+  const team = row.teams;
+  const status = normalizeMonthlyStatus(row.status);
+
+  return (
+    <article className="rounded-lg border border-amber-400/30 bg-slate-950/50 p-3">
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+        <div className="min-w-0">
+          <p className="text-xs text-slate-500">战队</p>
+          <p className="mt-1 truncate text-sm font-semibold text-slate-100">
+            {team?.name || "-"}
+            {team?.short_name ? `（${team.short_name}）` : ""}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {formatMonthLabel(row.target_month)} 月数据
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:items-end">
+          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${getMonthlyStatusTone(status)}`}>
+            {getMonthlyAdminStatusLabel(status)}
+          </span>
+          <span className="text-xs text-slate-500">
+            截止：{row.deadline_at ? formatDateTime(row.deadline_at) : "-"}
+          </span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function buildMonthlySubmissionReviewRows({
+  submissions,
+  settings,
+  teams,
+}: {
+  submissions: MonthlySubmissionReviewRow[];
+  settings: MonthlySettingRow[];
+  teams: TeamRow[];
+}) {
+  const settingByMonth = new Map(
+    settings.map((setting) => [setting.target_month, setting])
+  );
+  const submissionByTeamMonth = new Map(
+    submissions.map((row) => [`${row.team_id}:${row.target_month}`, row])
+  );
+  const activeTeams = teams.filter((team) => team.is_active !== false);
+  const syntheticRows = settings.filter((setting) =>
+    isMonthlyDataReminderWindowOpen(setting)
+  ).flatMap((setting) =>
+    activeTeams
+      .filter((team) => !submissionByTeamMonth.has(`${team.id}:${setting.target_month}`))
+      .map((team) => ({
+        id: `monthly-missing-${setting.target_month}-${team.id}`,
+        team_id: team.id,
+        target_month: setting.target_month,
+        status: "not_submitted",
+        submitted_at: null,
+        teams: team,
+        deadline_at: setting.deadline_at,
+        isSynthetic: true,
+      }))
+  );
+  const rowsWithDeadlines = submissions.map((row) => {
+    const setting = settingByMonth.get(row.target_month);
+
+    return {
+      ...row,
+      deadline_at: setting?.deadline_at || null,
+    };
+  });
+
+  return [...rowsWithDeadlines, ...syntheticRows].sort((a, b) => {
+    const monthCompare = String(b.target_month).localeCompare(String(a.target_month));
+
+    if (monthCompare !== 0) {
+      return monthCompare;
+    }
+
+    return String(a.teams?.short_name || a.teams?.name || "").localeCompare(
+      String(b.teams?.short_name || b.teams?.name || "")
+    );
+  });
+}
+
+function isMonthlyReviewReminderTarget(status: string | null | undefined) {
+  const normalized = normalizeMonthlyStatus(status);
+
+  return (
+    normalized === "not_submitted" ||
+    normalized === "draft" ||
+    normalized === "returned"
   );
 }

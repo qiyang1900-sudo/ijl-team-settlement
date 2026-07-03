@@ -15,7 +15,9 @@ import {
   getMonthlyAdminStatusLabel,
   getMonthlyStatusTone,
   getSalaryScreenshotSummary,
+  isMonthlyDataReminderWindowOpen,
   isMonthlyReminderEligibleMonth,
+  isSalaryScreenshotReminderWindowOpen,
   monthlyReminderStartMonth,
   normalizeMonthlyStatus,
   parseMonthlyPlayerRows,
@@ -203,10 +205,10 @@ export default async function RewardPage() {
     isMonthlyReminderEligibleMonth(row.target_month)
   );
   const salaryMissingRows = reminderRows.filter((row) =>
-    isSalaryScreenshotMissing(row)
+    isSalaryScreenshotReminderWindowOpen(row) && isSalaryScreenshotMissing(row)
   );
   const monthlyReminderCount = reminderRows.filter((row) =>
-    isMonthlyReminderTarget(row.status)
+    isMonthlyDataReminderWindowOpen(row) && isMonthlyReminderTarget(row.status)
   ).length;
 
   return (
@@ -339,7 +341,9 @@ function buildMonthlyReviewRows({
     submissions.map((row) => [`${row.team_id}:${row.target_month}`, row])
   );
   const activeTeams = teams.filter((team) => team.is_active !== false);
-  const syntheticRows = settings.flatMap((setting) =>
+  const syntheticRows = settings.filter((setting) =>
+    isMonthlyDataReminderWindowOpen(setting)
+  ).flatMap((setting) =>
     activeTeams
       .filter((team) => !submissionByTeamMonth.has(`${team.id}:${setting.target_month}`))
       .map((team) => ({
@@ -581,6 +585,7 @@ function ReviewRow({
 
       <div className="mt-4 flex flex-wrap gap-2">
         {isMonthlyReminderEligibleMonth(row.target_month) &&
+        isMonthlyDataReminderWindowOpen(row) &&
         isMonthlyReminderTarget(row.status) &&
         row.team_id ? (
           <ReminderButton
@@ -594,6 +599,7 @@ function ReviewRow({
           />
         ) : null}
         {isMonthlyReminderEligibleMonth(row.target_month) &&
+        isSalaryScreenshotReminderWindowOpen(row) &&
         isSalaryScreenshotMissing(row) &&
         row.team_id ? (
           <ReminderButton

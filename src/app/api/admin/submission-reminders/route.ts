@@ -12,7 +12,9 @@ import {
   buildMonthlyReminderSettings,
   getMonthlyStatusLabel,
   getSalaryScreenshotSummary,
+  isMonthlyDataReminderWindowOpen,
   isMonthlyReminderEligibleMonth,
+  isSalaryScreenshotReminderWindowOpen,
   normalizeMonthlyStatus,
   parseMonthlyPlayerRows,
   splitMonthlyRows,
@@ -243,6 +245,14 @@ async function sendMonthlyDataReminders({
     }
 
     if (row.teams?.is_active === false) {
+      return false;
+    }
+
+    if (
+      reminderKind === "monthly_salary_screenshot"
+        ? !isSalaryScreenshotReminderWindowOpen(row.setting)
+        : !isMonthlyDataReminderWindowOpen(row.setting)
+    ) {
       return false;
     }
 
