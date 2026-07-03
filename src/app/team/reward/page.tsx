@@ -16,6 +16,8 @@ import {
   getMonthlyStatusLabel,
   getMonthlyStatusTone,
   getSalaryScreenshotSummary,
+  hasMonthlyMetricScreenshot,
+  isMonthlyDataScreenshotRequiredMonth,
   normalizeMonthlyStatus,
   parseMonthlyPlayerRows,
   splitMonthlyRows,
@@ -123,6 +125,9 @@ async function saveMonthlyData(formData: FormData) {
   const officialRow = officialRows[0] || createOfficialMonthlyRow("");
   const playerRows = parseMonthlyPlayerRows(formData.get("player_rows"));
   const isSalaryScreenshotAction = actionType.startsWith("salary_screenshots");
+  const isMonthlySubmitAction = actionType === "submit";
+  const requiresMetricScreenshots =
+    isMonthlySubmitAction && isMonthlyDataScreenshotRequiredMonth(targetMonth);
   const now = new Date().toISOString();
 
   if (!teamId || !targetMonth) {
@@ -147,6 +152,21 @@ async function saveMonthlyData(formData: FormData) {
     splitMonthlyRows(
       parseMonthlyPlayerRows(existingSubmission?.player_rows)
     );
+  const officialRowForPayload = isSalaryScreenshotAction
+    ? existingOfficialRow || officialRow
+    : await uploadMetricScreenshotsForRow({
+        formData,
+        row: carryMetricScreenshots({
+          row: officialRow,
+          existingRow: existingOfficialRow,
+        }),
+        existingRow: existingOfficialRow,
+        teamId,
+        targetMonth,
+        storageClient,
+        fileKeySuffix: "official",
+        uploadPrefixSuffix: "official",
+      });
   const rowsForPayload = isSalaryScreenshotAction
     ? mergeSalaryRowsOnly({
         salaryRows: await uploadSalaryScreenshots({
@@ -163,6 +183,24 @@ async function saveMonthlyData(formData: FormData) {
         monthlyRows: playerRows,
         existingPlayerRows,
       });
+  const monthlyRowsForPayload = isSalaryScreenshotAction
+    ? rowsForPayload
+    : await uploadMetricScreenshotsForPlayers({
+        formData,
+        rows: rowsForPayload,
+        existingPlayerRows,
+        teamId,
+        targetMonth,
+        storageClient,
+      });
+
+  if (!isSalaryScreenshotAction && requiresMetricScreenshots) {
+    validateRequiredMetricScreenshots({
+      officialRow: officialRowForPayload,
+      playerRows: monthlyRowsForPayload,
+    });
+  }
+
   const uploadedClubActivityItems = isSalaryScreenshotAction
     ? null
     : await uploadClubActivityImages({
@@ -181,10 +219,8 @@ async function saveMonthlyData(formData: FormData) {
     target_month: targetMonth,
     status: nextStatus,
     player_rows: [
-      isSalaryScreenshotAction && existingOfficialRow
-        ? existingOfficialRow
-        : officialRow,
-      ...rowsForPayload,
+      officialRowForPayload,
+      ...monthlyRowsForPayload,
     ],
     club_activity_link: isSalaryScreenshotAction
       ? existingSubmission?.club_activity_link || null
@@ -685,6 +721,9 @@ export default async function TeamRewardPage({
                 clubActivityItems={clubActivityItems}
                 isLocked={isLocked}
                 canSaveSalaryScreenshots={canSaveSalaryScreenshots}
+                isDataScreenshotRequired={isMonthlyDataScreenshotRequiredMonth(
+                  selectedMonth
+                )}
               />
             </div>
           </div>
@@ -775,6 +814,32 @@ function mergeMonthlyRowsPreservingSalary({
       salaryScreenshotStoragePath:
         existingRow?.salaryScreenshotStoragePath || "",
       salaryScreenshotMimeType: existingRow?.salaryScreenshotMimeType || "",
+      xScreenshotName:
+        monthlyRow.xScreenshotName || existingRow?.xScreenshotName || "",
+      xScreenshotUrl:
+        monthlyRow.xScreenshotUrl || existingRow?.xScreenshotUrl || "",
+      xScreenshotStoragePath:
+        monthlyRow.xScreenshotStoragePath ||
+        existingRow?.xScreenshotStoragePath ||
+        "",
+      xScreenshotMimeType:
+        monthlyRow.xScreenshotMimeType || existingRow?.xScreenshotMimeType || "",
+      youtubeScreenshotName:
+        monthlyRow.youtubeScreenshotName ||
+        existingRow?.youtubeScreenshotName ||
+        "",
+      youtubeScreenshotUrl:
+        monthlyRow.youtubeScreenshotUrl ||
+        existingRow?.youtubeScreenshotUrl ||
+        "",
+      youtubeScreenshotStoragePath:
+        monthlyRow.youtubeScreenshotStoragePath ||
+        existingRow?.youtubeScreenshotStoragePath ||
+        "",
+      youtubeScreenshotMimeType:
+        monthlyRow.youtubeScreenshotMimeType ||
+        existingRow?.youtubeScreenshotMimeType ||
+        "",
     };
   });
 }
@@ -856,6 +921,180 @@ function emptyMonthlyMetrics(row: MonthlyPlayerRow) {
     youtubeTotalImpressions: "",
     youtubeSubscriberCount: "",
   };
+}
+
+function carryMetricScreenshots({
+  row,
+  existingRow,
+}: {
+  row: MonthlyPlayerRow;
+  existingRow: MonthlyPlayerRow | null;
+}): MonthlyPlayerRow {
+  return {
+    ...row,
+    xScreenshotName: row.xScreenshotName || existingRow?.xScreenshotName || "",
+    xScreenshotUrl: row.xScreenshotUrl || existingRow?.xScreenshotUrl || "",
+    xScreenshotStoragePath:
+      row.xScreenshotStoragePath || existingRow?.xScreenshotStoragePath || "",
+    xScreenshotMimeType:
+      row.xScreenshotMimeType || existingRow?.xScreenshotMimeType || "",
+    youtubeScreenshotName:
+      row.youtubeScreenshotName || existingRow?.youtubeScreenshotName || "",
+    youtubeScreenshotUrl:
+      row.youtubeScreenshotUrl || existingRow?.youtubeScreenshotUrl || "",
+    youtubeScreenshotStoragePath:
+      row.youtubeScreenshotStoragePath ||
+      existingRow?.youtubeScreenshotStoragePath ||
+      "",
+    youtubeScreenshotMimeType:
+      row.youtubeScreenshotMimeType ||
+      existingRow?.youtubeScreenshotMimeType ||
+      "",
+  };
+}
+
+async function uploadMetricScreenshotsForPlayers({
+  formData,
+  rows,
+  existingPlayerRows,
+  teamId,
+  targetMonth,
+  storageClient,
+}: {
+  formData: FormData;
+  rows: MonthlyPlayerRow[];
+  existingPlayerRows: MonthlyPlayerRow[];
+  teamId: string;
+  targetMonth: string;
+  storageClient: StorageClient;
+}) {
+  const nextRows: MonthlyPlayerRow[] = [];
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const existingRow = findMatchingPlayerRow(row, existingPlayerRows, index);
+    const uploadedRow = await uploadMetricScreenshotsForRow({
+      formData,
+      row: carryMetricScreenshots({ row, existingRow }),
+      existingRow,
+      teamId,
+      targetMonth,
+      storageClient,
+      fileKeySuffix: String(index),
+      uploadPrefixSuffix: `player-${index + 1}`,
+    });
+
+    nextRows.push(uploadedRow);
+  }
+
+  return nextRows;
+}
+
+async function uploadMetricScreenshotsForRow({
+  formData,
+  row,
+  existingRow,
+  teamId,
+  targetMonth,
+  storageClient,
+  fileKeySuffix,
+  uploadPrefixSuffix,
+}: {
+  formData: FormData;
+  row: MonthlyPlayerRow;
+  existingRow: MonthlyPlayerRow | null;
+  teamId: string;
+  targetMonth: string;
+  storageClient: StorageClient;
+  fileKeySuffix: string;
+  uploadPrefixSuffix: string;
+}) {
+  let nextRow = carryMetricScreenshots({ row, existingRow });
+
+  for (const kind of ["x", "youtube"] as const) {
+    const file = formData.get(
+      `metric_screenshot_${kind}_${fileKeySuffix}`
+    ) as File | null;
+
+    if (!file || file.size <= 0) {
+      continue;
+    }
+
+    const uploaded = await uploadImage({
+      file,
+      teamId,
+      targetMonth,
+      storageClient,
+      prefix: `${kind}-data-${uploadPrefixSuffix}`,
+    });
+
+    nextRow = applyMetricScreenshot(nextRow, kind, uploaded);
+  }
+
+  return nextRow;
+}
+
+function applyMetricScreenshot(
+  row: MonthlyPlayerRow,
+  kind: "x" | "youtube",
+  uploaded: {
+    fileName: string;
+    fileUrl: string;
+    storagePath: string;
+    mimeType: string;
+  }
+): MonthlyPlayerRow {
+  if (kind === "x") {
+    return {
+      ...row,
+      xScreenshotName: uploaded.fileName,
+      xScreenshotUrl: uploaded.fileUrl,
+      xScreenshotStoragePath: uploaded.storagePath,
+      xScreenshotMimeType: uploaded.mimeType,
+    };
+  }
+
+  return {
+    ...row,
+    youtubeScreenshotName: uploaded.fileName,
+    youtubeScreenshotUrl: uploaded.fileUrl,
+    youtubeScreenshotStoragePath: uploaded.storagePath,
+    youtubeScreenshotMimeType: uploaded.mimeType,
+  };
+}
+
+function validateRequiredMetricScreenshots({
+  officialRow,
+  playerRows,
+}: {
+  officialRow: MonthlyPlayerRow;
+  playerRows: MonthlyPlayerRow[];
+}) {
+  const missing: string[] = [];
+
+  for (const row of [officialRow, ...playerRows]) {
+    const name = row.playerName || row.playerHandle || "名前未設定";
+
+    if (!hasMonthlyMetricScreenshot(row, "x")) {
+      missing.push(`${name} のXデータスクリーンショット`);
+    }
+
+    if (!hasMonthlyMetricScreenshot(row, "youtube")) {
+      missing.push(`${name} のYouTubeデータスクリーンショット`);
+    }
+  }
+
+  if (missing.length === 0) {
+    return;
+  }
+
+  const visibleMissing = missing.slice(0, 8).join("、");
+  const suffix =
+    missing.length > 8 ? ` ほか${missing.length - 8}件` : "";
+
+  throw new Error(
+    `2026年7月以降の月データは、公式アカウント・各選手のX / YouTubeデータスクリーンショットが必須です。未登録：${visibleMissing}${suffix}`
+  );
 }
 
 async function uploadSalaryScreenshots({

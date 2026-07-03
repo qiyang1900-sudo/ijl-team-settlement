@@ -732,6 +732,18 @@ function OfficialDataPanel({
         <p>X ENG：{formatMonthlyNumber(officialRow.xEngagements)}</p>
         <p>YT 合計Imp：{formatMonthlyNumber(officialRow.youtubeTotalImpressions)}</p>
         <p>YT 登録者：{formatMonthlyNumber(officialRow.youtubeSubscriberCount)}</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <MetricScreenshotPreview
+            label="X截图"
+            imageUrl={officialRow.xScreenshotUrl}
+            fileName={officialRow.xScreenshotName || officialRow.playerName}
+          />
+          <MetricScreenshotPreview
+            label="YT截图"
+            imageUrl={officialRow.youtubeScreenshotUrl}
+            fileName={officialRow.youtubeScreenshotName || officialRow.playerName}
+          />
+        </div>
       </div>
     </div>
   );
@@ -746,6 +758,22 @@ function CompactInfo({ label, value }: { label: string; value: string }) {
   );
 }
 
+function MetricScreenshotPreview({
+  label,
+  imageUrl,
+  fileName,
+}: {
+  label: string;
+  imageUrl?: string;
+  fileName?: string;
+}) {
+  if (!imageUrl) {
+    return <span className="text-slate-500">-</span>;
+  }
+
+  return <ImagePreview imageUrl={imageUrl} fileName={fileName || label} />;
+}
+
 function PlayerDataTable({ players }: { players: MonthlyPlayerRow[] }) {
   if (players.length === 0) {
     return (
@@ -757,17 +785,19 @@ function PlayerDataTable({ players }: { players: MonthlyPlayerRow[] }) {
 
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-700">
-      <table className="min-w-[1500px] w-full text-left text-xs">
+      <table className="min-w-[1660px] w-full text-left text-xs">
         <thead className="bg-slate-900 text-slate-400">
           <tr>
             <th className="px-3 py-2">選手名</th>
             <th className="px-3 py-2">給与</th>
             <th className="px-3 py-2">給与截图</th>
+            <th className="px-3 py-2">X截图</th>
             <th className="px-3 py-2">X投稿</th>
             <th className="px-3 py-2">Xインプレッション</th>
             <th className="px-3 py-2">Xエンゲージメント</th>
             <th className="px-3 py-2">Xイベント</th>
             <th className="px-3 py-2">Xフォロワー</th>
+            <th className="px-3 py-2">YT截图</th>
             <th className="px-3 py-2">YT動画</th>
             <th className="px-3 py-2">YT動画視聴</th>
             <th className="px-3 py-2">YTショート</th>
@@ -794,11 +824,25 @@ function PlayerDataTable({ players }: { players: MonthlyPlayerRow[] }) {
                   "-"
                 )}
               </td>
+              <td className="px-3 py-2">
+                <MetricScreenshotPreview
+                  label="X"
+                  imageUrl={player.xScreenshotUrl}
+                  fileName={player.xScreenshotName || player.playerName}
+                />
+              </td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.xTweetCount)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.xImpressions)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.xEngagements)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.xFanEventCount)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.xFollowerCount)}</td>
+              <td className="px-3 py-2">
+                <MetricScreenshotPreview
+                  label="YT"
+                  imageUrl={player.youtubeScreenshotUrl}
+                  fileName={player.youtubeScreenshotName || player.playerName}
+                />
+              </td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeVideoPostCount)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeVideoViews)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeShortPostCount)}</td>
