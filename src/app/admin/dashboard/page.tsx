@@ -45,16 +45,6 @@ export default function AdminDashboardPage() {
           </Link>
 
           <Link
-            href="/admin/reward"
-            className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"
-          >
-            <h2 className="text-xl font-semibold">月数据审核</h2>
-            <p className="mt-2 text-sm text-slate-600">
-              审核战队提交的选手給与、X、YouTube 和俱乐部活动资料。
-            </p>
-          </Link>
-
-          <Link
             href="/admin/players"
             className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
           >

@@ -525,6 +525,12 @@ function summarizeProjectRows(rows: ProjectTeamRow[]) {
         summary.waiting += 1;
       } else if (status === "returned") {
         summary.returned += 1;
+      } else if (
+        row.submitted_at &&
+        status !== "draft" &&
+        status !== "not_submitted"
+      ) {
+        summary.waiting += 1;
       }
 
       summary.total += 1;

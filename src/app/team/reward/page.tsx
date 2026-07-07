@@ -32,6 +32,7 @@ type MonthlySubmissionRow = {
   team_id?: string | null;
   target_month: string;
   status?: string | null;
+  salary_status?: string | null;
   player_rows?: unknown;
   club_activity_link?: string | null;
   club_activity_image_url?: string | null;
@@ -39,10 +40,15 @@ type MonthlySubmissionRow = {
   club_activity_image_mime_type?: string | null;
   club_activity_image_storage_path?: string | null;
   return_reason?: string | null;
+  salary_return_reason?: string | null;
   submitted_at?: string | null;
   reviewing_at?: string | null;
   returned_at?: string | null;
   approved_at?: string | null;
+  salary_submitted_at?: string | null;
+  salary_reviewing_at?: string | null;
+  salary_returned_at?: string | null;
+  salary_approved_at?: string | null;
   updated_at?: string | null;
 };
 type MonthlyDataSettingRow = {
@@ -194,6 +200,11 @@ async function saveMonthlyData(
     : actionType === "submit"
       ? "submitted"
       : "draft";
+  const nextSalaryStatus = isSalaryScreenshotAction
+    ? actionType === "salary_screenshots_submit"
+      ? "submitted"
+      : "draft"
+    : normalizeMonthlyStatus(existingSubmission?.salary_status);
 
   const { officialRow: existingOfficialRow, playerRows: existingPlayerRows } =
     splitMonthlyRows(
@@ -265,6 +276,7 @@ async function saveMonthlyData(
     team_id: teamId,
     target_month: targetMonth,
     status: nextStatus,
+    salary_status: nextSalaryStatus,
     player_rows: [
       officialRowForPayload,
       ...monthlyRowsForPayload,
@@ -287,6 +299,10 @@ async function saveMonthlyData(
     return_reason: isSalaryScreenshotAction
       ? existingSubmission?.return_reason || null
       : null,
+    salary_return_reason:
+      isSalaryScreenshotAction && actionType === "salary_screenshots_submit"
+        ? null
+        : existingSubmission?.salary_return_reason || null,
     submitted_at:
       actionType === "submit"
         ? now
@@ -294,6 +310,13 @@ async function saveMonthlyData(
     reviewing_at: existingSubmission?.reviewing_at || null,
     returned_at: existingSubmission?.returned_at || null,
     approved_at: existingSubmission?.approved_at || null,
+    salary_submitted_at:
+      actionType === "salary_screenshots_submit"
+        ? now
+        : existingSubmission?.salary_submitted_at || null,
+    salary_reviewing_at: existingSubmission?.salary_reviewing_at || null,
+    salary_returned_at: existingSubmission?.salary_returned_at || null,
+    salary_approved_at: existingSubmission?.salary_approved_at || null,
     updated_at: now,
   };
 
@@ -562,6 +585,7 @@ export default async function TeamRewardPage({
   const selectedSubmission =
     submissions.find((row) => row.target_month === selectedMonth) || null;
   const status = normalizeMonthlyStatus(selectedSubmission?.status);
+  const salaryStatus = normalizeMonthlyStatus(selectedSubmission?.salary_status);
   const { officialRow: savedOfficialRow, playerRows: savedPlayerRows } =
     splitMonthlyRows(parseMonthlyPlayerRows(selectedSubmission?.player_rows));
   const assignedPlayerRows = assignedPlayers.map((player, index) =>
@@ -583,7 +607,10 @@ export default async function TeamRewardPage({
   });
   const isMonthlyDataLocked =
     status === "submitted" || status === "reviewing" || status === "approved";
-  const isSalaryLocked = false;
+  const isSalaryLocked =
+    salaryStatus === "submitted" ||
+    salaryStatus === "reviewing" ||
+    salaryStatus === "approved";
   const canSaveSalaryScreenshots = !isSalaryLocked;
   const dashboardHref = `/team/dashboard?teamId=${encodeURIComponent(teamId)}`;
 
@@ -603,11 +630,19 @@ export default async function TeamRewardPage({
             </p>
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
-            <p className="text-slate-500">現在のステータス</p>
-            <span className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${getMonthlyStatusTone(status)}`}>
-              {getMonthlyStatusLabel(status)}
-            </span>
+          <div className="grid gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm sm:grid-cols-2">
+            <div>
+              <p className="text-slate-500">月データステータス</p>
+              <span className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${getMonthlyStatusTone(status)}`}>
+                {getMonthlyStatusLabel(status)}
+              </span>
+            </div>
+            <div>
+              <p className="text-slate-500">給与ステータス</p>
+              <span className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${getMonthlyStatusTone(salaryStatus)}`}>
+                {getMonthlyStatusLabel(salaryStatus)}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -666,7 +701,10 @@ export default async function TeamRewardPage({
                           {formatMonthLabel(submission.target_month)}
                         </div>
                         <span className={`mt-2 inline-flex rounded-full px-2 py-1 text-xs font-semibold ring-1 ${getMonthlyStatusTone(submission.status)}`}>
-                          {getMonthlyStatusLabel(submission.status)}
+                          月：{getMonthlyStatusLabel(submission.status)}
+                        </span>
+                        <span className={`mt-2 ml-2 inline-flex rounded-full px-2 py-1 text-xs font-semibold ring-1 ${getMonthlyStatusTone(normalizeMonthlyStatus(submission.salary_status))}`}>
+                          給与：{getMonthlyStatusLabel(submission.salary_status)}
                         </span>
                       </a>
                     ))}
@@ -733,9 +771,18 @@ export default async function TeamRewardPage({
 
               {selectedSubmission?.return_reason ? (
                 <section className="mb-5 rounded-lg border border-rose-200 bg-rose-50 p-4 text-rose-800">
-                  <p className="font-bold">差し戻し理由</p>
+                  <p className="font-bold">月データ差し戻し理由</p>
                   <p className="mt-2 whitespace-pre-wrap break-words text-sm">
                     {selectedSubmission.return_reason}
+                  </p>
+                </section>
+              ) : null}
+
+              {selectedSubmission?.salary_return_reason ? (
+                <section className="mb-5 rounded-lg border border-rose-200 bg-rose-50 p-4 text-rose-800">
+                  <p className="font-bold">給与差し戻し理由</p>
+                  <p className="mt-2 whitespace-pre-wrap break-words text-sm">
+                    {selectedSubmission.salary_return_reason}
                   </p>
                 </section>
               ) : null}
@@ -763,7 +810,15 @@ export default async function TeamRewardPage({
 
               {status === "reviewing" || status === "approved" ? (
                 <section className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-                  月データは審査中、または承認済みのため編集できません。給与スクリーンショットは別提出として保存できます。
+                  月データは審査中、または承認済みのため編集できません。給与スクリーンショットは別提出として管理されます。
+                </section>
+              ) : null}
+
+              {salaryStatus === "submitted" ||
+              salaryStatus === "reviewing" ||
+              salaryStatus === "approved" ? (
+                <section className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
+                  給与スクリーンショットは審査提出済み、審査中、または承認済みのため編集できません。
                 </section>
               ) : null}
 

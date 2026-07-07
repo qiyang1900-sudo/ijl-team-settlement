@@ -37,15 +37,21 @@ type MonthlySubmissionRow = {
   team_id: string;
   target_month: string;
   status: string;
+  salary_status?: string | null;
   player_rows: unknown;
   club_activity_link: string | null;
   club_activity_image_url: string | null;
   club_activity_image_name: string | null;
   return_reason: string | null;
+  salary_return_reason?: string | null;
   submitted_at: string | null;
   reviewing_at: string | null;
   returned_at: string | null;
   approved_at: string | null;
+  salary_submitted_at?: string | null;
+  salary_reviewing_at?: string | null;
+  salary_returned_at?: string | null;
+  salary_approved_at?: string | null;
   updated_at: string | null;
   teams: {
     id?: string | null;
@@ -71,6 +77,8 @@ type MonthlySettingRow = {
   salary_screenshot_deadline_at?: string | null;
 };
 
+type ReviewKind = "monthly" | "salary";
+
 async function updateMonthlyDataStatus(formData: FormData) {
   "use server";
 
@@ -84,6 +92,7 @@ async function updateMonthlyDataStatus(formData: FormData) {
   const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const submissionId = String(formData.get("submission_id") || "");
   const actionType = String(formData.get("action_type") || "");
+  const reviewKind = String(formData.get("review_kind") || "monthly");
   const returnReason = String(formData.get("return_reason") || "").trim();
   const now = new Date().toISOString();
 
@@ -95,18 +104,31 @@ async function updateMonthlyDataStatus(formData: FormData) {
     updated_at: now,
   };
 
-  if (actionType === "reviewing") {
+  if (reviewKind === "salary") {
+    if (actionType === "reviewing") {
+      patch.salary_status = "reviewing";
+      patch.salary_reviewing_at = now;
+    }
+
+    if (actionType === "approved") {
+      patch.salary_status = "approved";
+      patch.salary_approved_at = now;
+      patch.salary_return_reason = null;
+    }
+
+    if (actionType === "returned") {
+      patch.salary_status = "returned";
+      patch.salary_returned_at = now;
+      patch.salary_return_reason = returnReason || "请补充給与截图后重新提交。";
+    }
+  } else if (actionType === "reviewing") {
     patch.status = "reviewing";
     patch.reviewing_at = now;
-  }
-
-  if (actionType === "approved") {
+  } else if (actionType === "approved") {
     patch.status = "approved";
     patch.approved_at = now;
     patch.return_reason = null;
-  }
-
-  if (actionType === "returned") {
+  } else if (actionType === "returned") {
     patch.status = "returned";
     patch.returned_at = now;
     patch.return_reason = returnReason || "请补充月数据内容后重新提交。";
@@ -197,6 +219,7 @@ export default async function RewardPage() {
     teams: (teamsResult.data || []) as TeamRow[],
   });
   const grouped = groupRows(rows);
+  const salaryGrouped = groupSalaryRows(rows);
   const alertMap = buildReviewAlertMap(rows);
   const alertCount = Array.from(alertMap.values()).filter(
     (alerts) => alerts.length > 0
@@ -205,7 +228,7 @@ export default async function RewardPage() {
     isMonthlyReminderEligibleMonth(row.target_month)
   );
   const salaryMissingRows = reminderRows.filter((row) =>
-    isSalaryScreenshotReminderWindowOpen(row) && isSalaryScreenshotMissing(row)
+    isSalaryScreenshotReminderWindowOpen(row) && isSalaryReminderTarget(row)
   );
   const monthlyReminderCount = reminderRows.filter((row) =>
     isMonthlyDataReminderWindowOpen(row) && isMonthlyReminderTarget(row.status)
@@ -243,15 +266,30 @@ export default async function RewardPage() {
           </div>
         ) : (
           <>
-            <div className="mb-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
-              <StatCard label="未提交" count={grouped.notSubmitted.length} color="slate" />
-              <StatCard label="待审核" count={grouped.submitted.length} color="yellow" />
-              <StatCard label="审核中" count={grouped.reviewing.length} color="orange" />
-              <StatCard label="需人工确认" count={alertCount} color="amber" />
-              <StatCard label="已驳回需补充" count={grouped.returned.length} color="red" />
-              <StatCard label="已通过" count={grouped.approved.length} color="green" />
-              <StatCard label="已保存" count={grouped.draft.length} color="blue" />
-            </div>
+            <section className="mb-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+              <h2 className="text-lg font-bold">月数据审核概览</h2>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
+                <StatCard label="未提交" count={grouped.notSubmitted.length} color="slate" />
+                <StatCard label="待审核" count={grouped.submitted.length} color="yellow" />
+                <StatCard label="审核中" count={grouped.reviewing.length} color="orange" />
+                <StatCard label="需人工确认" count={alertCount} color="amber" />
+                <StatCard label="已驳回需补充" count={grouped.returned.length} color="red" />
+                <StatCard label="已通过" count={grouped.approved.length} color="green" />
+                <StatCard label="已保存" count={grouped.draft.length} color="blue" />
+              </div>
+            </section>
+
+            <section className="mb-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+              <h2 className="text-lg font-bold">給与审核概览</h2>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+                <StatCard label="未提交" count={salaryGrouped.notSubmitted.length} color="slate" />
+                <StatCard label="已保存" count={salaryGrouped.draft.length} color="blue" />
+                <StatCard label="待审核" count={salaryGrouped.submitted.length} color="yellow" />
+                <StatCard label="审核中" count={salaryGrouped.reviewing.length} color="orange" />
+                <StatCard label="已驳回需补充" count={salaryGrouped.returned.length} color="red" />
+                <StatCard label="已通过" count={salaryGrouped.approved.length} color="green" />
+              </div>
+            </section>
 
             <div className="mb-6 rounded-xl border border-sky-400/40 bg-sky-950/30 p-4">
               <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
@@ -280,42 +318,95 @@ export default async function RewardPage() {
               </div>
             </div>
 
-            <div className="space-y-6">
+            <div className="mb-8 space-y-6">
+              <h2 className="text-xl font-bold">月数据审核</h2>
               <ReviewSection
                 title="未提交"
                 rows={grouped.notSubmitted}
                 color="slate"
                 alertMap={alertMap}
+                reviewKind="monthly"
               />
               <ReviewSection
                 title="待审核"
                 rows={grouped.submitted}
                 color="yellow"
                 alertMap={alertMap}
+                reviewKind="monthly"
               />
               <ReviewSection
                 title="审核中"
                 rows={grouped.reviewing}
                 color="orange"
                 alertMap={alertMap}
+                reviewKind="monthly"
               />
               <ReviewSection
                 title="已驳回需补充"
                 rows={grouped.returned}
                 color="red"
                 alertMap={alertMap}
+                reviewKind="monthly"
               />
               <ReviewSection
                 title="已通过"
                 rows={grouped.approved}
                 color="green"
                 alertMap={alertMap}
+                reviewKind="monthly"
               />
               <ReviewSection
                 title="已保存"
                 rows={grouped.draft}
                 color="blue"
                 alertMap={alertMap}
+                reviewKind="monthly"
+              />
+            </div>
+
+            <div className="space-y-6">
+              <h2 className="text-xl font-bold">給与审核</h2>
+              <ReviewSection
+                title="給与未提交"
+                rows={salaryGrouped.notSubmitted}
+                color="slate"
+                alertMap={new Map()}
+                reviewKind="salary"
+              />
+              <ReviewSection
+                title="給与待审核"
+                rows={salaryGrouped.submitted}
+                color="yellow"
+                alertMap={new Map()}
+                reviewKind="salary"
+              />
+              <ReviewSection
+                title="給与审核中"
+                rows={salaryGrouped.reviewing}
+                color="orange"
+                alertMap={new Map()}
+                reviewKind="salary"
+              />
+              <ReviewSection
+                title="給与已驳回需补充"
+                rows={salaryGrouped.returned}
+                color="red"
+                alertMap={new Map()}
+                reviewKind="salary"
+              />
+              <ReviewSection
+                title="給与已通过"
+                rows={salaryGrouped.approved}
+                color="green"
+                alertMap={new Map()}
+                reviewKind="salary"
+              />
+              <ReviewSection
+                title="給与已保存"
+                rows={salaryGrouped.draft}
+                color="blue"
+                alertMap={new Map()}
+                reviewKind="salary"
               />
             </div>
           </>
@@ -341,8 +432,10 @@ function buildMonthlyReviewRows({
     submissions.map((row) => [`${row.team_id}:${row.target_month}`, row])
   );
   const activeTeams = teams.filter((team) => team.is_active !== false);
-  const syntheticRows = settings.filter((setting) =>
-    isMonthlyDataReminderWindowOpen(setting)
+  const syntheticRows = settings.filter(
+    (setting) =>
+      isMonthlyDataReminderWindowOpen(setting) ||
+      isSalaryScreenshotReminderWindowOpen(setting)
   ).flatMap((setting) =>
     activeTeams
       .filter((team) => !submissionByTeamMonth.has(`${team.id}:${setting.target_month}`))
@@ -351,6 +444,7 @@ function buildMonthlyReviewRows({
         team_id: team.id,
         target_month: setting.target_month,
         status: "not_submitted",
+        salary_status: "not_submitted",
         player_rows: [],
         club_activity_link: null,
         club_activity_image_url: null,
@@ -358,10 +452,15 @@ function buildMonthlyReviewRows({
         club_activity_image_mime_type: null,
         club_activity_image_storage_path: null,
         return_reason: null,
+        salary_return_reason: null,
         submitted_at: null,
         reviewing_at: null,
         returned_at: null,
         approved_at: null,
+        salary_submitted_at: null,
+        salary_reviewing_at: null,
+        salary_returned_at: null,
+        salary_approved_at: null,
         updated_at: setting.deadline_at || setting.salary_screenshot_deadline_at || null,
         teams: team,
         deadline_at: setting.deadline_at,
@@ -414,6 +513,29 @@ function groupRows(rows: MonthlySubmissionRow[]) {
   };
 }
 
+function groupSalaryRows(rows: MonthlySubmissionRow[]) {
+  return {
+    notSubmitted: rows.filter(
+      (row) => normalizeMonthlyStatus(row.salary_status) === "not_submitted"
+    ),
+    draft: rows.filter(
+      (row) => normalizeMonthlyStatus(row.salary_status) === "draft"
+    ),
+    submitted: rows.filter(
+      (row) => normalizeMonthlyStatus(row.salary_status) === "submitted"
+    ),
+    reviewing: rows.filter(
+      (row) => normalizeMonthlyStatus(row.salary_status) === "reviewing"
+    ),
+    returned: rows.filter(
+      (row) => normalizeMonthlyStatus(row.salary_status) === "returned"
+    ),
+    approved: rows.filter(
+      (row) => normalizeMonthlyStatus(row.salary_status) === "approved"
+    ),
+  };
+}
+
 function getSalarySummaryForRow(row: MonthlySubmissionRow) {
   const { playerRows } = splitMonthlyRows(parseMonthlyPlayerRows(row.player_rows));
 
@@ -422,6 +544,17 @@ function getSalarySummaryForRow(row: MonthlySubmissionRow) {
 
 function isSalaryScreenshotMissing(row: MonthlySubmissionRow) {
   return !getSalarySummaryForRow(row).isComplete;
+}
+
+function isSalaryReminderTarget(row: MonthlySubmissionRow) {
+  const status = normalizeMonthlyStatus(row.salary_status);
+
+  return (
+    status === "not_submitted" ||
+    status === "draft" ||
+    status === "returned" ||
+    isSalaryScreenshotMissing(row)
+  );
 }
 
 function isMonthlyReminderTarget(status: string | null | undefined) {
@@ -485,11 +618,13 @@ function ReviewSection({
   rows,
   color,
   alertMap,
+  reviewKind,
 }: {
   title: string;
   rows: MonthlySubmissionRow[];
   color: "yellow" | "orange" | "red" | "green" | "blue" | "slate";
   alertMap: Map<string, MonthlyReviewAlert[]>;
+  reviewKind: ReviewKind;
 }) {
   const colorClass = {
     yellow: "border-yellow-500 bg-yellow-950 text-yellow-200",
@@ -522,7 +657,8 @@ function ReviewSection({
             <ReviewRow
               key={row.id}
               row={row}
-              alerts={alertMap.get(row.id) || []}
+              alerts={reviewKind === "monthly" ? alertMap.get(row.id) || [] : []}
+              reviewKind={reviewKind}
             />
           ))}
         </div>
@@ -534,11 +670,19 @@ function ReviewSection({
 function ReviewRow({
   row,
   alerts,
+  reviewKind,
 }: {
   row: MonthlySubmissionRow;
   alerts: MonthlyReviewAlert[];
+  reviewKind: ReviewKind;
 }) {
-  const status = normalizeMonthlyStatus(row.status);
+  const status = normalizeMonthlyStatus(
+    reviewKind === "salary" ? row.salary_status : row.status
+  );
+  const returnReason =
+    reviewKind === "salary" ? row.salary_return_reason : row.return_reason;
+  const submittedAt =
+    reviewKind === "salary" ? row.salary_submitted_at : row.submitted_at;
   const { officialRow, playerRows: players } = splitMonthlyRows(
     parseMonthlyPlayerRows(row.player_rows)
   );
@@ -557,7 +701,9 @@ function ReviewRow({
         />
         <CompactInfo label="月份" value={formatMonthLabel(row.target_month)} />
         <div>
-          <p className="text-xs text-slate-500">状态</p>
+          <p className="text-xs text-slate-500">
+            {reviewKind === "salary" ? "給与状态" : "月数据状态"}
+          </p>
           <span className={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${getMonthlyStatusTone(status)}`}>
             {getMonthlyAdminStatusLabel(status)}
           </span>
@@ -600,7 +746,7 @@ function ReviewRow({
         ) : null}
         {isMonthlyReminderEligibleMonth(row.target_month) &&
         isSalaryScreenshotReminderWindowOpen(row) &&
-        isSalaryScreenshotMissing(row) &&
+        isSalaryReminderTarget(row) &&
         row.team_id ? (
           <ReminderButton
             scope="monthly_salary_single"
@@ -614,17 +760,20 @@ function ReviewRow({
         ) : null}
       </div>
 
-      {row.submitted_at ? (
+      {submittedAt ? (
         <div className="mt-3 text-xs text-slate-500">
-          提交时间：{formatDateTime(row.submitted_at)}
+          {reviewKind === "salary" ? "給与提交时间" : "月数据提交时间"}：
+          {formatDateTime(submittedAt)}
         </div>
       ) : null}
 
-      {row.return_reason ? (
+      {returnReason ? (
         <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-950/30 p-3">
-          <p className="text-xs font-semibold text-rose-200">驳回理由</p>
+          <p className="text-xs font-semibold text-rose-200">
+            {reviewKind === "salary" ? "給与驳回理由" : "月数据驳回理由"}
+          </p>
           <p className="mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap break-words pr-2 text-xs leading-5 text-rose-100">
-            {row.return_reason}
+            {returnReason}
           </p>
         </div>
       ) : null}
@@ -645,7 +794,9 @@ function ReviewRow({
         </div>
       )}
 
-      {row.isSynthetic ? null : <AdminActions row={row} status={status} />}
+      {row.isSynthetic ? null : (
+        <AdminActions row={row} status={status} reviewKind={reviewKind} />
+      )}
 
       {row.isSynthetic ? null : (
         <div className="mt-4 border-t border-slate-800 pt-4">
@@ -910,12 +1061,15 @@ function ActivityPanel({ row }: { row: MonthlySubmissionRow }) {
 function AdminActions({
   row,
   status,
+  reviewKind,
 }: {
   row: MonthlySubmissionRow;
   status: MonthlyDataStatus;
+  reviewKind: ReviewKind;
 }) {
   const canReview = status === "submitted";
   const canDecide = status === "submitted" || status === "reviewing";
+  const reviewLabel = reviewKind === "salary" ? "給与" : "月数据";
 
   if (!canReview && !canDecide) {
     return null;
@@ -926,6 +1080,7 @@ function AdminActions({
       {canReview ? (
         <form action={updateMonthlyDataStatus}>
           <input type="hidden" name="submission_id" value={row.id} />
+          <input type="hidden" name="review_kind" value={reviewKind} />
           <button
             name="action_type"
             value="reviewing"
@@ -941,6 +1096,7 @@ function AdminActions({
       {canDecide ? (
         <form action={updateMonthlyDataStatus}>
           <input type="hidden" name="submission_id" value={row.id} />
+          <input type="hidden" name="review_kind" value={reviewKind} />
           <button
             name="action_type"
             value="approved"
@@ -956,9 +1112,10 @@ function AdminActions({
       {canDecide ? (
         <form action={updateMonthlyDataStatus} className="flex gap-2">
           <input type="hidden" name="submission_id" value={row.id} />
+          <input type="hidden" name="review_kind" value={reviewKind} />
           <input
             name="return_reason"
-            placeholder="填写驳回理由"
+            placeholder={`填写${reviewLabel}驳回理由`}
             className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-white"
           />
           <button

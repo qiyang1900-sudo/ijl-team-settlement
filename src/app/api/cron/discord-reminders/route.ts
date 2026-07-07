@@ -39,6 +39,7 @@ type MonthlySubmissionRow = {
   team_id: string | null;
   target_month: string | null;
   status: string | null;
+  salary_status?: string | null;
   player_rows?: unknown;
 };
 
@@ -305,7 +306,7 @@ async function loadMonthlySubmissions(
 
   const { data } = await supabase
     .from("monthly_data_submissions")
-    .select("id, team_id, target_month, status, player_rows")
+    .select("id, team_id, target_month, status, salary_status, player_rows")
     .in(
       "target_month",
       settings.map((setting) => setting.target_month)
@@ -453,6 +454,12 @@ function isSalaryScreenshotDone(submission?: MonthlySubmissionRow) {
     return false;
   }
 
+  const status = normalizeMonthlyStatus(submission.salary_status);
+
+  if (status === "submitted" || status === "reviewing" || status === "approved") {
+    return true;
+  }
+
   const { playerRows } = splitMonthlyRows(
     parseMonthlyPlayerRows(submission.player_rows)
   );
@@ -463,6 +470,20 @@ function isSalaryScreenshotDone(submission?: MonthlySubmissionRow) {
 function getSalaryScreenshotStatusLabel(submission?: MonthlySubmissionRow) {
   if (!submission) {
     return "未提出";
+  }
+
+  const status = normalizeMonthlyStatus(submission.salary_status);
+
+  if (status === "returned") {
+    return "差し戻し（再提出待ち）";
+  }
+
+  if (status === "draft") {
+    return "下書き保存";
+  }
+
+  if (status === "submitted" || status === "reviewing" || status === "approved") {
+    return getMonthlyStatusLabel(status);
   }
 
   const { playerRows } = splitMonthlyRows(

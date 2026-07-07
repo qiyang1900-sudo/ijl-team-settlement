@@ -48,6 +48,7 @@ type MonthlyReminderRow = {
   team_id: string | null;
   target_month: string | null;
   status: string | null;
+  salary_status?: string | null;
   player_rows?: unknown;
   teams: (DiscordReminderTeam & { is_active: boolean | null }) | null;
   setting?: MonthlySettingRow | null;
@@ -346,6 +347,7 @@ async function loadMonthlyReminderRows({
         team_id,
         target_month,
         status,
+        salary_status,
         player_rows,
         teams (
           id,
@@ -420,6 +422,7 @@ async function loadMonthlyReminderRows({
         team_id: team.id,
         target_month: setting.target_month,
         status: "not_submitted",
+        salary_status: "not_submitted",
         player_rows: [],
         teams: team,
         setting,
@@ -436,7 +439,7 @@ function buildMonthlySubmissionQuery(
 ) {
   const query = supabase
     .from("monthly_data_submissions")
-    .select("id, team_id, target_month, status, player_rows");
+    .select("id, team_id, target_month, status, salary_status, player_rows");
 
   if (targetMonth) {
     return query.eq("target_month", targetMonth);
@@ -519,10 +522,31 @@ function isMonthlyReminderTarget(status: string | null | undefined) {
 }
 
 function isSalaryScreenshotReminderTarget(row: MonthlyReminderRow) {
-  return !getSalaryScreenshotSummaryForRow(row).isComplete;
+  const status = normalizeMonthlyStatus(row.salary_status);
+
+  return (
+    status === "not_submitted" ||
+    status === "draft" ||
+    status === "returned" ||
+    !getSalaryScreenshotSummaryForRow(row).isComplete
+  );
 }
 
 function getSalaryScreenshotReminderStatus(row: MonthlyReminderRow) {
+  const status = normalizeMonthlyStatus(row.salary_status);
+
+  if (status === "returned") {
+    return "差し戻し（再提出待ち）";
+  }
+
+  if (status === "draft") {
+    return "下書き保存";
+  }
+
+  if (status === "submitted" || status === "reviewing" || status === "approved") {
+    return getMonthlyStatusLabel(status);
+  }
+
   return getSalaryScreenshotSummaryForRow(row).label;
 }
 

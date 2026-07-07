@@ -46,16 +46,6 @@ export default function AdminPage() {
           </Link>
 
           <Link
-            href="/admin/reward"
-            className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"
-          >
-            <h2 className="text-xl font-semibold">月数据审核</h2>
-            <p className="mt-2 text-sm text-slate-600">
-              审核战队提交的月数据资料。
-            </p>
-          </Link>
-
-          <Link
             href="/admin/players"
             className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md"
           >

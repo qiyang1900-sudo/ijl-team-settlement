@@ -21,6 +21,7 @@ type TeamRow = {
 type ProjectTeamRow = {
   team_id: string | null;
   status: string | null;
+  submitted_at?: string | null;
 };
 
 type MonthlySubmissionRow = {
@@ -97,19 +98,20 @@ export default async function AdminTeamsPage({
 
   const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
-  const { data: teams, error } = await supabase
+  const { data: teams, error: teamsError } = await supabase
     .from("teams")
     .select(
       "id, name, short_name, contact_name, contact_email, discord_webhook_url, discord_mention_text, is_active"
     )
     .order("created_at", { ascending: false });
-  const { data: projectTeams } = await supabase
+  const { data: projectTeams, error: projectTeamsError } = await supabase
     .from("project_teams")
-    .select("team_id, status");
-  const { data: monthlySubmissions } = await supabase
+    .select("team_id, status, submitted_at");
+  const { data: monthlySubmissions, error: monthlySubmissionsError } = await supabase
     .from("monthly_data_submissions")
     .select("team_id, target_month, status")
     .order("target_month", { ascending: false });
+  const error = teamsError || projectTeamsError || monthlySubmissionsError;
 
   const safeTeams = (teams || []) as TeamRow[];
   const safeProjectTeams = (projectTeams || []) as ProjectTeamRow[];
@@ -272,6 +274,12 @@ function summarizeProjectProgress(rows: ProjectTeamRow[]) {
         summary.waiting += 1;
       } else if (status === "returned") {
         summary.returned += 1;
+      } else if (
+        row.submitted_at &&
+        status !== "draft" &&
+        status !== "not_submitted"
+      ) {
+        summary.waiting += 1;
       }
 
       summary.total += 1;
