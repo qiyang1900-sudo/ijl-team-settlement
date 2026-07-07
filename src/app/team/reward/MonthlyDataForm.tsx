@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import {
   MonthlyPlayerRow,
   formatMonthlyNumber,
@@ -13,14 +13,25 @@ import {
   hasClubActivityContent,
 } from "@/lib/club-activities";
 
+export type MonthlyDataActionState = {
+  status: "idle" | "success" | "error";
+  message?: string;
+  redirectTo?: string;
+  submittedAt?: number;
+};
+
 type MonthlyDataFormProps = {
-  action: (formData: FormData) => void | Promise<void>;
+  action: (
+    state: MonthlyDataActionState,
+    formData: FormData
+  ) => Promise<MonthlyDataActionState>;
   teamId: string;
   selectedMonth: string;
   initialOfficialRow: MonthlyPlayerRow;
   initialPlayers: MonthlyPlayerRow[];
   clubActivityItems: ClubActivityItem[];
-  isLocked: boolean;
+  isMonthlyDataLocked: boolean;
+  isSalaryLocked: boolean;
   canSaveSalaryScreenshots: boolean;
   isDataScreenshotRequired: boolean;
 };
@@ -80,6 +91,10 @@ const japanesePlayerMeta: Record<string, string> = {
   监管者: "ハンター",
 };
 
+const initialActionState: MonthlyDataActionState = {
+  status: "idle",
+};
+
 function toJapanesePlayerMeta(value?: string) {
   if (!value) {
     return "";
@@ -95,10 +110,15 @@ export default function MonthlyDataForm({
   initialOfficialRow,
   initialPlayers,
   clubActivityItems,
-  isLocked,
+  isMonthlyDataLocked,
+  isSalaryLocked,
   canSaveSalaryScreenshots,
   isDataScreenshotRequired,
 }: MonthlyDataFormProps) {
+  const [actionState, formAction, isPending] = useActionState(
+    action,
+    initialActionState
+  );
   const [activities, setActivities] = useState<ClubActivityItem[]>(
     clubActivityItems.length > 0 ? clubActivityItems : [emptyClubActivityItem()]
   );
@@ -114,6 +134,14 @@ export default function MonthlyDataForm({
       }, 0),
     [players]
   );
+
+  useEffect(() => {
+    if (actionState.status !== "success" || !actionState.redirectTo) {
+      return;
+    }
+
+    window.location.assign(actionState.redirectTo);
+  }, [actionState]);
 
   function updatePlayer(index: number, key: PlayerField, value: string) {
     setPlayers((current) =>
@@ -154,10 +182,12 @@ export default function MonthlyDataForm({
     });
   }
 
-  const isSubmitDisabled = isLocked || players.length === 0;
+  const isSubmitDisabled = isMonthlyDataLocked || players.length === 0 || isPending;
+  const canSubmitSalary =
+    canSaveSalaryScreenshots && !isSalaryLocked && players.length > 0 && !isPending;
 
   return (
-    <form action={action} className="space-y-6">
+    <form action={formAction} className="space-y-6">
       <input type="hidden" name="team_id" value={teamId} />
       <input
         type="hidden"
@@ -172,6 +202,18 @@ export default function MonthlyDataForm({
         name="club_activity_items"
         value={JSON.stringify(activities)}
       />
+
+      {actionState.status === "error" ? (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">
+          {actionState.message || "保存できませんでした。入力内容を確認してください。"}
+        </div>
+      ) : null}
+
+      {actionState.status === "success" ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
+          {actionState.message || "保存しました。画面を更新しています。"}
+        </div>
+      ) : null}
 
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -194,9 +236,9 @@ export default function MonthlyDataForm({
       <SalarySection
         players={players}
         updatePlayer={updatePlayer}
-        isSalaryAmountDisabled={isLocked}
-        isScreenshotDisabled={!canSaveSalaryScreenshots}
-        canSubmit={canSaveSalaryScreenshots && players.length > 0}
+        isSalaryAmountDisabled={isSalaryLocked || isPending}
+        isScreenshotDisabled={isSalaryLocked || isPending}
+        canSubmit={canSubmitSalary}
       />
 
       <MetricSection
@@ -207,7 +249,7 @@ export default function MonthlyDataForm({
         players={players}
         updateOfficial={updateOfficial}
         updatePlayer={updatePlayer}
-        disabled={isLocked}
+        disabled={isMonthlyDataLocked || isPending}
         isScreenshotRequired={isDataScreenshotRequired}
       />
 
@@ -219,7 +261,7 @@ export default function MonthlyDataForm({
         players={players}
         updateOfficial={updateOfficial}
         updatePlayer={updatePlayer}
-        disabled={isLocked}
+        disabled={isMonthlyDataLocked || isPending}
         isScreenshotRequired={isDataScreenshotRequired}
       />
 
@@ -228,7 +270,7 @@ export default function MonthlyDataForm({
         updateActivity={updateActivity}
         addActivity={addActivity}
         removeActivity={removeActivity}
-        disabled={isLocked}
+        disabled={isMonthlyDataLocked || isPending}
       />
 
       <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">

@@ -7,7 +7,9 @@ import {
   serializeClubActivityItems,
 } from "@/lib/club-activities";
 import MonthPicker from "./MonthPicker";
-import MonthlyDataForm from "./MonthlyDataForm";
+import MonthlyDataForm, {
+  type MonthlyDataActionState,
+} from "./MonthlyDataForm";
 import {
   MonthlyPlayerRow,
   createOfficialMonthlyRow,
@@ -95,9 +97,65 @@ function createStoragePath(teamId: string, targetMonth: string, fileName: string
   return `monthly-data/${teamId}/${targetMonth}-${Date.now()}-${safeFileName}`;
 }
 
-async function saveMonthlyData(formData: FormData) {
+function buildMonthlyDataActionError(
+  error: unknown,
+  actionType?: string
+): MonthlyDataActionState {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "保存できませんでした。入力内容と画像サイズを確認してください。";
+  const label = actionType?.startsWith("salary_screenshots")
+    ? "給与スクリーンショット"
+    : "月データ";
+
+  return {
+    status: "error",
+    message: `${label}を保存できませんでした：${message}`,
+    submittedAt: Date.now(),
+  };
+}
+
+function getMonthlyDataActionSuccessMessage(actionType: string) {
+  if (actionType === "submit") {
+    return "月データを審査提出しました。";
+  }
+
+  if (actionType === "salary_screenshots_draft") {
+    return "給与スクリーンショットの下書きを保存しました。";
+  }
+
+  if (actionType === "salary_screenshots_submit") {
+    return "給与スクリーンショットを審査提出しました。";
+  }
+
+  return "月データの下書きを保存しました。";
+}
+
+async function saveMonthlyData(
+  _state: MonthlyDataActionState,
+  formData: FormData
+): Promise<MonthlyDataActionState> {
   "use server";
 
+  const teamId = String(formData.get("team_id") || "");
+  const targetMonth =
+    String(formData.get("target_month") || "") ||
+    String(formData.get("selected_month") || "");
+  const actionType = String(formData.get("action_type") || "draft");
+
+  if (!teamId || !targetMonth) {
+    return buildMonthlyDataActionError(
+      "戦隊または対象月が確認できません。",
+      actionType
+    );
+  }
+
+  await requireTeamAccess(teamId);
+
+  try {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -112,11 +170,6 @@ async function saveMonthlyData(formData: FormData) {
       ? createSupabaseServerClient(supabaseUrl, undefined, serviceRoleKey)
       : supabase;
 
-  const teamId = String(formData.get("team_id") || "");
-  const targetMonth =
-    String(formData.get("target_month") || "") ||
-    String(formData.get("selected_month") || "");
-  const actionType = String(formData.get("action_type") || "draft");
   const clubActivityItems = parseClubActivityItems({
     link: formData.get("club_activity_items"),
     keepEmpty: true,
@@ -129,12 +182,6 @@ async function saveMonthlyData(formData: FormData) {
   const requiresMetricScreenshots =
     isMonthlySubmitAction && isMonthlyDataScreenshotRequiredMonth(targetMonth);
   const now = new Date().toISOString();
-
-  if (!teamId || !targetMonth) {
-    throw new Error("戦隊または対象月が確認できません。");
-  }
-
-  await requireTeamAccess(teamId);
 
   const { data: existingSubmission } = await supabase
     .from("monthly_data_submissions")
@@ -258,11 +305,17 @@ async function saveMonthlyData(formData: FormData) {
     throw new Error(error.message);
   }
 
-  redirect(
-    `/team/reward?teamId=${encodeURIComponent(teamId)}&month=${encodeURIComponent(
+  return {
+    status: "success",
+    message: getMonthlyDataActionSuccessMessage(actionType),
+    redirectTo: `/team/reward?teamId=${encodeURIComponent(teamId)}&month=${encodeURIComponent(
       targetMonth
-    )}&result=${actionType}`
-  );
+    )}&result=${actionType}`,
+    submittedAt: Date.now(),
+  };
+  } catch (error) {
+    return buildMonthlyDataActionError(error, actionType);
+  }
 }
 
 async function cancelMonthlyDataSubmission(formData: FormData) {
@@ -528,8 +581,10 @@ export default async function TeamRewardPage({
     imageMimeType: selectedSubmission?.club_activity_image_mime_type,
     imageStoragePath: selectedSubmission?.club_activity_image_storage_path,
   });
-  const isLocked = status === "submitted" || status === "reviewing" || status === "approved";
-  const canSaveSalaryScreenshots = status !== "reviewing";
+  const isMonthlyDataLocked =
+    status === "submitted" || status === "reviewing" || status === "approved";
+  const isSalaryLocked = false;
+  const canSaveSalaryScreenshots = !isSalaryLocked;
   const dashboardHref = `/team/dashboard?teamId=${encodeURIComponent(teamId)}`;
 
   return (
@@ -708,7 +763,7 @@ export default async function TeamRewardPage({
 
               {status === "reviewing" || status === "approved" ? (
                 <section className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-                  この月は審査中、または承認済みのため編集できません。
+                  月データは審査中、または承認済みのため編集できません。給与スクリーンショットは別提出として保存できます。
                 </section>
               ) : null}
 
@@ -719,7 +774,8 @@ export default async function TeamRewardPage({
                 initialOfficialRow={officialRow}
                 initialPlayers={playerRows}
                 clubActivityItems={clubActivityItems}
-                isLocked={isLocked}
+                isMonthlyDataLocked={isMonthlyDataLocked}
+                isSalaryLocked={isSalaryLocked}
                 canSaveSalaryScreenshots={canSaveSalaryScreenshots}
                 isDataScreenshotRequired={isMonthlyDataScreenshotRequiredMonth(
                   selectedMonth
