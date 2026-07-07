@@ -187,22 +187,7 @@ export default function MonthlyDataForm({
     canSaveSalaryScreenshots && !isSalaryLocked && players.length > 0 && !isPending;
 
   return (
-    <form action={formAction} className="space-y-6">
-      <input type="hidden" name="team_id" value={teamId} />
-      <input
-        type="hidden"
-        name="official_row"
-        value={JSON.stringify([officialRow])}
-      />
-      <input type="hidden" name="player_rows" value={JSON.stringify(players)} />
-      <input type="hidden" name="selected_month" value={selectedMonth} />
-      <input type="hidden" name="target_month" value={selectedMonth} />
-      <input
-        type="hidden"
-        name="club_activity_items"
-        value={JSON.stringify(activities)}
-      />
-
+    <div className="space-y-6">
       {actionState.status === "error" ? (
         <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">
           {actionState.message || "保存できませんでした。入力内容を確認してください。"}
@@ -233,75 +218,98 @@ export default function MonthlyDataForm({
         </div>
       </section>
 
-      <SalarySection
-        players={players}
-        updatePlayer={updatePlayer}
-        isSalaryAmountDisabled={isSalaryLocked || isPending}
-        isScreenshotDisabled={isSalaryLocked || isPending}
-        canSubmit={canSubmitSalary}
-      />
+      <form action={formAction} className="space-y-6">
+        <input type="hidden" name="team_id" value={teamId} />
+        <input type="hidden" name="player_rows" value={JSON.stringify(players)} />
+        <input type="hidden" name="selected_month" value={selectedMonth} />
+        <input type="hidden" name="target_month" value={selectedMonth} />
+        <SalarySection
+          players={players}
+          updatePlayer={updatePlayer}
+          isSalaryAmountDisabled={isSalaryLocked || isPending}
+          isScreenshotDisabled={isSalaryLocked || isPending}
+          canSubmit={canSubmitSalary}
+        />
+      </form>
 
-      <MetricSection
-        title="② X"
-        kind="x"
-        fields={xFields}
-        officialRow={officialRow}
-        players={players}
-        updateOfficial={updateOfficial}
-        updatePlayer={updatePlayer}
-        disabled={isMonthlyDataLocked || isPending}
-        isScreenshotRequired={isDataScreenshotRequired}
-      />
+      <form action={formAction} className="space-y-6">
+        <input type="hidden" name="team_id" value={teamId} />
+        <input
+          type="hidden"
+          name="official_row"
+          value={JSON.stringify([officialRow])}
+        />
+        <input type="hidden" name="player_rows" value={JSON.stringify(players)} />
+        <input type="hidden" name="selected_month" value={selectedMonth} />
+        <input type="hidden" name="target_month" value={selectedMonth} />
+        <input
+          type="hidden"
+          name="club_activity_items"
+          value={JSON.stringify(activities)}
+        />
 
-      <MetricSection
-        title="③ YouTube"
-        kind="youtube"
-        fields={youtubeFields}
-        officialRow={officialRow}
-        players={players}
-        updateOfficial={updateOfficial}
-        updatePlayer={updatePlayer}
-        disabled={isMonthlyDataLocked || isPending}
-        isScreenshotRequired={isDataScreenshotRequired}
-      />
+        <MetricSection
+          title="② X"
+          kind="x"
+          fields={xFields}
+          officialRow={officialRow}
+          players={players}
+          updateOfficial={updateOfficial}
+          updatePlayer={updatePlayer}
+          disabled={isMonthlyDataLocked || isPending}
+          isScreenshotRequired={isDataScreenshotRequired}
+        />
 
-      <ClubActivitySection
-        activities={activities}
-        updateActivity={updateActivity}
-        addActivity={addActivity}
-        removeActivity={removeActivity}
-        disabled={isMonthlyDataLocked || isPending}
-      />
+        <MetricSection
+          title="③ YouTube"
+          kind="youtube"
+          fields={youtubeFields}
+          officialRow={officialRow}
+          players={players}
+          updateOfficial={updateOfficial}
+          updatePlayer={updatePlayer}
+          disabled={isMonthlyDataLocked || isPending}
+          isScreenshotRequired={isDataScreenshotRequired}
+        />
 
-      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <p className="text-sm font-bold text-slate-900">月データ</p>
-        <p className="mt-1 text-xs text-slate-500">
-          X、YouTube、クラブ活動の内容を保存・提出します。
-        </p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <button
-            type="submit"
-            name="action_type"
-            value="draft"
-            formNoValidate
-            disabled={isSubmitDisabled}
-            className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            下書き保存
-          </button>
+        <ClubActivitySection
+          activities={activities}
+          updateActivity={updateActivity}
+          addActivity={addActivity}
+          removeActivity={removeActivity}
+          disabled={isMonthlyDataLocked || isPending}
+        />
 
-          <button
-            type="submit"
-            name="action_type"
-            value="submit"
-            disabled={isSubmitDisabled}
-            className="rounded-lg bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            審査提出
-          </button>
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-sm font-bold text-slate-900">月データ</p>
+          <p className="mt-1 text-xs text-slate-500">
+            X、YouTube、クラブ活動の内容を保存・提出します。
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              type="submit"
+              name="action_type"
+              value="draft"
+              formNoValidate
+              disabled={isSubmitDisabled}
+              className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              下書き保存
+            </button>
+
+            <button
+              type="submit"
+              name="action_type"
+              value="submit"
+              disabled={isSubmitDisabled}
+              className="rounded-lg bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              審査提出
+            </button>
+          </div>
         </div>
-      </div>
-    </form>
+      </form>
+    </div>
   );
 }
 
