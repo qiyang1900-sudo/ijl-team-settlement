@@ -110,6 +110,7 @@ export async function POST(request: Request) {
       const result = await sendProjectSubmissionReminders({
         supabase,
         projectTeamId: payload.projectTeamId,
+        targetMonth: payload.targetMonth,
         dryRun: Boolean(payload.dryRun),
       });
 
@@ -140,10 +141,12 @@ export async function POST(request: Request) {
 async function sendProjectSubmissionReminders({
   supabase,
   projectTeamId,
+  targetMonth,
   dryRun,
 }: {
   supabase: SupabaseClient;
   projectTeamId?: string;
+  targetMonth?: string;
   dryRun: boolean;
 }) {
   let query = supabase.from("project_teams").select(`
@@ -183,6 +186,10 @@ async function sendProjectSubmissionReminders({
 
     if (projectTeamId) {
       return true;
+    }
+
+    if (isReviewMonthValue(targetMonth) && getProjectDeadlineMonth(row) !== targetMonth) {
+      return false;
     }
 
     return isProjectReminderTarget(row);
@@ -505,6 +512,16 @@ function isProjectReminderTarget(row: ProjectReminderRow) {
   const status = String(row.status || "");
 
   return (status === "not_submitted" || status === "draft" || status === "returned") && !isSubmittedLike(row);
+}
+
+function getProjectDeadlineMonth(row: ProjectReminderRow) {
+  const month = String(row.projects?.deadline_at || "").slice(0, 7);
+
+  return isReviewMonthValue(month) ? month : "";
+}
+
+function isReviewMonthValue(value: unknown) {
+  return /^\d{4}-\d{2}$/.test(String(value || ""));
 }
 
 function isSubmittedLike(row: ProjectReminderRow) {

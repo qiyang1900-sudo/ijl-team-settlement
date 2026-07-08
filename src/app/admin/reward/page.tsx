@@ -632,7 +632,6 @@ function ReviewSection({
   return (
     <details
       className="overflow-hidden rounded-xl border border-slate-700 bg-slate-900"
-      open={rows.length > 0}
     >
       <summary className={`cursor-pointer list-none border-b border-slate-700 px-4 py-3 ${colorClass}`}>
         <div className="flex items-center justify-between gap-4">
