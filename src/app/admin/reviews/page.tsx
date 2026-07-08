@@ -130,7 +130,7 @@ async function updateMonthlyDataReviewStatus(formData: FormData) {
     } else if (actionType === "returned") {
       patch.salary_status = "returned";
       patch.salary_returned_at = now;
-      patch.salary_return_reason = returnReason || "请补充給与截图后重新提交。";
+      patch.salary_return_reason = returnReason || "请补充工资截图后重新提交。";
     }
   } else if (actionType === "reviewing") {
     patch.status = "reviewing";
@@ -317,15 +317,11 @@ export default async function AdminReviewsPage() {
     projectGrouped.notSubmitted.length +
     monthlyGrouped.notSubmitted.length +
     salaryGrouped.notSubmitted.length;
-  const draft =
-    projectGrouped.draft.length +
-    monthlyGrouped.draft.length +
-    salaryGrouped.draft.length;
 
   return (
-    <main className="min-h-screen bg-slate-950 p-8 text-white">
+    <main className="min-h-screen bg-slate-950 p-6 text-white">
       <div className="mx-auto max-w-7xl">
-        <div className="mb-6">
+        <div className="mb-4">
           <Link
             href="/admin/dashboard"
             className="text-sm text-slate-400 hover:text-white"
@@ -333,8 +329,8 @@ export default async function AdminReviewsPage() {
             ← 返回管理员后台
           </Link>
 
-          <h1 className="mt-4 text-3xl font-bold">提交审核</h1>
-          <p className="mt-2 text-slate-400">
+          <h1 className="mt-3 text-3xl font-bold">提交审核</h1>
+          <p className="mt-1 text-sm text-slate-400">
             按审核状态查看所有战队提交资料。
           </p>
         </div>
@@ -346,36 +342,24 @@ export default async function AdminReviewsPage() {
           </div>
         ) : (
           <>
-            <div className="mb-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               <StatCard label="未提交" count={notSubmitted} color="slate" />
-              <StatCard label="已保存" count={draft} color="blue" />
               <StatCard label="已提交 / 待审核" count={submitted} color="yellow" />
               <StatCard label="已驳回需补充" count={returned} color="red" />
               <StatCard label="已通过" count={approved} color="green" />
             </div>
 
-            <div className="mb-6 rounded-xl border border-sky-400/40 bg-sky-950/30 p-4">
-              <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+            <div className="mb-4 rounded-xl border border-sky-400/40 bg-sky-950/30 p-3">
+              <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
                 <div>
-                  <h2 className="text-base font-bold text-sky-100">
+                  <h2 className="text-sm font-bold text-sky-100">
                     Discord 立即提醒
                   </h2>
-                  <p className="mt-1 text-sm text-slate-300">
+                  <p className="mt-1 text-xs text-slate-300">
                     顶部按钮按类型批量提醒；每条记录也可以单独立即提醒。
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-3">
-                  <ReminderButton
-                    scope="project_all"
-                    label={`提醒项目 ${projectGrouped.notSubmitted.length + projectGrouped.draft.length + projectGrouped.returned.length} 条`}
-                    confirmMessage="确定立即提醒所有项目未提交、已保存或待再次提交的战队吗？"
-                    disabled={
-                      projectGrouped.notSubmitted.length +
-                        projectGrouped.draft.length +
-                        projectGrouped.returned.length ===
-                      0
-                    }
-                  />
+                <div className="flex flex-wrap gap-2">
                   <ReminderButton
                     scope="monthly_all"
                     label={`提醒月数据 ${monthlyReminderRows.length} 条`}
@@ -384,26 +368,36 @@ export default async function AdminReviewsPage() {
                   />
                   <ReminderButton
                     scope="monthly_salary_all"
-                    label={`提醒給与 ${salaryReminderRows.length} 条`}
-                    confirmMessage="确定立即提醒所有进入提醒窗口且未完成給与截图提交的战队吗？"
+                    label={`提醒工资截图 ${salaryReminderRows.length} 条`}
+                    confirmMessage="确定立即提醒所有进入提醒窗口且未完成工资截图提交的战队吗？"
                     disabled={salaryReminderRows.length === 0}
+                  />
+                  <ReminderButton
+                    scope="project_all"
+                    label={`提醒项目 ${projectGrouped.notSubmitted.length + projectGrouped.returned.length} 条`}
+                    confirmMessage="确定立即提醒所有项目未提交或待再次提交的战队吗？"
+                    disabled={
+                      projectGrouped.notSubmitted.length +
+                        projectGrouped.returned.length ===
+                      0
+                    }
                   />
                 </div>
               </div>
             </div>
 
-            <div className="space-y-8">
-              <ProjectReviewCategory grouped={projectGrouped} />
+            <div className="space-y-4">
               <MonthlyReviewCategory
                 title="月数据审核"
                 grouped={monthlyGrouped}
                 reviewKind="monthly"
               />
               <MonthlyReviewCategory
-                title="給与审核"
+                title="工资审核"
                 grouped={salaryGrouped}
                 reviewKind="salary"
               />
+              <ProjectReviewCategory grouped={projectGrouped} />
             </div>
           </>
         )}
@@ -418,15 +412,14 @@ function ProjectReviewCategory({
   grouped: ReviewGroups<ReviewRowData>;
 }) {
   return (
-    <section className="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
+    <section className="rounded-xl border border-slate-700 bg-slate-900/50 p-3">
       <CategoryHeader
         title="项目审核"
         description="请款书和结案报告提交审核，按项目记录分别处理。"
       />
       <CategoryStats grouped={grouped} />
-      <div className="mt-4 space-y-4">
+      <div className="mt-3 space-y-2">
         <ReviewSection title="项目未提交" rows={grouped.notSubmitted} color="slate" />
-        <ReviewSection title="项目已保存" rows={grouped.draft} color="blue" />
         <ReviewSection title="项目已提交 / 待审核" rows={grouped.submitted} color="yellow" />
         <ReviewSection title="项目审核中" rows={grouped.reviewing} color="orange" />
         <ReviewSection title="项目已驳回需补充" rows={grouped.returned} color="red" />
@@ -447,24 +440,18 @@ function MonthlyReviewCategory({
 }) {
   const description =
     reviewKind === "salary"
-      ? "選手給与截图单独提交、单独审核，不影响月数据审核状态。"
+      ? "选手工资截图单独提交、单独审核，不影响月数据审核状态。"
       : "X、YouTube 和クラブ活動资料单独提交、单独审核。";
 
   return (
-    <section className="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
+    <section className="rounded-xl border border-slate-700 bg-slate-900/50 p-3">
       <CategoryHeader title={title} description={description} />
       <CategoryStats grouped={grouped} />
-      <div className="mt-4 space-y-4">
+      <div className="mt-3 space-y-2">
         <MonthlyReviewSection
           title={`${title}：未提交`}
           rows={grouped.notSubmitted}
           color="slate"
-          reviewKind={reviewKind}
-        />
-        <MonthlyReviewSection
-          title={`${title}：已保存`}
-          rows={grouped.draft}
-          color="blue"
           reviewKind={reviewKind}
         />
         <MonthlyReviewSection
@@ -504,18 +491,17 @@ function CategoryHeader({
   description: string;
 }) {
   return (
-    <div>
-      <h2 className="text-xl font-bold">{title}</h2>
-      <p className="mt-1 text-sm text-slate-400">{description}</p>
+    <div className="flex flex-col justify-between gap-1 sm:flex-row sm:items-end">
+      <h2 className="text-lg font-bold">{title}</h2>
+      <p className="text-xs text-slate-400">{description}</p>
     </div>
   );
 }
 
 function CategoryStats<T>({ grouped }: { grouped: ReviewGroups<T> }) {
   return (
-    <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
       <StatCard label="未提交" count={grouped.notSubmitted.length} color="slate" />
-      <StatCard label="已保存" count={grouped.draft.length} color="blue" />
       <StatCard label="待审核" count={grouped.submitted.length} color="yellow" />
       <StatCard label="审核中" count={grouped.reviewing.length} color="orange" />
       <StatCard label="已驳回" count={grouped.returned.length} color="red" />
@@ -543,10 +529,10 @@ function StatCard({
   }[color];
 
   return (
-    <div className={`rounded-lg border px-4 py-3 ${colorClass}`}>
+    <div className={`rounded-lg border px-3 py-2 ${colorClass}`}>
       <div className="flex items-center justify-between gap-3">
-        <p className="text-sm opacity-80">{label}</p>
-        <p className="text-2xl font-bold">{count}</p>
+        <p className="text-xs opacity-80">{label}</p>
+        <p className="text-xl font-bold">{count}</p>
       </div>
     </div>
   );
@@ -572,12 +558,12 @@ function ReviewSection({
 
   return (
     <details
-      className="overflow-hidden rounded-xl border border-slate-700 bg-slate-900"
+      className="overflow-hidden rounded-lg border border-slate-700 bg-slate-900"
       open={rows.length > 0}
     >
-      <summary className={`cursor-pointer list-none border-b border-slate-700 px-4 py-3 ${colorClass}`}>
+      <summary className={`cursor-pointer list-none border-b border-slate-700 px-3 py-2 ${colorClass}`}>
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-base font-bold">
+          <h2 className="text-sm font-bold">
             {title} <span className="text-sm font-normal">({rows.length})</span>
           </h2>
           <span className="text-xs opacity-75">展开 / 收起</span>
@@ -585,9 +571,9 @@ function ReviewSection({
       </summary>
 
       {rows.length === 0 ? (
-        <p className="px-4 py-3 text-sm text-slate-400">暂无数据。</p>
+        <p className="px-3 py-2 text-sm text-slate-400">暂无数据。</p>
       ) : (
-        <div className="space-y-2 p-3">
+        <div className="space-y-2 p-2">
           {rows.map((row) => (
             <ReviewRow key={row.id} row={row} />
           ))}
@@ -619,12 +605,12 @@ function MonthlyReviewSection({
 
   return (
     <details
-      className="overflow-hidden rounded-xl border border-slate-700 bg-slate-900"
+      className="overflow-hidden rounded-lg border border-slate-700 bg-slate-900"
       open={rows.length > 0}
     >
-      <summary className={`cursor-pointer list-none border-b border-slate-700 px-4 py-3 ${colorClass}`}>
+      <summary className={`cursor-pointer list-none border-b border-slate-700 px-3 py-2 ${colorClass}`}>
         <div className="flex items-center justify-between gap-4">
-          <h3 className="text-base font-bold">
+          <h3 className="text-sm font-bold">
             {title} <span className="text-sm font-normal">({rows.length})</span>
           </h3>
           <span className="text-xs opacity-75">展开 / 收起</span>
@@ -632,9 +618,9 @@ function MonthlyReviewSection({
       </summary>
 
       {rows.length === 0 ? (
-        <p className="px-4 py-3 text-sm text-slate-400">暂无数据。</p>
+        <p className="px-3 py-2 text-sm text-slate-400">暂无数据。</p>
       ) : (
-        <div className="grid gap-3 p-3 xl:grid-cols-2">
+        <div className="grid gap-2 p-2 xl:grid-cols-2">
           {rows.map((row) => (
             <MonthlyReviewRow key={`${reviewKind}-${row.id}`} row={row} reviewKind={reviewKind} />
           ))}
@@ -662,7 +648,7 @@ function MonthlyReviewRow({
       : row.deadline_at;
   const targetLabel =
     reviewKind === "salary"
-      ? `${formatMonthLabel(row.target_month)} 給与`
+      ? `${formatMonthLabel(row.target_month)} 工资截图`
       : `${formatMonthLabel(row.target_month)} 月数据`;
   const statusLabel = getMonthlyAdminStatusLabel(status);
   const { officialRow, playerRows } = splitMonthlyRows(
@@ -691,7 +677,7 @@ function MonthlyReviewRow({
       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
         <div className="min-w-0">
           <p className="text-xs text-slate-500">
-            {reviewKind === "salary" ? "給与审核" : "月数据审核"}
+            {reviewKind === "salary" ? "工资审核" : "月数据审核"}
           </p>
           <h4 className="mt-1 truncate text-base font-bold text-slate-100">
             {row.teams?.name || "-"}
@@ -722,7 +708,7 @@ function MonthlyReviewRow({
               teamId={row.team_id}
               targetMonth={row.target_month}
               label="DC提醒"
-              confirmMessage={`确定立即提醒 ${row.teams?.short_name || row.teams?.name || "该战队"} 提交 ${formatMonthLabel(row.target_month)} 給与截图吗？`}
+              confirmMessage={`确定立即提醒 ${row.teams?.short_name || row.teams?.name || "该战队"} 提交 ${formatMonthLabel(row.target_month)} 工资截图吗？`}
               compact
             />
           ) : null}
@@ -739,7 +725,7 @@ function MonthlyReviewRow({
           value={submittedAt ? formatDateTime(submittedAt) : "-"}
         />
         <CompactMeta
-          label={reviewKind === "salary" ? "給与截图" : "数据明细"}
+          label={reviewKind === "salary" ? "工资截图" : "数据明细"}
           value={reviewKind === "salary" ? salarySummary.label : monthlyDataSummary}
         />
       </div>
@@ -780,7 +766,7 @@ function MonthlyReviewActions({
 }) {
   const canReview = status === "submitted";
   const canDecide = status === "submitted" || status === "reviewing";
-  const label = reviewKind === "salary" ? "給与" : "月数据";
+  const label = reviewKind === "salary" ? "工资截图" : "月数据";
 
   if (!canReview && !canDecide) {
     return null;
@@ -963,11 +949,11 @@ function groupProjectReviewRows(
 
   return {
     notSubmitted: rows.filter(
-      (row) => String(row.status || "") === "not_submitted" && !row.submitted_at
+      (row) =>
+        ["not_submitted", "draft"].includes(String(row.status || "")) &&
+        !row.submitted_at
     ),
-    draft: rows.filter(
-      (row) => String(row.status || "") === "draft" && !row.submitted_at
-    ),
+    draft: [],
     submitted: rows.filter(isSubmitted),
     reviewing: rows.filter(isReviewing),
     returned: rows.filter((row) => isReturnedStatus(String(row.status || ""))),
@@ -979,21 +965,28 @@ function groupMonthlyReviewRows(
   rows: MonthlySubmissionReviewRow[],
   reviewKind: ReviewKind
 ): ReviewGroups<MonthlySubmissionReviewRow> {
+  const eligibleRows = rows.filter((row) =>
+    isMonthlyReminderEligibleMonth(row.target_month)
+  );
+
   return {
-    notSubmitted: rows.filter(
-      (row) => getMonthlyReviewStatus(row, reviewKind) === "not_submitted"
+    notSubmitted: eligibleRows.filter(
+      (row) =>
+        ["not_submitted", "draft"].includes(
+          getMonthlyReviewStatus(row, reviewKind)
+        )
     ),
-    draft: rows.filter((row) => getMonthlyReviewStatus(row, reviewKind) === "draft"),
-    submitted: rows.filter(
+    draft: [],
+    submitted: eligibleRows.filter(
       (row) => getMonthlyReviewStatus(row, reviewKind) === "submitted"
     ),
-    reviewing: rows.filter(
+    reviewing: eligibleRows.filter(
       (row) => getMonthlyReviewStatus(row, reviewKind) === "reviewing"
     ),
-    returned: rows.filter(
+    returned: eligibleRows.filter(
       (row) => getMonthlyReviewStatus(row, reviewKind) === "returned"
     ),
-    approved: rows.filter(
+    approved: eligibleRows.filter(
       (row) => getMonthlyReviewStatus(row, reviewKind) === "approved"
     ),
   };
