@@ -119,7 +119,7 @@ async function updateMonthlyDataStatus(formData: FormData) {
     if (actionType === "returned") {
       patch.salary_status = "returned";
       patch.salary_returned_at = now;
-      patch.salary_return_reason = returnReason || "请补充給与截图后重新提交。";
+      patch.salary_return_reason = returnReason || "请补充工资截图后重新提交。";
     }
   } else if (actionType === "reviewing") {
     patch.status = "reviewing";
@@ -268,22 +268,20 @@ export default async function RewardPage() {
           <>
             <section className="mb-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
               <h2 className="text-lg font-bold">月数据审核概览</h2>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
                 <StatCard label="未提交" count={grouped.notSubmitted.length} color="slate" />
                 <StatCard label="待审核" count={grouped.submitted.length} color="yellow" />
                 <StatCard label="审核中" count={grouped.reviewing.length} color="orange" />
                 <StatCard label="需人工确认" count={alertCount} color="amber" />
                 <StatCard label="已驳回需补充" count={grouped.returned.length} color="red" />
                 <StatCard label="已通过" count={grouped.approved.length} color="green" />
-                <StatCard label="已保存" count={grouped.draft.length} color="blue" />
               </div>
             </section>
 
             <section className="mb-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-              <h2 className="text-lg font-bold">給与审核概览</h2>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+              <h2 className="text-lg font-bold">工资审核概览</h2>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
                 <StatCard label="未提交" count={salaryGrouped.notSubmitted.length} color="slate" />
-                <StatCard label="已保存" count={salaryGrouped.draft.length} color="blue" />
                 <StatCard label="待审核" count={salaryGrouped.submitted.length} color="yellow" />
                 <StatCard label="审核中" count={salaryGrouped.reviewing.length} color="orange" />
                 <StatCard label="已驳回需补充" count={salaryGrouped.returned.length} color="red" />
@@ -298,20 +296,20 @@ export default async function RewardPage() {
                     Discord 立即提醒
                   </h2>
                   <p className="mt-1 text-sm text-slate-300">
-                    只提醒 {formatMonthLabel(monthlyReminderStartMonth)} 之后的月数据和給与截图。
+                    只提醒 {formatMonthLabel(monthlyReminderStartMonth)} 以后的月数据和工资截图。
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3">
                   <ReminderButton
                     scope="monthly_all"
                     label={`提醒月数据 ${monthlyReminderCount} 条`}
-                    confirmMessage="确定立即提醒所有月数据未提交、已保存或已驳回需补充的战队吗？"
+                    confirmMessage="确定立即提醒所有月数据未提交或已驳回需补充的战队吗？"
                     disabled={monthlyReminderCount === 0}
                   />
                   <ReminderButton
                     scope="monthly_salary_all"
-                    label={`提醒給与截图 ${salaryMissingRows.length} 条`}
-                    confirmMessage="确定立即提醒所有給与截图未提交或部分提交的战队吗？"
+                    label={`提醒工资截图 ${salaryMissingRows.length} 条`}
+                    confirmMessage="确定立即提醒所有工资截图未提交或部分提交的战队吗？"
                     disabled={salaryMissingRows.length === 0}
                   />
                 </div>
@@ -355,56 +353,42 @@ export default async function RewardPage() {
                 alertMap={alertMap}
                 reviewKind="monthly"
               />
-              <ReviewSection
-                title="已保存"
-                rows={grouped.draft}
-                color="blue"
-                alertMap={alertMap}
-                reviewKind="monthly"
-              />
             </div>
 
             <div className="space-y-6">
-              <h2 className="text-xl font-bold">給与审核</h2>
+              <h2 className="text-xl font-bold">工资审核</h2>
               <ReviewSection
-                title="給与未提交"
+                title="工资未提交"
                 rows={salaryGrouped.notSubmitted}
                 color="slate"
                 alertMap={new Map()}
                 reviewKind="salary"
               />
               <ReviewSection
-                title="給与待审核"
+                title="工资待审核"
                 rows={salaryGrouped.submitted}
                 color="yellow"
                 alertMap={new Map()}
                 reviewKind="salary"
               />
               <ReviewSection
-                title="給与审核中"
+                title="工资审核中"
                 rows={salaryGrouped.reviewing}
                 color="orange"
                 alertMap={new Map()}
                 reviewKind="salary"
               />
               <ReviewSection
-                title="給与已驳回需补充"
+                title="工资已驳回需补充"
                 rows={salaryGrouped.returned}
                 color="red"
                 alertMap={new Map()}
                 reviewKind="salary"
               />
               <ReviewSection
-                title="給与已通过"
+                title="工资已通过"
                 rows={salaryGrouped.approved}
                 color="green"
-                alertMap={new Map()}
-                reviewKind="salary"
-              />
-              <ReviewSection
-                title="給与已保存"
-                rows={salaryGrouped.draft}
-                color="blue"
                 alertMap={new Map()}
                 reviewKind="salary"
               />
@@ -493,44 +477,54 @@ function buildMonthlyReviewRows({
 }
 
 function groupRows(rows: MonthlySubmissionRow[]) {
+  const eligibleRows = rows.filter((row) =>
+    isMonthlyReminderEligibleMonth(row.target_month)
+  );
+
   return {
-    notSubmitted: rows.filter(
-      (row) => normalizeMonthlyStatus(row.status) === "not_submitted"
+    notSubmitted: eligibleRows.filter(
+      (row) =>
+        ["not_submitted", "draft"].includes(normalizeMonthlyStatus(row.status))
     ),
-    draft: rows.filter((row) => normalizeMonthlyStatus(row.status) === "draft"),
-    submitted: rows.filter(
+    draft: [],
+    submitted: eligibleRows.filter(
       (row) => normalizeMonthlyStatus(row.status) === "submitted"
     ),
-    reviewing: rows.filter(
+    reviewing: eligibleRows.filter(
       (row) => normalizeMonthlyStatus(row.status) === "reviewing"
     ),
-    returned: rows.filter(
+    returned: eligibleRows.filter(
       (row) => normalizeMonthlyStatus(row.status) === "returned"
     ),
-    approved: rows.filter(
+    approved: eligibleRows.filter(
       (row) => normalizeMonthlyStatus(row.status) === "approved"
     ),
   };
 }
 
 function groupSalaryRows(rows: MonthlySubmissionRow[]) {
+  const eligibleRows = rows.filter((row) =>
+    isMonthlyReminderEligibleMonth(row.target_month)
+  );
+
   return {
-    notSubmitted: rows.filter(
-      (row) => normalizeMonthlyStatus(row.salary_status) === "not_submitted"
+    notSubmitted: eligibleRows.filter(
+      (row) =>
+        ["not_submitted", "draft"].includes(
+          normalizeMonthlyStatus(row.salary_status)
+        )
     ),
-    draft: rows.filter(
-      (row) => normalizeMonthlyStatus(row.salary_status) === "draft"
-    ),
-    submitted: rows.filter(
+    draft: [],
+    submitted: eligibleRows.filter(
       (row) => normalizeMonthlyStatus(row.salary_status) === "submitted"
     ),
-    reviewing: rows.filter(
+    reviewing: eligibleRows.filter(
       (row) => normalizeMonthlyStatus(row.salary_status) === "reviewing"
     ),
-    returned: rows.filter(
+    returned: eligibleRows.filter(
       (row) => normalizeMonthlyStatus(row.salary_status) === "returned"
     ),
-    approved: rows.filter(
+    approved: eligibleRows.filter(
       (row) => normalizeMonthlyStatus(row.salary_status) === "approved"
     ),
   };
@@ -702,7 +696,7 @@ function ReviewRow({
         <CompactInfo label="月份" value={formatMonthLabel(row.target_month)} />
         <div>
           <p className="text-xs text-slate-500">
-            {reviewKind === "salary" ? "給与状态" : "月数据状态"}
+            {reviewKind === "salary" ? "工资状态" : "月数据状态"}
           </p>
           <span className={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${getMonthlyStatusTone(status)}`}>
             {getMonthlyAdminStatusLabel(status)}
@@ -713,16 +707,16 @@ function ReviewRow({
           value={row.deadline_at ? formatDateTime(row.deadline_at) : "-"}
         />
         <CompactInfo
-          label="給与截图截止"
+          label="工资截图截止"
           value={
             row.salary_screenshot_deadline_at
               ? formatDateTime(row.salary_screenshot_deadline_at)
               : "-"
           }
         />
-        <CompactInfo label="选手給与合计" value={`${formatMonthlyNumber(totalSalary)} 円`} />
+        <CompactInfo label="选手工资合计" value={`${formatMonthlyNumber(totalSalary)} 円`} />
         <div className="min-w-0">
-          <p className="text-xs text-slate-500">給与截图</p>
+          <p className="text-xs text-slate-500">工资截图</p>
           <p className="mt-1 text-sm font-semibold text-slate-200">
             {salarySummary.label}
           </p>
@@ -753,8 +747,8 @@ function ReviewRow({
             monthlySubmissionId={row.isSynthetic ? undefined : row.id}
             teamId={row.team_id}
             targetMonth={row.target_month}
-            label="給与截图提醒"
-            confirmMessage={`确定立即提醒 ${row.teams?.short_name || row.teams?.name || "该战队"} 提交 ${formatMonthLabel(row.target_month)} 給与截图吗？`}
+            label="工资截图提醒"
+            confirmMessage={`确定立即提醒 ${row.teams?.short_name || row.teams?.name || "该战队"} 提交 ${formatMonthLabel(row.target_month)} 工资截图吗？`}
             compact
           />
         ) : null}
@@ -762,7 +756,7 @@ function ReviewRow({
 
       {submittedAt ? (
         <div className="mt-3 text-xs text-slate-500">
-          {reviewKind === "salary" ? "給与提交时间" : "月数据提交时间"}：
+          {reviewKind === "salary" ? "工资提交时间" : "月数据提交时间"}：
           {formatDateTime(submittedAt)}
         </div>
       ) : null}
@@ -770,7 +764,7 @@ function ReviewRow({
       {returnReason ? (
         <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-950/30 p-3">
           <p className="text-xs font-semibold text-rose-200">
-            {reviewKind === "salary" ? "給与驳回理由" : "月数据驳回理由"}
+            {reviewKind === "salary" ? "工资驳回理由" : "月数据驳回理由"}
           </p>
           <p className="mt-2 max-h-24 overflow-y-auto whitespace-pre-wrap break-words pr-2 text-xs leading-5 text-rose-100">
             {returnReason}
@@ -940,8 +934,8 @@ function PlayerDataTable({ players }: { players: MonthlyPlayerRow[] }) {
         <thead className="bg-slate-900 text-slate-400">
           <tr>
             <th className="px-3 py-2">選手名</th>
-            <th className="px-3 py-2">給与</th>
-            <th className="px-3 py-2">給与截图</th>
+            <th className="px-3 py-2">工资</th>
+            <th className="px-3 py-2">工资截图</th>
             <th className="px-3 py-2">X截图</th>
             <th className="px-3 py-2">X投稿</th>
             <th className="px-3 py-2">Xインプレッション</th>
@@ -1069,7 +1063,7 @@ function AdminActions({
 }) {
   const canReview = status === "submitted";
   const canDecide = status === "submitted" || status === "reviewing";
-  const reviewLabel = reviewKind === "salary" ? "給与" : "月数据";
+  const reviewLabel = reviewKind === "salary" ? "工资" : "月数据";
 
   if (!canReview && !canDecide) {
     return null;
