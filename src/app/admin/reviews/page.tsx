@@ -109,6 +109,7 @@ async function updateMonthlyDataReviewStatus(formData: FormData) {
   const actionType = String(formData.get("action_type") || "");
   const reviewKind = String(formData.get("review_kind") || "monthly");
   const returnReason = String(formData.get("return_reason") || "").trim();
+  const redirectMonth = normalizeReviewMonthParam(formData.get("redirect_month"));
 
   if (!submissionId) {
     throw new Error("未找到月数据提交记录。");
@@ -155,7 +156,7 @@ async function updateMonthlyDataReviewStatus(formData: FormData) {
     throw new Error(error.message);
   }
 
-  redirect("/admin/reviews");
+  redirect(redirectMonth ? `/admin/reviews?month=${redirectMonth}` : "/admin/reviews");
 }
 
 function isResubmittedStatus(status: string) {
@@ -192,7 +193,13 @@ function canSendProjectReminder(row: ReviewRowData) {
   );
 }
 
-export default async function AdminReviewsPage() {
+export default async function AdminReviewsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ month?: string }>;
+}) {
+  const { month } = await searchParams;
+  const selectedMonth = normalizeReviewMonthParam(month);
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -282,16 +289,23 @@ export default async function AdminReviewsPage() {
     ),
     teams: (teamsResult.data || []) as TeamRow[],
   });
-  const projectGrouped = groupProjectReviewRows(allRows);
-  const monthlyGrouped = groupMonthlyReviewRows(monthlyRows, "monthly");
-  const salaryGrouped = groupMonthlyReviewRows(monthlyRows, "salary");
-  const monthlyReminderRows = monthlyRows.filter(
+  const monthOptions = buildReviewMonthOptions({
+    projectRows: allRows,
+    monthlyRows,
+    selectedMonth,
+  });
+  const filteredProjectRows = filterProjectRowsByMonth(allRows, selectedMonth);
+  const filteredMonthlyRows = filterMonthlyRowsByMonth(monthlyRows, selectedMonth);
+  const projectGrouped = groupProjectReviewRows(filteredProjectRows);
+  const monthlyGrouped = groupMonthlyReviewRows(filteredMonthlyRows, "monthly");
+  const salaryGrouped = groupMonthlyReviewRows(filteredMonthlyRows, "salary");
+  const monthlyReminderRows = filteredMonthlyRows.filter(
     (row) =>
       isMonthlyReminderEligibleMonth(row.target_month) &&
       isMonthlyDataReminderWindowOpen(row) &&
       isMonthlyReviewReminderTarget(row.status)
   );
-  const salaryReminderRows = monthlyRows.filter(
+  const salaryReminderRows = filteredMonthlyRows.filter(
     (row) =>
       isMonthlyReminderEligibleMonth(row.target_month) &&
       isSalaryScreenshotReminderWindowOpen(row) &&
@@ -321,18 +335,24 @@ export default async function AdminReviewsPage() {
   return (
     <main className="min-h-screen bg-slate-950 p-6 text-white">
       <div className="mx-auto max-w-7xl">
-        <div className="mb-4">
-          <Link
-            href="/admin/dashboard"
-            className="text-sm text-slate-400 hover:text-white"
-          >
-            ← 返回管理员后台
-          </Link>
+        <div className="mb-4 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+          <div>
+            <Link
+              href="/admin/dashboard"
+              className="text-sm text-slate-400 hover:text-white"
+            >
+              ← 返回管理员后台
+            </Link>
 
-          <h1 className="mt-3 text-3xl font-bold">提交审核</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            按审核状态查看所有战队提交资料。
-          </p>
+            <h1 className="mt-3 text-3xl font-bold">提交审核</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              按审核状态和月份查看所有战队提交资料。
+            </p>
+          </div>
+          <MonthFilterControl
+            monthOptions={monthOptions}
+            selectedMonth={selectedMonth}
+          />
         </div>
 
         {error ? (
@@ -364,18 +384,21 @@ export default async function AdminReviewsPage() {
                     scope="monthly_all"
                     label={`提醒月数据 ${monthlyReminderRows.length} 条`}
                     confirmMessage="确定立即提醒所有进入提醒窗口且未完成月数据提交的战队吗？"
+                    targetMonth={selectedMonth || undefined}
                     disabled={monthlyReminderRows.length === 0}
                   />
                   <ReminderButton
                     scope="monthly_salary_all"
                     label={`提醒工资截图 ${salaryReminderRows.length} 条`}
                     confirmMessage="确定立即提醒所有进入提醒窗口且未完成工资截图提交的战队吗？"
+                    targetMonth={selectedMonth || undefined}
                     disabled={salaryReminderRows.length === 0}
                   />
                   <ReminderButton
                     scope="project_all"
                     label={`提醒项目 ${projectGrouped.notSubmitted.length + projectGrouped.returned.length} 条`}
                     confirmMessage="确定立即提醒所有项目未提交或待再次提交的战队吗？"
+                    targetMonth={selectedMonth || undefined}
                     disabled={
                       projectGrouped.notSubmitted.length +
                         projectGrouped.returned.length ===
@@ -391,11 +414,13 @@ export default async function AdminReviewsPage() {
                 title="月数据审核"
                 grouped={monthlyGrouped}
                 reviewKind="monthly"
+                selectedMonth={selectedMonth}
               />
               <MonthlyReviewCategory
                 title="工资审核"
                 grouped={salaryGrouped}
                 reviewKind="salary"
+                selectedMonth={selectedMonth}
               />
               <ProjectReviewCategory grouped={projectGrouped} />
             </div>
@@ -429,14 +454,67 @@ function ProjectReviewCategory({
   );
 }
 
+function MonthFilterControl({
+  monthOptions,
+  selectedMonth,
+}: {
+  monthOptions: string[];
+  selectedMonth: string;
+}) {
+  return (
+    <form
+      action="/admin/reviews"
+      className="rounded-xl border border-slate-700 bg-slate-900/70 p-3"
+    >
+      <label
+        htmlFor="review-month"
+        className="block text-xs font-semibold text-slate-400"
+      >
+        查看月份
+      </label>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <select
+          id="review-month"
+          name="month"
+          defaultValue={selectedMonth}
+          className="min-w-44 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white outline-none focus:border-sky-300"
+        >
+          <option value="">全部月份</option>
+          {monthOptions.map((option) => (
+            <option key={option} value={option}>
+              {formatMonthLabel(option)}
+            </option>
+          ))}
+        </select>
+        <button
+          type="submit"
+          className="rounded-lg bg-white px-4 py-2 text-sm font-bold text-slate-950 hover:bg-slate-200"
+        >
+          查看
+        </button>
+        {selectedMonth ? (
+          <Link
+            href="/admin/reviews"
+            className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
+          >
+            清除
+          </Link>
+        ) : null}
+      </div>
+    </form>
+  );
+}
+
 function MonthlyReviewCategory({
   title,
   grouped,
   reviewKind,
+  selectedMonth,
 }: {
   title: string;
   grouped: ReviewGroups<MonthlySubmissionReviewRow>;
   reviewKind: ReviewKind;
+  selectedMonth: string;
 }) {
   const description =
     reviewKind === "salary"
@@ -453,30 +531,35 @@ function MonthlyReviewCategory({
           rows={grouped.notSubmitted}
           color="slate"
           reviewKind={reviewKind}
+          selectedMonth={selectedMonth}
         />
         <MonthlyReviewSection
           title={`${title}：已提交 / 待审核`}
           rows={grouped.submitted}
           color="yellow"
           reviewKind={reviewKind}
+          selectedMonth={selectedMonth}
         />
         <MonthlyReviewSection
           title={`${title}：审核中`}
           rows={grouped.reviewing}
           color="orange"
           reviewKind={reviewKind}
+          selectedMonth={selectedMonth}
         />
         <MonthlyReviewSection
           title={`${title}：已驳回需补充`}
           rows={grouped.returned}
           color="red"
           reviewKind={reviewKind}
+          selectedMonth={selectedMonth}
         />
         <MonthlyReviewSection
           title={`${title}：已通过`}
           rows={grouped.approved}
           color="green"
           reviewKind={reviewKind}
+          selectedMonth={selectedMonth}
         />
       </div>
     </section>
@@ -559,7 +642,6 @@ function ReviewSection({
   return (
     <details
       className="overflow-hidden rounded-lg border border-slate-700 bg-slate-900"
-      open={rows.length > 0}
     >
       <summary className={`cursor-pointer list-none border-b border-slate-700 px-3 py-2 ${colorClass}`}>
         <div className="flex items-center justify-between gap-4">
@@ -588,11 +670,13 @@ function MonthlyReviewSection({
   rows,
   color,
   reviewKind,
+  selectedMonth,
 }: {
   title: string;
   rows: MonthlySubmissionReviewRow[];
   color: "yellow" | "orange" | "red" | "green" | "slate" | "blue";
   reviewKind: ReviewKind;
+  selectedMonth: string;
 }) {
   const colorClass = {
     yellow: "border-yellow-500 bg-yellow-950 text-yellow-200",
@@ -606,7 +690,6 @@ function MonthlyReviewSection({
   return (
     <details
       className="overflow-hidden rounded-lg border border-slate-700 bg-slate-900"
-      open={rows.length > 0}
     >
       <summary className={`cursor-pointer list-none border-b border-slate-700 px-3 py-2 ${colorClass}`}>
         <div className="flex items-center justify-between gap-4">
@@ -622,7 +705,12 @@ function MonthlyReviewSection({
       ) : (
         <div className="grid gap-2 p-2 xl:grid-cols-2">
           {rows.map((row) => (
-            <MonthlyReviewRow key={`${reviewKind}-${row.id}`} row={row} reviewKind={reviewKind} />
+            <MonthlyReviewRow
+              key={`${reviewKind}-${row.id}`}
+              row={row}
+              reviewKind={reviewKind}
+              selectedMonth={selectedMonth}
+            />
           ))}
         </div>
       )}
@@ -633,9 +721,11 @@ function MonthlyReviewSection({
 function MonthlyReviewRow({
   row,
   reviewKind,
+  selectedMonth,
 }: {
   row: MonthlySubmissionReviewRow;
   reviewKind: ReviewKind;
+  selectedMonth: string;
 }) {
   const status = getMonthlyReviewStatus(row, reviewKind);
   const submittedAt =
@@ -748,6 +838,7 @@ function MonthlyReviewRow({
             row={row}
             status={status}
             reviewKind={reviewKind}
+            selectedMonth={selectedMonth}
           />
         </div>
       )}
@@ -759,10 +850,12 @@ function MonthlyReviewActions({
   row,
   status,
   reviewKind,
+  selectedMonth,
 }: {
   row: MonthlySubmissionReviewRow;
   status: ReturnType<typeof normalizeMonthlyStatus>;
   reviewKind: ReviewKind;
+  selectedMonth: string;
 }) {
   const canReview = status === "submitted";
   const canDecide = status === "submitted" || status === "reviewing";
@@ -778,6 +871,7 @@ function MonthlyReviewActions({
         <form action={updateMonthlyDataReviewStatus}>
           <input type="hidden" name="submission_id" value={row.id} />
           <input type="hidden" name="review_kind" value={reviewKind} />
+          <input type="hidden" name="redirect_month" value={selectedMonth} />
           <button
             name="action_type"
             value="reviewing"
@@ -792,6 +886,7 @@ function MonthlyReviewActions({
         <form action={updateMonthlyDataReviewStatus}>
           <input type="hidden" name="submission_id" value={row.id} />
           <input type="hidden" name="review_kind" value={reviewKind} />
+          <input type="hidden" name="redirect_month" value={selectedMonth} />
           <button
             name="action_type"
             value="approved"
@@ -806,6 +901,7 @@ function MonthlyReviewActions({
         <form action={updateMonthlyDataReviewStatus} className="flex min-w-[260px] flex-1 gap-2">
           <input type="hidden" name="submission_id" value={row.id} />
           <input type="hidden" name="review_kind" value={reviewKind} />
+          <input type="hidden" name="redirect_month" value={selectedMonth} />
           <input
             name="return_reason"
             placeholder={`${label}驳回理由`}
@@ -927,6 +1023,69 @@ function ReasonPreview({ reason }: { reason: string }) {
       </p>
     </div>
   );
+}
+
+function normalizeReviewMonthParam(value: unknown) {
+  const month = String(Array.isArray(value) ? value[0] || "" : value || "").trim();
+
+  return /^\d{4}-\d{2}$/.test(month) ? month : "";
+}
+
+function buildReviewMonthOptions({
+  projectRows,
+  monthlyRows,
+  selectedMonth,
+}: {
+  projectRows: ReviewRowData[];
+  monthlyRows: MonthlySubmissionReviewRow[];
+  selectedMonth: string;
+}) {
+  const months = new Set<string>();
+
+  for (const row of monthlyRows) {
+    if (isMonthlyReminderEligibleMonth(row.target_month)) {
+      months.add(row.target_month.slice(0, 7));
+    }
+  }
+
+  for (const row of projectRows) {
+    const projectMonth = getProjectReviewMonth(row);
+
+    if (projectMonth) {
+      months.add(projectMonth);
+    }
+  }
+
+  if (selectedMonth) {
+    months.add(selectedMonth);
+  }
+
+  return Array.from(months).sort((left, right) => right.localeCompare(left));
+}
+
+function getProjectReviewMonth(row: ReviewRowData) {
+  const month = String(row.projects?.deadline_at || "").slice(0, 7);
+
+  return /^\d{4}-\d{2}$/.test(month) ? month : "";
+}
+
+function filterProjectRowsByMonth(rows: ReviewRowData[], selectedMonth: string) {
+  if (!selectedMonth) {
+    return rows;
+  }
+
+  return rows.filter((row) => getProjectReviewMonth(row) === selectedMonth);
+}
+
+function filterMonthlyRowsByMonth(
+  rows: MonthlySubmissionReviewRow[],
+  selectedMonth: string
+) {
+  if (!selectedMonth) {
+    return rows;
+  }
+
+  return rows.filter((row) => row.target_month.slice(0, 7) === selectedMonth);
 }
 
 function groupProjectReviewRows(
