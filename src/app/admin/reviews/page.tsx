@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatDateTime } from "@/lib/date-format";
+import { parseClubActivityItems } from "@/lib/club-activities";
 import {
   getAdminStatusLabel,
   getStatusTone,
@@ -15,11 +16,14 @@ import {
   isMonthlyDataReminderWindowOpen,
   isMonthlyReminderEligibleMonth,
   isSalaryScreenshotReminderWindowOpen,
+  formatMonthlyNumber,
   getSalaryScreenshotSummary,
   normalizeMonthlyStatus,
   parseMonthlyPlayerRows,
   splitMonthlyRows,
+  type MonthlyPlayerRow,
 } from "@/lib/monthly-data";
+import ImagePreview from "../reward/ImagePreview";
 import ReminderButton from "./ReminderButton";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +53,11 @@ type MonthlySubmissionReviewRow = {
   status: string;
   salary_status?: string | null;
   player_rows?: unknown;
+  club_activity_link?: string | null;
+  club_activity_image_url?: string | null;
+  club_activity_image_name?: string | null;
+  club_activity_image_mime_type?: string | null;
+  club_activity_image_storage_path?: string | null;
   return_reason?: string | null;
   salary_return_reason?: string | null;
   submitted_at: string | null;
@@ -250,6 +259,11 @@ export default async function AdminReviewsPage({
           status,
           salary_status,
           player_rows,
+          club_activity_link,
+          club_activity_image_url,
+          club_activity_image_name,
+          club_activity_image_mime_type,
+          club_activity_image_storage_path,
           return_reason,
           salary_return_reason,
           submitted_at,
@@ -827,13 +841,12 @@ function MonthlyReviewRow({
           该战队还没有生成或提交这条记录。
         </p>
       ) : (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-4">
-          <Link
-            href="/admin/reward"
-            className="text-sm font-semibold text-sky-200 underline hover:text-white"
-          >
-            查看详细数据
-          </Link>
+        <div className="mt-4 flex flex-wrap items-start justify-between gap-3 border-t border-slate-800 pt-4">
+          <InlineMonthlyDetails
+            row={row}
+            officialRow={officialRow}
+            playerRows={playerRows}
+          />
           <MonthlyReviewActions
             row={row}
             status={status}
@@ -843,6 +856,245 @@ function MonthlyReviewRow({
         </div>
       )}
     </article>
+  );
+}
+
+function InlineMonthlyDetails({
+  row,
+  officialRow,
+  playerRows,
+}: {
+  row: MonthlySubmissionReviewRow;
+  officialRow: MonthlyPlayerRow | null;
+  playerRows: MonthlyPlayerRow[];
+}) {
+  return (
+    <details className="min-w-[280px] flex-1 overflow-hidden rounded-lg border border-slate-700 bg-slate-950/70">
+      <summary className="cursor-pointer list-none px-3 py-2 text-sm font-semibold text-sky-200 hover:bg-slate-900">
+        <div className="flex items-center justify-between gap-3">
+          <span>查看详细数据</span>
+          <span className="text-xs text-slate-500">展开 / 收起</span>
+        </div>
+      </summary>
+      <div className="space-y-3 border-t border-slate-800 p-3">
+        <OfficialDataPanel officialRow={officialRow} />
+        <PlayerDataTable players={playerRows} />
+        <ActivityPanel row={row} />
+      </div>
+    </details>
+  );
+}
+
+function OfficialDataPanel({
+  officialRow,
+}: {
+  officialRow: MonthlyPlayerRow | null;
+}) {
+  if (!officialRow) {
+    return (
+      <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+        <h5 className="text-sm font-bold text-slate-100">公式账号</h5>
+        <p className="mt-2 text-xs text-slate-500">未提交。</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+      <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
+        <div>
+          <h5 className="text-sm font-bold text-slate-100">公式账号</h5>
+          <p className="mt-1 text-xs text-slate-500">
+            {officialRow.playerName || "公式账号"}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <MetricScreenshotPreview
+            label="X截图"
+            imageUrl={officialRow.xScreenshotUrl}
+            fileName={officialRow.xScreenshotName || officialRow.playerName}
+          />
+          <MetricScreenshotPreview
+            label="YT截图"
+            imageUrl={officialRow.youtubeScreenshotUrl}
+            fileName={officialRow.youtubeScreenshotName || officialRow.playerName}
+          />
+        </div>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <MiniMetric label="X投稿" value={officialRow.xTweetCount} />
+        <MiniMetric label="Xインプレッション" value={officialRow.xImpressions} />
+        <MiniMetric label="Xエンゲージメント" value={officialRow.xEngagements} />
+        <MiniMetric label="Xフォロワー" value={officialRow.xFollowerCount} />
+        <MiniMetric label="YT動画視聴" value={officialRow.youtubeVideoViews} />
+        <MiniMetric label="YTショート視聴" value={officialRow.youtubeShortViews} />
+        <MiniMetric label="YT合計Imp" value={officialRow.youtubeTotalImpressions} />
+        <MiniMetric label="YT登録者" value={officialRow.youtubeSubscriberCount} />
+      </div>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: unknown }) {
+  return (
+    <div className="rounded-lg bg-slate-950 px-3 py-2">
+      <p className="text-[11px] text-slate-500">{label}</p>
+      <p className="mt-1 text-sm font-bold text-slate-100">
+        {formatMonthlyNumber(value)}
+      </p>
+    </div>
+  );
+}
+
+function MetricScreenshotPreview({
+  label,
+  imageUrl,
+  fileName,
+}: {
+  label: string;
+  imageUrl?: string;
+  fileName?: string;
+}) {
+  if (!imageUrl) {
+    return <span className="text-xs text-slate-500">{label} -</span>;
+  }
+
+  return <ImagePreview imageUrl={imageUrl} fileName={fileName || label} />;
+}
+
+function PlayerDataTable({ players }: { players: MonthlyPlayerRow[] }) {
+  if (players.length === 0) {
+    return (
+      <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-sm text-slate-400">
+        选手数据暂无。
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-800">
+      <table className="w-full min-w-[1540px] text-left text-xs">
+        <thead className="bg-slate-900 text-slate-400">
+          <tr>
+            <th className="px-3 py-2">选手名</th>
+            <th className="px-3 py-2">工资</th>
+            <th className="px-3 py-2">工资截图</th>
+            <th className="px-3 py-2">X截图</th>
+            <th className="px-3 py-2">X投稿</th>
+            <th className="px-3 py-2">X曝光</th>
+            <th className="px-3 py-2">X互动</th>
+            <th className="px-3 py-2">X活动</th>
+            <th className="px-3 py-2">X粉丝</th>
+            <th className="px-3 py-2">YT截图</th>
+            <th className="px-3 py-2">视频投稿</th>
+            <th className="px-3 py-2">视频播放</th>
+            <th className="px-3 py-2">Shorts投稿</th>
+            <th className="px-3 py-2">Shorts播放</th>
+            <th className="px-3 py-2">点赞</th>
+            <th className="px-3 py-2">直播回数</th>
+            <th className="px-3 py-2">直播观看</th>
+            <th className="px-3 py-2">合计Imp</th>
+            <th className="px-3 py-2">登録者</th>
+          </tr>
+        </thead>
+        <tbody>
+          {players.map((player, index) => (
+            <tr key={player.id || index} className="border-t border-slate-800">
+              <td className="px-3 py-2 font-semibold text-slate-100">
+                {player.playerName || "-"}
+              </td>
+              <td className="px-3 py-2">
+                {formatMonthlyNumber(player.salaryAmount)} 円
+              </td>
+              <td className="px-3 py-2">
+                <MetricScreenshotPreview
+                  label="工资"
+                  imageUrl={player.salaryScreenshotUrl}
+                  fileName={player.salaryScreenshotName || player.playerName}
+                />
+              </td>
+              <td className="px-3 py-2">
+                <MetricScreenshotPreview
+                  label="X"
+                  imageUrl={player.xScreenshotUrl}
+                  fileName={player.xScreenshotName || player.playerName}
+                />
+              </td>
+              <td className="px-3 py-2">{formatMonthlyNumber(player.xTweetCount)}</td>
+              <td className="px-3 py-2">{formatMonthlyNumber(player.xImpressions)}</td>
+              <td className="px-3 py-2">{formatMonthlyNumber(player.xEngagements)}</td>
+              <td className="px-3 py-2">{formatMonthlyNumber(player.xFanEventCount)}</td>
+              <td className="px-3 py-2">{formatMonthlyNumber(player.xFollowerCount)}</td>
+              <td className="px-3 py-2">
+                <MetricScreenshotPreview
+                  label="YT"
+                  imageUrl={player.youtubeScreenshotUrl}
+                  fileName={player.youtubeScreenshotName || player.playerName}
+                />
+              </td>
+              <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeVideoPostCount)}</td>
+              <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeVideoViews)}</td>
+              <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeShortPostCount)}</td>
+              <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeShortViews)}</td>
+              <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeLikeCount)}</td>
+              <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeStreamCount)}</td>
+              <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeStreamViews)}</td>
+              <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeTotalImpressions)}</td>
+              <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeSubscriberCount)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ActivityPanel({ row }: { row: MonthlySubmissionReviewRow }) {
+  const activities = parseClubActivityItems({
+    link: row.club_activity_link,
+    imageUrl: row.club_activity_image_url,
+    imageName: row.club_activity_image_name,
+    imageMimeType: row.club_activity_image_mime_type,
+    imageStoragePath: row.club_activity_image_storage_path,
+  });
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+      <h5 className="text-sm font-bold text-slate-100">俱乐部活动</h5>
+      {activities.length > 0 ? (
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {activities.map((activity, index) => (
+            <div
+              key={`${activity.id}-${index}`}
+              className="rounded-lg border border-slate-800 bg-slate-950 p-3"
+            >
+              <p className="text-xs font-semibold text-slate-400">
+                クラブ活動 {index + 1}
+              </p>
+              {activity.link ? (
+                <a
+                  href={activity.link}
+                  target="_blank"
+                  className="mt-2 block break-all text-xs text-sky-300 underline"
+                >
+                  {activity.link}
+                </a>
+              ) : null}
+              {activity.imageUrl ? (
+                <div className="mt-3">
+                  <ImagePreview
+                    imageUrl={activity.imageUrl}
+                    fileName={activity.imageName}
+                  />
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 text-xs text-slate-500">未提交。</p>
+      )}
+    </div>
   );
 }
 
@@ -1207,6 +1459,11 @@ function buildMonthlySubmissionReviewRows({
         status: "not_submitted",
         salary_status: "not_submitted",
         player_rows: [],
+        club_activity_link: null,
+        club_activity_image_url: null,
+        club_activity_image_name: null,
+        club_activity_image_mime_type: null,
+        club_activity_image_storage_path: null,
         return_reason: null,
         salary_return_reason: null,
         submitted_at: null,
