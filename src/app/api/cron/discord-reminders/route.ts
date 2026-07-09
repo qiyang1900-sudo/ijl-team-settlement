@@ -429,7 +429,7 @@ function getReminderSchedule(
     };
   }
 
-  if (daysUntil >= 1 && daysUntil <= 3) {
+  if (daysUntil === 3 || daysUntil === 1) {
     return {
       reminderKey: `before-${daysUntil}`,
       label: `提出期限の${daysUntil}日前です。`,

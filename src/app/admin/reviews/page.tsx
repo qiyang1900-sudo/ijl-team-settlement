@@ -24,6 +24,7 @@ import {
   type MonthlyPlayerRow,
 } from "@/lib/monthly-data";
 import ImagePreview from "../reward/ImagePreview";
+import AutoDiscordReminderNudge from "./AutoDiscordReminderNudge";
 import ReminderButton from "./ReminderButton";
 
 export const dynamic = "force-dynamic";
@@ -348,6 +349,7 @@ export default async function AdminReviewsPage({
 
   return (
     <main className="min-h-screen bg-slate-950 p-6 text-white">
+      <AutoDiscordReminderNudge />
       <div className="mx-auto max-w-7xl">
         <div className="mb-4 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
           <div>
