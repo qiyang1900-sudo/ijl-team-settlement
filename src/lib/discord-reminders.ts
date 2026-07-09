@@ -99,7 +99,7 @@ export async function sendDiscordReminderOnce({
 
   const { data: existing, error: existingError } = await supabase
     .from("discord_reminder_logs")
-    .select("id")
+    .select("id, delivery_status")
     .eq("team_id", team.id)
     .eq("reminder_type", reminderType)
     .eq("item_id", itemId)
@@ -110,7 +110,28 @@ export async function sendDiscordReminderOnce({
     return "failed";
   }
 
-  if (existing) {
+  if (existing?.delivery_status === "sent") {
+    return "skipped";
+  }
+
+  const { start, end } = getTokyoDayRange(new Date());
+  const { data: sameDaySent, error: sameDaySentError } = await supabase
+    .from("discord_reminder_logs")
+    .select("id")
+    .eq("team_id", team.id)
+    .eq("reminder_type", reminderType)
+    .eq("item_id", itemId)
+    .eq("delivery_status", "sent")
+    .gte("sent_at", start)
+    .lt("sent_at", end)
+    .limit(1)
+    .maybeSingle();
+
+  if (sameDaySentError) {
+    return "failed";
+  }
+
+  if (sameDaySent) {
     return "skipped";
   }
 
@@ -134,7 +155,7 @@ export async function sendDiscordReminderOnce({
       error instanceof Error ? error.message : "Discord webhook request failed.";
   }
 
-  const { error: logError } = await supabase.from("discord_reminder_logs").insert({
+  const logPayload = {
     team_id: team.id,
     reminder_type: reminderType,
     item_id: itemId,
@@ -144,7 +165,14 @@ export async function sendDiscordReminderOnce({
     delivery_status: ok ? "sent" : "failed",
     error_message: errorMessage,
     sent_at: new Date().toISOString(),
-  });
+  };
+  const logResult = existing
+    ? await supabase
+        .from("discord_reminder_logs")
+        .update(logPayload)
+        .eq("id", existing.id)
+    : await supabase.from("discord_reminder_logs").insert(logPayload);
+  const logError = logResult.error;
 
   if (logError) {
     return "failed";
@@ -243,4 +271,14 @@ function toUtcDayNumber(date: Date) {
   const [year, month, day] = getTokyoDateKey(date).split("-").map(Number);
 
   return Math.floor(Date.UTC(year, month - 1, day) / 86400000);
+}
+
+function getTokyoDayRange(date: Date) {
+  const [year, month, day] = getTokyoDateKey(date).split("-").map(Number);
+  const startMs = Date.UTC(year, month - 1, day) - 9 * 60 * 60 * 1000;
+
+  return {
+    start: new Date(startMs).toISOString(),
+    end: new Date(startMs + 24 * 60 * 60 * 1000).toISOString(),
+  };
 }
