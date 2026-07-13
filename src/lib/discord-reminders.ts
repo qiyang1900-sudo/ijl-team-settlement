@@ -26,6 +26,8 @@ export type DiscordReminderResult =
   | "failed"
   | "missingWebhook";
 
+const SENDING_LOG_TTL_MS = 5 * 60 * 1000;
+
 export function buildSubmissionReminderMessage({
   team,
   targetLabel,
@@ -134,9 +136,10 @@ export async function sendDiscordReminderOnce({
     return "missingWebhook";
   }
 
+  const now = new Date();
   const { data: existing, error: existingError } = await supabase
     .from("discord_reminder_logs")
-    .select("id, delivery_status")
+    .select("id, delivery_status, sent_at")
     .eq("team_id", team.id)
     .eq("reminder_type", reminderType)
     .eq("item_id", itemId)
@@ -151,8 +154,15 @@ export async function sendDiscordReminderOnce({
     return "skipped";
   }
 
+  if (
+    existing?.delivery_status === "sending" &&
+    isFreshSendingLog(existing.sent_at, now)
+  ) {
+    return "skipped";
+  }
+
   if (!skipSameDaySentCheck) {
-    const { start, end } = getTokyoDayRange(new Date());
+    const { start, end } = getTokyoDayRange(now);
     const { data: sameDaySent, error: sameDaySentError } = await supabase
       .from("discord_reminder_logs")
       .select("id")
@@ -178,6 +188,40 @@ export async function sendDiscordReminderOnce({
     return "wouldSend";
   }
 
+  const reservePayload = {
+    team_id: team.id,
+    reminder_type: reminderType,
+    item_id: itemId,
+    target_month: targetMonth,
+    reminder_key: reminderKey,
+    message: content,
+    delivery_status: "sending",
+    error_message: null,
+    sent_at: now.toISOString(),
+  };
+  const reserveResult = existing
+    ? await supabase
+        .from("discord_reminder_logs")
+        .update(reservePayload)
+        .eq("id", existing.id)
+        .select("id")
+        .maybeSingle()
+    : await supabase
+        .from("discord_reminder_logs")
+        .insert(reservePayload)
+        .select("id")
+        .maybeSingle();
+
+  if (reserveResult.error) {
+    return isUniqueConstraintError(reserveResult.error) ? "skipped" : "failed";
+  }
+
+  const logId = existing?.id || reserveResult.data?.id;
+
+  if (!logId) {
+    return "failed";
+  }
+
   let ok = false;
   let errorMessage: string | null = null;
 
@@ -194,24 +238,15 @@ export async function sendDiscordReminderOnce({
       error instanceof Error ? error.message : "Discord webhook request failed.";
   }
 
-  const logPayload = {
-    team_id: team.id,
-    reminder_type: reminderType,
-    item_id: itemId,
-    target_month: targetMonth,
-    reminder_key: reminderKey,
-    message: content,
-    delivery_status: ok ? "sent" : "failed",
-    error_message: errorMessage,
-    sent_at: new Date().toISOString(),
-  };
-  const logResult = existing
-    ? await supabase
-        .from("discord_reminder_logs")
-        .update(logPayload)
-        .eq("id", existing.id)
-    : await supabase.from("discord_reminder_logs").insert(logPayload);
-  const logError = logResult.error;
+  const { error: logError } = await supabase
+    .from("discord_reminder_logs")
+    .update({
+      message: content,
+      delivery_status: ok ? "sent" : "failed",
+      error_message: errorMessage,
+      sent_at: new Date().toISOString(),
+    })
+    .eq("id", logId);
 
   if (logError) {
     return "failed";
@@ -320,4 +355,21 @@ function getTokyoDayRange(date: Date) {
     start: new Date(startMs).toISOString(),
     end: new Date(startMs + 24 * 60 * 60 * 1000).toISOString(),
   };
+}
+
+function isFreshSendingLog(value: string | null | undefined, now: Date) {
+  const timestamp = new Date(String(value || "")).getTime();
+
+  return (
+    Number.isFinite(timestamp) &&
+    now.getTime() - timestamp >= 0 &&
+    now.getTime() - timestamp < SENDING_LOG_TTL_MS
+  );
+}
+
+function isUniqueConstraintError(error: { code?: string; message?: string }) {
+  return (
+    error.code === "23505" ||
+    String(error.message || "").toLowerCase().includes("duplicate key")
+  );
 }

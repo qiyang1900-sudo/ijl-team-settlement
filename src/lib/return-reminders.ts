@@ -174,7 +174,7 @@ async function sendReturnReminder({
     reminderType,
     itemId,
     targetMonth,
-    reminderKey: `returned-${Date.now()}`,
+    reminderKey: getReturnReminderKey(),
     content: buildReturnReminderMessage({
       team,
       targetLabel,
@@ -191,6 +191,10 @@ function formatMonthlyTargetLabel(targetMonth: string | null, suffix: string) {
   }
 
   return `${formatReminderMonth(targetMonth)}月${suffix}`;
+}
+
+function getReturnReminderKey() {
+  return `returned-${Math.floor(Date.now() / (10 * 60 * 1000))}`;
 }
 
 function pickRelation<T>(value: T | T[] | null | undefined) {
