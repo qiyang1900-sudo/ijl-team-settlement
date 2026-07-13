@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatDateTime } from "@/lib/date-format";
 import { parseClubActivityItems } from "@/lib/club-activities";
+import { sendMonthlyReturnReminder } from "@/lib/return-reminders";
 import DeleteMonthlySubmissionButton from "./DeleteMonthlySubmissionButton";
 import ImagePreview from "./ImagePreview";
 import ReminderButton from "../reviews/ReminderButton";
@@ -141,6 +142,15 @@ async function updateMonthlyDataStatus(formData: FormData) {
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  if (actionType === "returned") {
+    await sendMonthlyReturnReminder({
+      supabase,
+      submissionId,
+      reviewKind: reviewKind === "salary" ? "salary" : "monthly",
+      returnReason,
+    });
   }
 
   redirect("/admin/reward");
