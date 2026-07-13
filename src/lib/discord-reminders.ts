@@ -14,7 +14,10 @@ export type DiscordReminderTeam = {
 export type DiscordReminderKind =
   | "monthly_data"
   | "monthly_salary_screenshot"
-  | "project_submission";
+  | "project_submission"
+  | "monthly_data_returned"
+  | "monthly_salary_screenshot_returned"
+  | "project_submission_returned";
 
 export type DiscordReminderResult =
   | "sent"
@@ -74,6 +77,38 @@ export function buildSubmissionReminderMessage({
   ].join("\n");
 }
 
+export function buildReturnReminderMessage({
+  team,
+  targetLabel,
+  returnReason,
+}: {
+  team: DiscordReminderTeam;
+  targetLabel: string;
+  returnReason?: string | null;
+}) {
+  const mention = formatDiscordMention(team.discord_mention_text);
+  const reason =
+    String(returnReason || "").trim() ||
+    "管理者より修正依頼があります。詳細は提出画面をご確認ください。";
+
+  return [
+    ...(mention ? [mention] : []),
+    "お疲れ様です。",
+    "提出リマインドBotです。ご提出いただいた資料について確認事項がございます。",
+    "",
+    `${formatTeamName(team)} の **${targetLabel}** につきまして、`,
+    "審査の結果、差し戻しとなりました。",
+    "",
+    "差し戻し理由：",
+    reason,
+    "",
+    "お手数ですが、以下のページより内容をご確認のうえ、修正・再提出をお願いいたします。",
+    REMINDER_SUBMISSION_URL,
+    "",
+    "現在の状態：差し戻し（再提出待ち）",
+  ].join("\n");
+}
+
 export async function sendDiscordReminderOnce({
   supabase,
   team,
@@ -83,6 +118,7 @@ export async function sendDiscordReminderOnce({
   reminderKey,
   content,
   dryRun,
+  skipSameDaySentCheck = false,
 }: {
   supabase: SupabaseClient;
   team: DiscordReminderTeam;
@@ -92,6 +128,7 @@ export async function sendDiscordReminderOnce({
   reminderKey: string;
   content: string;
   dryRun: boolean;
+  skipSameDaySentCheck?: boolean;
 }): Promise<DiscordReminderResult> {
   if (!team.discord_webhook_url) {
     return "missingWebhook";
@@ -114,25 +151,27 @@ export async function sendDiscordReminderOnce({
     return "skipped";
   }
 
-  const { start, end } = getTokyoDayRange(new Date());
-  const { data: sameDaySent, error: sameDaySentError } = await supabase
-    .from("discord_reminder_logs")
-    .select("id")
-    .eq("team_id", team.id)
-    .eq("reminder_type", reminderType)
-    .eq("item_id", itemId)
-    .eq("delivery_status", "sent")
-    .gte("sent_at", start)
-    .lt("sent_at", end)
-    .limit(1)
-    .maybeSingle();
+  if (!skipSameDaySentCheck) {
+    const { start, end } = getTokyoDayRange(new Date());
+    const { data: sameDaySent, error: sameDaySentError } = await supabase
+      .from("discord_reminder_logs")
+      .select("id")
+      .eq("team_id", team.id)
+      .eq("reminder_type", reminderType)
+      .eq("item_id", itemId)
+      .eq("delivery_status", "sent")
+      .gte("sent_at", start)
+      .lt("sent_at", end)
+      .limit(1)
+      .maybeSingle();
 
-  if (sameDaySentError) {
-    return "failed";
-  }
+    if (sameDaySentError) {
+      return "failed";
+    }
 
-  if (sameDaySent) {
-    return "skipped";
+    if (sameDaySent) {
+      return "skipped";
+    }
   }
 
   if (dryRun) {

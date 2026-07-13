@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { redirect } from "next/navigation";
 import { getAdminStatusLabel } from "@/lib/status-labels";
 import { formatTaxRate, getTaxRateFromRows } from "@/lib/tax-rate";
+import { sendProjectReturnReminder } from "@/lib/return-reminders";
 import ImagePreview from "./ImagePreview";
 
 type ProjectInfo = {
@@ -142,6 +143,12 @@ async function returnSubmission(formData: FormData) {
     project_team_id: projectTeamId,
     action: "returned",
     comment: returnReason || "退回修改",
+  });
+
+  await sendProjectReturnReminder({
+    supabase,
+    projectTeamId,
+    returnReason,
   });
 
   redirect("/admin/reviews");
