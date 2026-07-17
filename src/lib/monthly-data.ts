@@ -586,12 +586,20 @@ function combineOfficialRows(rows: MonthlyPlayerRow[]) {
   };
 
   for (const key of monthlyMetricKeys) {
-    const values = rows.map((row) => numericMonthlyValue(row[key]));
+    const sourceValues = rows.map((row) => row[key]);
+    const values = sourceValues.map((value) => numericMonthlyValue(value));
     const maxValue = Math.max(0, ...values);
-    combined[key] = maxValue > 0 ? String(maxValue) : "";
+    combined[key] =
+      maxValue > 0 || sourceValues.some(hasExplicitMonthlyZero)
+        ? String(maxValue)
+        : "";
   }
 
   return combined;
+}
+
+function hasExplicitMonthlyZero(value: unknown) {
+  return normalizeNumericText(value) === "0";
 }
 
 function normalizeOfficialLookupText(value: unknown) {
