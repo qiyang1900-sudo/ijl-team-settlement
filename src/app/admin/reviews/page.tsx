@@ -10,6 +10,8 @@ import {
   isApprovedLike,
 } from "@/lib/status-labels";
 import {
+  buildDefaultMonthlyDeadlineAt,
+  buildDefaultSalaryScreenshotDeadlineAt,
   buildMonthlyReminderSettings,
   formatMonthLabel,
   getMonthlyAdminStatusLabel,
@@ -307,12 +309,15 @@ export default async function AdminReviewsPage({
     settingsResult.error ||
     teamsResult.error;
   const allRows = (projectResult.data || []) as unknown as ReviewRowData[];
+  const monthlySettings = buildReviewMonthlySettings({
+    settings: (settingsResult.data || []) as MonthlySettingRow[],
+    selectedMonth,
+  });
   const monthlyRows = buildMonthlySubmissionReviewRows({
     submissions: (monthlyResult.data || []) as unknown as MonthlySubmissionReviewRow[],
-    settings: buildMonthlyReminderSettings(
-      (settingsResult.data || []) as MonthlySettingRow[]
-    ),
+    settings: monthlySettings,
     teams: (teamsResult.data || []) as TeamRow[],
+    selectedMonth,
   });
   const monthOptions = buildReviewMonthOptions({
     projectRows: allRows,
@@ -1445,10 +1450,12 @@ function buildMonthlySubmissionReviewRows({
   submissions,
   settings,
   teams,
+  selectedMonth,
 }: {
   submissions: MonthlySubmissionReviewRow[];
   settings: MonthlySettingRow[];
   teams: TeamRow[];
+  selectedMonth: string;
 }) {
   const settingByMonth = new Map(
     settings.map((setting) => [setting.target_month, setting])
@@ -1459,6 +1466,7 @@ function buildMonthlySubmissionReviewRows({
   const activeTeams = teams.filter((team) => team.is_active !== false);
   const syntheticRows = settings.filter(
     (setting) =>
+      setting.target_month === selectedMonth ||
       isMonthlyDataReminderWindowOpen(setting) ||
       isSalaryScreenshotReminderWindowOpen(setting)
   ).flatMap((setting) =>
@@ -1516,6 +1524,33 @@ function buildMonthlySubmissionReviewRows({
       String(b.teams?.short_name || b.teams?.name || "")
     );
   });
+}
+
+function buildReviewMonthlySettings({
+  settings,
+  selectedMonth,
+}: {
+  settings: MonthlySettingRow[];
+  selectedMonth: string;
+}) {
+  const rows = buildMonthlyReminderSettings(settings);
+
+  if (
+    selectedMonth &&
+    isMonthlyReminderEligibleMonth(selectedMonth) &&
+    !rows.some((setting) => setting.target_month === selectedMonth)
+  ) {
+    rows.push({
+      target_month: selectedMonth,
+      deadline_at: buildDefaultMonthlyDeadlineAt(selectedMonth),
+      salary_screenshot_deadline_at:
+        buildDefaultSalaryScreenshotDeadlineAt(selectedMonth),
+    });
+  }
+
+  return rows.sort((left, right) =>
+    left.target_month.localeCompare(right.target_month)
+  );
 }
 
 function isMonthlyReviewReminderTarget(status: string | null | undefined) {
