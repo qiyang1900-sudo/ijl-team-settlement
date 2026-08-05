@@ -1,6 +1,13 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  useActionState,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   MonthlyPlayerRow,
   formatMonthlyNumber,
@@ -94,6 +101,17 @@ const japanesePlayerMeta: Record<string, string> = {
 const initialActionState: MonthlyDataActionState = {
   status: "idle",
 };
+const clientRawImageMaxSize = 12 * 1024 * 1024;
+const clientServerlessPayloadLimit = 3.6 * 1024 * 1024;
+const clientCompressedImageMaxSize = 180 * 1024;
+const clientImageMaxDimension = 1600;
+
+type LocalMonthlyDraft = {
+  officialRow?: MonthlyPlayerRow;
+  players?: MonthlyPlayerRow[];
+  activities?: ClubActivityItem[];
+  savedAt?: number;
+};
 
 function toJapanesePlayerMeta(value?: string) {
   if (!value) {
@@ -125,6 +143,17 @@ export default function MonthlyDataForm({
   const [officialRow, setOfficialRow] =
     useState<MonthlyPlayerRow>(initialOfficialRow);
   const [players, setPlayers] = useState<MonthlyPlayerRow[]>(initialPlayers);
+  const [clientError, setClientError] = useState("");
+  const [clientInfo, setClientInfo] = useState("");
+  const [draftReady, setDraftReady] = useState(false);
+  const [restoredDraftAt, setRestoredDraftAt] = useState<number | null>(null);
+  const isCompressingRef = useRef(false);
+  const shouldSkipClientSubmitCheckRef = useRef(false);
+
+  const draftStorageKey = useMemo(
+    () => `monthly-data-draft:${teamId}:${selectedMonth}`,
+    [teamId, selectedMonth]
+  );
 
   const totalSalary = useMemo(
     () =>
@@ -142,6 +171,67 @@ export default function MonthlyDataForm({
 
     window.location.assign(actionState.redirectTo);
   }, [actionState]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      const rawDraft = window.localStorage.getItem(draftStorageKey);
+
+      if (rawDraft) {
+        try {
+          const draft = JSON.parse(rawDraft) as LocalMonthlyDraft;
+
+          if (draft.officialRow) {
+            setOfficialRow(draft.officialRow);
+          }
+
+          if (Array.isArray(draft.players)) {
+            setPlayers(draft.players);
+          }
+
+          if (Array.isArray(draft.activities) && draft.activities.length > 0) {
+            setActivities(draft.activities);
+          }
+
+          setRestoredDraftAt(draft.savedAt || Date.now());
+        } catch {
+          window.localStorage.removeItem(draftStorageKey);
+        }
+      }
+
+      setDraftReady(true);
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [draftStorageKey]);
+
+  useEffect(() => {
+    if (!draftReady || typeof window === "undefined") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      const draft: LocalMonthlyDraft = {
+        officialRow,
+        players,
+        activities,
+        savedAt: Date.now(),
+      };
+
+      try {
+        window.localStorage.setItem(draftStorageKey, JSON.stringify(draft));
+      } catch {
+        setClientError(
+          "この端末の一時保存容量が不足しています。下書き保存を押してサーバーに保存してください。"
+        );
+      }
+    }, 350);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [activities, draftReady, draftStorageKey, officialRow, players]);
 
   function updatePlayer(index: number, key: PlayerField, value: string) {
     setPlayers((current) =>
@@ -182,12 +272,149 @@ export default function MonthlyDataForm({
     });
   }
 
+  function discardLocalDraft() {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(draftStorageKey);
+    }
+
+    setRestoredDraftAt(null);
+    setOfficialRow(initialOfficialRow);
+    setPlayers(initialPlayers);
+    setActivities(
+      clubActivityItems.length > 0 ? clubActivityItems : [emptyClubActivityItem()]
+    );
+  }
+
+  function handleFormSubmit(event: FormEvent<HTMLFormElement>) {
+    if (shouldSkipClientSubmitCheckRef.current) {
+      shouldSkipClientSubmitCheckRef.current = false;
+      return;
+    }
+
+    const form = event.currentTarget;
+    const submitter =
+      (event.nativeEvent as SubmitEvent).submitter instanceof HTMLButtonElement
+        ? ((event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement)
+        : null;
+    const fileEntries = getFormFileEntries(form);
+
+    setClientError("");
+
+    if (fileEntries.length === 0) {
+      setClientInfo(getSubmittingMessage(submitter?.value));
+      return;
+    }
+
+    const invalidTypeEntry = fileEntries.find(
+      (entry) => !entry.file.type.startsWith("image/")
+    );
+
+    if (invalidTypeEntry) {
+      event.preventDefault();
+      setClientInfo("");
+      setClientError(
+        `画像ファイルのみアップロードできます。対象：${invalidTypeEntry.file.name}`
+      );
+      return;
+    }
+
+    const rawOversizedEntry = fileEntries.find(
+      (entry) => entry.file.size > clientRawImageMaxSize
+    );
+
+    if (rawOversizedEntry) {
+      event.preventDefault();
+      setClientInfo("");
+      setClientError(
+        `画像が大きすぎます。${rawOversizedEntry.file.name} は12MB以内にしてから選択してください。`
+      );
+      return;
+    }
+
+    const totalSize = sumFileEntrySizes(fileEntries);
+    const requiresCompression =
+      totalSize > clientServerlessPayloadLimit ||
+      fileEntries.some((entry) => entry.file.size > clientCompressedImageMaxSize);
+
+    if (!requiresCompression) {
+      setClientInfo(getSubmittingMessage(submitter?.value));
+      return;
+    }
+
+    event.preventDefault();
+
+    if (isCompressingRef.current) {
+      return;
+    }
+
+    isCompressingRef.current = true;
+    setClientInfo(
+      "画像を送信用に圧縮しています。完了後、そのまま保存を続けます。"
+    );
+
+    void compressFormImages(fileEntries)
+      .then(() => {
+        const compressedEntries = getFormFileEntries(form);
+        const compressedTotalSize = sumFileEntrySizes(compressedEntries);
+
+        if (compressedTotalSize > clientServerlessPayloadLimit) {
+          throw new Error(
+            "選択中の画像合計がまだ大きすぎます。スクリーンショットを小さくするか、画像を圧縮してから再度選択してください。"
+          );
+        }
+
+        shouldSkipClientSubmitCheckRef.current = true;
+        setClientInfo(getSubmittingMessage(submitter?.value));
+        form.requestSubmit(submitter || undefined);
+      })
+      .catch((error) => {
+        setClientInfo("");
+        setClientError(
+          error instanceof Error
+            ? error.message
+            : "画像の送信準備に失敗しました。画像を小さくしてから再度お試しください。"
+        );
+      })
+      .finally(() => {
+        isCompressingRef.current = false;
+      });
+  }
+
   const isSubmitDisabled = isMonthlyDataLocked || players.length === 0 || isPending;
   const canSubmitSalary =
     canSaveSalaryScreenshots && !isSalaryLocked && players.length > 0 && !isPending;
 
   return (
     <div className="space-y-6">
+      {clientError ? (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">
+          {clientError}
+        </div>
+      ) : null}
+
+      {clientInfo ? (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm font-semibold text-sky-800">
+          {clientInfo}
+        </div>
+      ) : null}
+
+      {restoredDraftAt ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <p className="font-semibold">
+              未送信の入力内容をこの端末から復元しました。画像ファイルはブラウザの仕様上、再選択してください。
+            </p>
+            <button
+              type="button"
+              onClick={discardLocalDraft}
+              className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100"
+            >
+              復元内容を破棄
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {actionState.status === "error" ? (
         <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">
           {actionState.message || "保存できませんでした。入力内容を確認してください。"}
@@ -218,21 +445,32 @@ export default function MonthlyDataForm({
         </div>
       </section>
 
-      <form action={formAction} className="space-y-6">
+      <form action={formAction} onSubmitCapture={handleFormSubmit} className="space-y-6">
         <input type="hidden" name="team_id" value={teamId} />
+        <input
+          type="hidden"
+          name="official_row"
+          value={JSON.stringify([officialRow])}
+        />
         <input type="hidden" name="player_rows" value={JSON.stringify(players)} />
         <input type="hidden" name="selected_month" value={selectedMonth} />
         <input type="hidden" name="target_month" value={selectedMonth} />
+        <input
+          type="hidden"
+          name="club_activity_items"
+          value={JSON.stringify(activities)}
+        />
         <SalarySection
           players={players}
           updatePlayer={updatePlayer}
           isSalaryAmountDisabled={isSalaryLocked || isPending}
           isScreenshotDisabled={isSalaryLocked || isPending}
           canSubmit={canSubmitSalary}
+          isPending={isPending}
         />
       </form>
 
-      <form action={formAction} className="space-y-6">
+      <form action={formAction} onSubmitCapture={handleFormSubmit} className="space-y-6">
         <input type="hidden" name="team_id" value={teamId} />
         <input
           type="hidden"
@@ -294,7 +532,7 @@ export default function MonthlyDataForm({
               disabled={isSubmitDisabled}
               className="rounded-lg border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              下書き保存
+              {isPending ? "保存中..." : "下書き保存"}
             </button>
 
             <button
@@ -304,7 +542,7 @@ export default function MonthlyDataForm({
               disabled={isSubmitDisabled}
               className="rounded-lg bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              審査提出
+              {isPending ? "提出中..." : "審査提出"}
             </button>
           </div>
         </div>
@@ -672,12 +910,14 @@ function SalarySection({
   isSalaryAmountDisabled,
   isScreenshotDisabled,
   canSubmit,
+  isPending,
 }: {
   players: MonthlyPlayerRow[];
   updatePlayer: (index: number, key: PlayerField, value: string) => void;
   isSalaryAmountDisabled: boolean;
   isScreenshotDisabled: boolean;
   canSubmit: boolean;
+  isPending: boolean;
 }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -804,7 +1044,7 @@ function SalarySection({
             disabled={!canSubmit}
             className="rounded-lg border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            下書き保存
+            {isPending ? "保存中..." : "下書き保存"}
           </button>
 
           <button
@@ -815,10 +1055,164 @@ function SalarySection({
             disabled={!canSubmit}
             className="rounded-lg bg-sky-600 px-5 py-3 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            審査提出
+            {isPending ? "提出中..." : "審査提出"}
           </button>
         </div>
       </div>
     </section>
   );
+}
+
+function getSubmittingMessage(actionType?: string) {
+  if (actionType?.startsWith("salary_screenshots")) {
+    return actionType === "salary_screenshots_submit"
+      ? "給与スクリーンショットを提出しています..."
+      : "給与スクリーンショットを保存しています...";
+  }
+
+  return actionType === "submit"
+    ? "月データを提出しています..."
+    : "月データを保存しています...";
+}
+
+function getFormFileEntries(form: HTMLFormElement) {
+  return Array.from(form.querySelectorAll<HTMLInputElement>('input[type="file"]'))
+    .flatMap((input) =>
+      Array.from(input.files || []).map((file) => ({
+        input,
+        file,
+      }))
+    )
+    .filter((entry) => entry.file.size > 0);
+}
+
+function sumFileEntrySizes(entries: Array<{ file: File }>) {
+  return entries.reduce((sum, entry) => sum + entry.file.size, 0);
+}
+
+async function compressFormImages(
+  entries: Array<{ input: HTMLInputElement; file: File }>
+) {
+  const targetBytes = getImageCompressionTargetBytes(entries.length);
+
+  for (const entry of entries) {
+    const compressedFile = await compressImageFile(entry.file, targetBytes);
+    const dataTransfer = new DataTransfer();
+
+    dataTransfer.items.add(compressedFile);
+    entry.input.files = dataTransfer.files;
+  }
+}
+
+function getImageCompressionTargetBytes(fileCount: number) {
+  const metadataBudget = 360 * 1024;
+  const fileBudget = Math.max(
+    90 * 1024,
+    Math.floor(
+      (clientServerlessPayloadLimit - metadataBudget) / Math.max(1, fileCount)
+    )
+  );
+
+  return Math.min(clientCompressedImageMaxSize, fileBudget);
+}
+
+async function compressImageFile(file: File, targetBytes: number) {
+  if (file.size <= targetBytes && file.type.startsWith("image/")) {
+    return file;
+  }
+
+  const image = await loadImageElement(file);
+  const baseScale = Math.min(
+    1,
+    clientImageMaxDimension / Math.max(image.naturalWidth, image.naturalHeight)
+  );
+  const qualities = [0.82, 0.72, 0.62, 0.52, 0.42, 0.34];
+  let bestBlob: Blob | null = null;
+  let scale = baseScale;
+
+  for (let resizeStep = 0; resizeStep < 5; resizeStep += 1) {
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+    for (const quality of qualities) {
+      const blob = await renderImageToJpegBlob(image, width, height, quality);
+
+      if (!bestBlob || blob.size < bestBlob.size) {
+        bestBlob = blob;
+      }
+
+      if (blob.size <= targetBytes) {
+        return createCompressedFile(file, blob);
+      }
+    }
+
+    scale *= 0.82;
+  }
+
+  if (!bestBlob) {
+    throw new Error("画像の圧縮に失敗しました。別の画像を選択してください。");
+  }
+
+  return createCompressedFile(file, bestBlob);
+}
+
+function loadImageElement(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(
+        new Error(`${file.name} を読み込めませんでした。別の画像を選択してください。`)
+      );
+    };
+    image.src = objectUrl;
+  });
+}
+
+function renderImageToJpegBlob(
+  image: HTMLImageElement,
+  width: number,
+  height: number,
+  quality: number
+) {
+  return new Promise<Blob>((resolve, reject) => {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      reject(new Error("画像を処理できませんでした。"));
+      return;
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+    context.drawImage(image, 0, 0, width, height);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error("画像を圧縮できませんでした。"));
+          return;
+        }
+
+        resolve(blob);
+      },
+      "image/jpeg",
+      quality
+    );
+  });
+}
+
+function createCompressedFile(file: File, blob: Blob) {
+  const baseName = file.name.replace(/\.[^.]+$/, "") || "screenshot";
+
+  return new File([blob], `${baseName}.jpg`, {
+    type: "image/jpeg",
+    lastModified: Date.now(),
+  });
 }

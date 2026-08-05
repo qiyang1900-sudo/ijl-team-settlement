@@ -211,7 +211,10 @@ async function saveMonthlyData(
       parseMonthlyPlayerRows(existingSubmission?.player_rows)
     );
   const officialRowForPayload = isSalaryScreenshotAction
-    ? existingOfficialRow || officialRow
+    ? carryMetricScreenshots({
+        row: officialRow,
+        existingRow: existingOfficialRow,
+      })
     : await uploadMetricScreenshotsForRow({
         formData,
         row: carryMetricScreenshots({
@@ -226,7 +229,7 @@ async function saveMonthlyData(
         uploadPrefixSuffix: "official",
       });
   const rowsForPayload = isSalaryScreenshotAction
-    ? mergeSalaryRowsOnly({
+    ? mergeSalaryRowsPreservingMonthlyDraft({
         salaryRows: await uploadSalaryScreenshots({
           formData,
           playerRows,
@@ -282,7 +285,8 @@ async function saveMonthlyData(
       ...monthlyRowsForPayload,
     ],
     club_activity_link: isSalaryScreenshotAction
-      ? existingSubmission?.club_activity_link || null
+      ? existingSubmission?.club_activity_link ||
+        serializeClubActivityItems(clubActivityItems)
       : serializeClubActivityItems(uploadedClubActivityItems || []),
     club_activity_image_url: isSalaryScreenshotAction
       ? existingSubmission?.club_activity_image_url || null
@@ -823,6 +827,7 @@ export default async function TeamRewardPage({
               ) : null}
 
               <MonthlyDataForm
+                key={`${teamId}-${selectedMonth}`}
                 action={saveMonthlyData}
                 teamId={teamId}
                 selectedMonth={selectedMonth}
@@ -955,7 +960,7 @@ function mergeMonthlyRowsPreservingSalary({
   });
 }
 
-function mergeSalaryRowsOnly({
+function mergeSalaryRowsPreservingMonthlyDraft({
   salaryRows,
   existingPlayerRows,
 }: {
@@ -970,7 +975,10 @@ function mergeSalaryRowsOnly({
     );
 
     return {
-      ...(existingRow || emptyMonthlyMetrics(salaryRow)),
+      ...carryMetricScreenshots({
+        row: salaryRow,
+        existingRow,
+      }),
       id: salaryRow.id,
       playerId: salaryRow.playerId,
       playerHandle: salaryRow.playerHandle,
@@ -1012,26 +1020,6 @@ function findMatchingPlayerRow(
     rows[fallbackIndex] ||
     null
   );
-}
-
-function emptyMonthlyMetrics(row: MonthlyPlayerRow) {
-  return {
-    ...row,
-    xTweetCount: "",
-    xImpressions: "",
-    xEngagements: "",
-    xFanEventCount: "",
-    xFollowerCount: "",
-    youtubeVideoPostCount: "",
-    youtubeVideoViews: "",
-    youtubeShortPostCount: "",
-    youtubeShortViews: "",
-    youtubeLikeCount: "",
-    youtubeStreamCount: "",
-    youtubeStreamViews: "",
-    youtubeTotalImpressions: "",
-    youtubeSubscriberCount: "",
-  };
 }
 
 function carryMetricScreenshots({
