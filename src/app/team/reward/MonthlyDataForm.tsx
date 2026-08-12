@@ -169,8 +169,12 @@ export default function MonthlyDataForm({
       return;
     }
 
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(draftStorageKey);
+    }
+
     window.location.assign(actionState.redirectTo);
-  }, [actionState]);
+  }, [actionState, draftStorageKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -185,11 +189,20 @@ export default function MonthlyDataForm({
           const draft = JSON.parse(rawDraft) as LocalMonthlyDraft;
 
           if (draft.officialRow) {
-            setOfficialRow(draft.officialRow);
+            setOfficialRow(
+              mergeLocalDraftRowWithSavedFiles(draft.officialRow, initialOfficialRow)
+            );
           }
 
           if (Array.isArray(draft.players)) {
-            setPlayers(draft.players);
+            setPlayers(
+              draft.players.map((player, index) =>
+                mergeLocalDraftRowWithSavedFiles(
+                  player,
+                  findSavedPlayerForDraft(player, initialPlayers, index)
+                )
+              )
+            );
           }
 
           if (Array.isArray(draft.activities) && draft.activities.length > 0) {
@@ -206,7 +219,7 @@ export default function MonthlyDataForm({
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
-  }, [draftStorageKey]);
+  }, [draftStorageKey, initialOfficialRow, initialPlayers]);
 
   useEffect(() => {
     if (!draftReady || typeof window === "undefined") {
@@ -1061,6 +1074,72 @@ function SalarySection({
       </div>
     </section>
   );
+}
+
+function findSavedPlayerForDraft(
+  draftRow: MonthlyPlayerRow,
+  savedRows: MonthlyPlayerRow[],
+  fallbackIndex: number
+) {
+  return (
+    savedRows.find(
+      (row) =>
+        draftRow.playerId && row.playerId && draftRow.playerId === row.playerId
+    ) ||
+    savedRows.find(
+      (row) =>
+        draftRow.playerHandle &&
+        row.playerHandle &&
+        draftRow.playerHandle === row.playerHandle
+    ) ||
+    savedRows.find(
+      (row) =>
+        draftRow.playerName && row.playerName && draftRow.playerName === row.playerName
+    ) ||
+    savedRows[fallbackIndex] ||
+    null
+  );
+}
+
+function mergeLocalDraftRowWithSavedFiles(
+  draftRow: MonthlyPlayerRow,
+  savedRow: MonthlyPlayerRow | null
+): MonthlyPlayerRow {
+  if (!savedRow) {
+    return draftRow;
+  }
+
+  return {
+    ...draftRow,
+    salaryScreenshotName:
+      draftRow.salaryScreenshotName || savedRow.salaryScreenshotName || "",
+    salaryScreenshotUrl:
+      draftRow.salaryScreenshotUrl || savedRow.salaryScreenshotUrl || "",
+    salaryScreenshotStoragePath:
+      draftRow.salaryScreenshotStoragePath ||
+      savedRow.salaryScreenshotStoragePath ||
+      "",
+    salaryScreenshotMimeType:
+      draftRow.salaryScreenshotMimeType || savedRow.salaryScreenshotMimeType || "",
+    xScreenshotName: draftRow.xScreenshotName || savedRow.xScreenshotName || "",
+    xScreenshotUrl: draftRow.xScreenshotUrl || savedRow.xScreenshotUrl || "",
+    xScreenshotStoragePath:
+      draftRow.xScreenshotStoragePath || savedRow.xScreenshotStoragePath || "",
+    xScreenshotMimeType:
+      draftRow.xScreenshotMimeType || savedRow.xScreenshotMimeType || "",
+    youtubeScreenshotName:
+      draftRow.youtubeScreenshotName || savedRow.youtubeScreenshotName || "",
+    youtubeScreenshotUrl:
+      draftRow.youtubeScreenshotUrl || savedRow.youtubeScreenshotUrl || "",
+    youtubeScreenshotStoragePath:
+      draftRow.youtubeScreenshotStoragePath ||
+      savedRow.youtubeScreenshotStoragePath ||
+      "",
+    youtubeScreenshotMimeType:
+      draftRow.youtubeScreenshotMimeType ||
+      savedRow.youtubeScreenshotMimeType ||
+      "",
+  };
 }
 
 function getSubmittingMessage(actionType?: string) {
