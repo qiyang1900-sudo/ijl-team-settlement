@@ -78,6 +78,7 @@ export async function POST(request: Request) {
 
     const payload = (await request.json().catch(() => ({}))) as {
       scope?: ReminderScope;
+      projectId?: string;
       projectTeamId?: string;
       monthlySubmissionId?: string;
       teamId?: string;
@@ -109,6 +110,7 @@ export async function POST(request: Request) {
     if (scope === "project_all" || scope === "project_single") {
       const result = await sendProjectSubmissionReminders({
         supabase,
+        projectId: payload.projectId,
         projectTeamId: payload.projectTeamId,
         targetMonth: payload.targetMonth,
         dryRun: Boolean(payload.dryRun),
@@ -140,11 +142,13 @@ export async function POST(request: Request) {
 
 async function sendProjectSubmissionReminders({
   supabase,
+  projectId,
   projectTeamId,
   targetMonth,
   dryRun,
 }: {
   supabase: SupabaseClient;
+  projectId?: string;
   projectTeamId?: string;
   targetMonth?: string;
   dryRun: boolean;
@@ -171,6 +175,8 @@ async function sendProjectSubmissionReminders({
 
   if (projectTeamId) {
     query = query.eq("id", projectTeamId);
+  } else if (projectId) {
+    query = query.eq("project_id", projectId);
   }
 
   const { data, error } = await query;
