@@ -2,6 +2,11 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import NewProjectSubmitButton from "./NewProjectSubmitButton";
+import {
+  buildSubmissionReminderMessage,
+  sendDiscordReminderOnce,
+  type DiscordReminderTeam,
+} from "@/lib/discord-reminders";
 
 function pad2(value: string | number) {
   return String(value).padStart(2, "0");
@@ -46,12 +51,17 @@ async function createProject(formData: FormData) {
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error("Supabase 环境变量没有设置成功");
   }
 
-  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
+  const supabase = createSupabaseServerClient(
+    supabaseUrl,
+    supabaseAnonKey,
+    serviceRoleKey
+  );
 
   const title = String(formData.get("title") || "");
   const description = String(formData.get("description") || "");
@@ -94,9 +104,58 @@ async function createProject(formData: FormData) {
     if (projectTeamsError) {
       throw new Error(projectTeamsError.message);
     }
+
+    await sendNewProjectDiscordReminders({
+      supabase,
+      projectId: project.id,
+      projectTitle: title,
+      deadlineAt,
+      teamIds,
+    });
   }
 
   redirect("/admin/projects");
+}
+
+async function sendNewProjectDiscordReminders({
+  supabase,
+  projectId,
+  projectTitle,
+  deadlineAt,
+  teamIds,
+}: {
+  supabase: ReturnType<typeof createSupabaseServerClient>;
+  projectId: string;
+  projectTitle: string;
+  deadlineAt: string;
+  teamIds: string[];
+}) {
+  const { data: teams } = await supabase
+    .from("teams")
+    .select("id, name, short_name, discord_webhook_url, discord_mention_text")
+    .in("id", teamIds)
+    .eq("is_active", true);
+
+  await Promise.all(
+    ((teams || []) as DiscordReminderTeam[]).map((team) =>
+      sendDiscordReminderOnce({
+        supabase,
+        team,
+        reminderType: "project_submission",
+        itemId: projectId,
+        targetMonth: null,
+        reminderKey: "project-created",
+        content: buildSubmissionReminderMessage({
+          team,
+          targetLabel: projectTitle || "提出物",
+          deadlineAt,
+          statusLabel: "未提出",
+        }),
+        dryRun: false,
+        skipSameDaySentCheck: true,
+      })
+    )
+  );
 }
 
 export default async function NewProjectPage() {

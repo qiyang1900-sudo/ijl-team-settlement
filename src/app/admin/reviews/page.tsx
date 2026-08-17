@@ -90,6 +90,10 @@ type MonthlySettingRow = {
   salary_screenshot_deadline_at?: string | null;
 };
 
+type MonthlyAssignmentMonthRow = {
+  target_month: string | null;
+};
+
 type TeamRow = {
   id: string;
   name: string | null;
@@ -236,7 +240,13 @@ export default async function AdminReviewsPage({
 
   const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
 
-  const [projectResult, monthlyResult, settingsResult, teamsResult] =
+  const [
+    projectResult,
+    monthlyResult,
+    settingsResult,
+    teamsResult,
+    assignmentMonthResult,
+  ] =
     await Promise.all([
       supabase
         .from("project_teams")
@@ -301,17 +311,23 @@ export default async function AdminReviewsPage({
         .from("teams")
         .select("id, name, short_name, is_active")
         .eq("is_active", true),
+      supabase.from("monthly_player_assignments").select("target_month"),
     ]);
 
   const error =
     projectResult.error ||
     monthlyResult.error ||
     settingsResult.error ||
-    teamsResult.error;
+    teamsResult.error ||
+    assignmentMonthResult.error;
   const allRows = (projectResult.data || []) as unknown as ReviewRowData[];
+  const assignmentMonths = getReviewMonthsFromAssignmentRows(
+    (assignmentMonthResult.data || []) as MonthlyAssignmentMonthRow[]
+  );
   const monthlySettings = buildReviewMonthlySettings({
     settings: (settingsResult.data || []) as MonthlySettingRow[],
     selectedMonth,
+    extraMonths: assignmentMonths,
   });
   const monthlyRows = buildMonthlySubmissionReviewRows({
     submissions: (monthlyResult.data || []) as unknown as MonthlySubmissionReviewRow[],
@@ -323,6 +339,7 @@ export default async function AdminReviewsPage({
     projectRows: allRows,
     monthlyRows,
     selectedMonth,
+    extraMonths: assignmentMonths,
   });
   const filteredProjectRows = filterProjectRowsByMonth(allRows, selectedMonth);
   const filteredMonthlyRows = filterMonthlyRowsByMonth(monthlyRows, selectedMonth);
@@ -1304,12 +1321,18 @@ function buildReviewMonthOptions({
   projectRows,
   monthlyRows,
   selectedMonth,
+  extraMonths = [],
 }: {
   projectRows: ReviewRowData[];
   monthlyRows: MonthlySubmissionReviewRow[];
   selectedMonth: string;
+  extraMonths?: string[];
 }) {
   const months = new Set<string>();
+
+  for (const month of extraMonths) {
+    months.add(month);
+  }
 
   for (const row of monthlyRows) {
     if (isMonthlyReminderEligibleMonth(row.target_month)) {
@@ -1329,7 +1352,9 @@ function buildReviewMonthOptions({
     months.add(selectedMonth);
   }
 
-  return Array.from(months).sort((left, right) => right.localeCompare(left));
+  return fillReviewMonthGaps(months).sort((left, right) =>
+    right.localeCompare(left)
+  );
 }
 
 function getProjectReviewMonth(row: ReviewRowData) {
@@ -1529,28 +1554,83 @@ function buildMonthlySubmissionReviewRows({
 function buildReviewMonthlySettings({
   settings,
   selectedMonth,
+  extraMonths = [],
 }: {
   settings: MonthlySettingRow[];
   selectedMonth: string;
+  extraMonths?: string[];
 }) {
   const rows = buildMonthlyReminderSettings(settings);
+
+  for (const month of extraMonths) {
+    if (
+      isMonthlyReminderEligibleMonth(month) &&
+      !rows.some((setting) => setting.target_month === month)
+    ) {
+      rows.push(buildDefaultReviewMonthlySetting(month));
+    }
+  }
 
   if (
     selectedMonth &&
     isMonthlyReminderEligibleMonth(selectedMonth) &&
     !rows.some((setting) => setting.target_month === selectedMonth)
   ) {
-    rows.push({
-      target_month: selectedMonth,
-      deadline_at: buildDefaultMonthlyDeadlineAt(selectedMonth),
-      salary_screenshot_deadline_at:
-        buildDefaultSalaryScreenshotDeadlineAt(selectedMonth),
-    });
+    rows.push(buildDefaultReviewMonthlySetting(selectedMonth));
   }
 
   return rows.sort((left, right) =>
     left.target_month.localeCompare(right.target_month)
   );
+}
+
+function buildDefaultReviewMonthlySetting(month: string) {
+  return {
+    target_month: month,
+    deadline_at: buildDefaultMonthlyDeadlineAt(month),
+    salary_screenshot_deadline_at: buildDefaultSalaryScreenshotDeadlineAt(month),
+  };
+}
+
+function getReviewMonthsFromAssignmentRows(rows: MonthlyAssignmentMonthRow[]) {
+  return Array.from(
+    new Set(
+      rows
+        .map((row) => String(row.target_month || "").slice(0, 7))
+        .filter((month) => isMonthlyReminderEligibleMonth(month))
+    )
+  );
+}
+
+function fillReviewMonthGaps(months: Set<string>) {
+  const sorted = Array.from(months)
+    .filter((month) => /^\d{4}-\d{2}$/.test(month))
+    .sort();
+
+  if (sorted.length <= 1) {
+    return sorted;
+  }
+
+  const filled = new Set(sorted);
+  let cursor = sorted[0];
+  const last = sorted[sorted.length - 1];
+
+  while (cursor < last) {
+    cursor = addReviewMonth(cursor, 1);
+    filled.add(cursor);
+  }
+
+  return Array.from(filled);
+}
+
+function addReviewMonth(month: string, offset: number) {
+  const [year, monthIndex] = month.split("-").map(Number);
+  const date = new Date(Date.UTC(year, monthIndex - 1 + offset, 1));
+
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(
+    2,
+    "0"
+  )}`;
 }
 
 function isMonthlyReviewReminderTarget(status: string | null | undefined) {
