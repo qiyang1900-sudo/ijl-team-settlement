@@ -6,6 +6,7 @@ import {
   getTemplateTypeLabel,
 } from "@/lib/project-labels";
 import { getAdminStatusLabel, getStatusTone } from "@/lib/status-labels";
+import ReminderButton from "../../reviews/ReminderButton";
 
 type ProjectTeamRow = {
   id: string;
@@ -65,6 +66,8 @@ export default async function ProjectDetailPage({
     )
     .eq("project_id", projectId)
     .order("created_at", { ascending: true });
+  const safeProjectTeams = ((projectTeams || []) as unknown as ProjectTeamRow[]);
+  const reminderTargetCount = safeProjectTeams.filter(isProjectReminderTarget).length;
 
   return (
     <main className="min-h-screen bg-slate-950 p-10 text-white">
@@ -122,7 +125,24 @@ export default async function ProjectDetailPage({
         </div>
 
         <div className="mt-10">
-          <h2 className="text-2xl font-bold">参与战队</h2>
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+            <div>
+              <h2 className="text-2xl font-bold">参与战队</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                一键提醒会发送给当前项目中未提交或待再次提交的战队。
+              </p>
+            </div>
+            <ReminderButton
+              scope="project_all"
+              projectId={projectId}
+              label={`一键提醒 ${reminderTargetCount} 队`}
+              confirmMessage={`确定立即提醒当前项目中 ${reminderTargetCount} 个未提交或待再次提交的战队吗？`}
+              disabled={
+                reminderTargetCount === 0 ||
+                Boolean(projectError || teamsError || !project)
+              }
+            />
+          </div>
 
           {teamsError ? (
             <div className="mt-4 rounded-xl border border-red-500 bg-red-950 p-5">
@@ -149,7 +169,7 @@ export default async function ProjectDetailPage({
                 </thead>
 
                 <tbody>
-                  {((projectTeams || []) as unknown as ProjectTeamRow[]).map((row) => (
+                  {safeProjectTeams.map((row) => (
                     <tr key={row.id} className="border-t border-slate-700">
                       <td className="px-4 py-3 font-medium">
                         {row.teams?.name || "-"}
@@ -188,5 +208,16 @@ export default async function ProjectDetailPage({
         </div>
       </div>
     </main>
+  );
+}
+
+function isProjectReminderTarget(row: ProjectTeamRow) {
+  const status = String(row.status || "");
+  const isSubmittedLike =
+    Boolean(row.submitted_at) && status !== "returned";
+
+  return (
+    (status === "not_submitted" || status === "draft" || status === "returned") &&
+    !isSubmittedLike
   );
 }

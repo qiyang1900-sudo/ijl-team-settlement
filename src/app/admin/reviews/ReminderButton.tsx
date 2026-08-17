@@ -15,6 +15,7 @@ type ReminderResponse = {
 
 export default function ReminderButton({
   scope,
+  projectId,
   projectTeamId,
   monthlySubmissionId,
   teamId,
@@ -31,6 +32,7 @@ export default function ReminderButton({
     | "monthly_single"
     | "monthly_salary_all"
     | "monthly_salary_single";
+  projectId?: string;
   projectTeamId?: string;
   monthlySubmissionId?: string;
   teamId?: string;
@@ -63,6 +65,7 @@ export default function ReminderButton({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           scope,
+          projectId,
           projectTeamId,
           monthlySubmissionId,
           teamId,
