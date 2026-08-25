@@ -14,6 +14,23 @@ export function createTaxRateNote(taxRate: SettlementTaxRate) {
   return `tax_rate:${taxRate}`;
 }
 
+export function createSettlementDetailNote({
+  taxRate,
+  reportTotalAmount,
+}: {
+  taxRate: SettlementTaxRate;
+  reportTotalAmount?: number | null;
+}) {
+  const parts = [createTaxRateNote(taxRate)];
+  const normalizedReportTotal = normalizeReportTotalAmount(reportTotalAmount);
+
+  if (normalizedReportTotal !== null) {
+    parts.push(`report_total:${normalizedReportTotal}`);
+  }
+
+  return parts.join(";");
+}
+
 export function getTaxRateFromRows(rows?: Array<{ note?: unknown }> | null) {
   const note = rows
     ?.map((row) => String(row?.note || ""))
@@ -26,4 +43,31 @@ export function getTaxRateFromRows(rows?: Array<{ note?: unknown }> | null) {
   const match = note.match(/tax_rate:(0(?:\.0)?|0\.1)/);
 
   return normalizeTaxRate(match?.[1]);
+}
+
+export function getReportTotalAmountFromRows(
+  rows?: Array<{ note?: unknown }> | null
+) {
+  const note = rows
+    ?.map((row) => String(row?.note || ""))
+    .find((value) => value.includes("report_total:"));
+
+  if (!note) {
+    return null;
+  }
+
+  const match = note.match(/report_total:(-?\d+(?:\.\d+)?)/);
+  const amount = Number(match?.[1]);
+
+  return normalizeReportTotalAmount(amount);
+}
+
+function normalizeReportTotalAmount(value: unknown) {
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount)) {
+    return null;
+  }
+
+  return Math.round(amount);
 }

@@ -1,7 +1,11 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { redirect } from "next/navigation";
 import { getAdminStatusLabel } from "@/lib/status-labels";
-import { formatTaxRate, getTaxRateFromRows } from "@/lib/tax-rate";
+import {
+  formatTaxRate,
+  getReportTotalAmountFromRows,
+  getTaxRateFromRows,
+} from "@/lib/tax-rate";
 import { sendProjectReturnReminder } from "@/lib/return-reminders";
 import ImagePreview from "./ImagePreview";
 
@@ -292,7 +296,8 @@ export default async function AdminSubmissionDetailPage({
     }, 0) || 0;
   const reportTaxRate = getTaxRateFromRows(safeDetailRows);
   const reportTax = Math.round(reportSubtotal * reportTaxRate);
-  const reportTotal = reportSubtotal + reportTax;
+  const reportTotal =
+    getReportTotalAmountFromRows(safeDetailRows) ?? reportSubtotal + reportTax;
 
   return (
     <main className="min-h-screen bg-slate-950 p-10 text-white">
