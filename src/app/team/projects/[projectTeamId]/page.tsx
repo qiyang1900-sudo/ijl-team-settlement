@@ -2,7 +2,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { redirect } from "next/navigation";
 import { getInvoiceUploadUrl } from "@/lib/invoice-upload-links";
 import { getStatusTone, getTeamStatusLabel } from "@/lib/status-labels";
-import { createTaxRateNote, normalizeTaxRate } from "@/lib/tax-rate";
+import { createSettlementDetailNote, normalizeTaxRate } from "@/lib/tax-rate";
 import { requireTeamAccess } from "@/lib/team-auth";
 import SubmissionForm from "./SubmissionForm";
 
@@ -64,6 +64,9 @@ async function saveSubmission(formData: FormData) {
   const rawSummaryCount = Number(formData.get("summary_count") || 1);
   const rawDetailCount = Number(formData.get("detail_count") || 1);
   const taxRate = normalizeTaxRate(formData.get("tax_rate"));
+  const reportTotalAmount = parseOptionalAmount(
+    formData.get("report_total_amount")
+  );
   const invoiceUploaded = formData.get("invoice_uploaded") === "on";
   const summaryCount = Number.isFinite(rawSummaryCount)
     ? Math.min(Math.max(rawSummaryCount, 1), 3)
@@ -209,7 +212,10 @@ async function saveSubmission(formData: FormData) {
       quantity,
       unit_price: unitPrice,
       amount_match: true,
-      note: index === 0 ? createTaxRateNote(taxRate) : "",
+      note:
+        index === 0
+          ? createSettlementDetailNote({ taxRate, reportTotalAmount })
+          : "",
     });
 
     await supabase.from("report_rows").insert({
@@ -370,6 +376,22 @@ async function saveSubmission(formData: FormData) {
   redirect(
     `/team/projects/${projectTeamId}?result=${actionType}&teamId=${teamId}`
   );
+}
+
+function parseOptionalAmount(value: FormDataEntryValue | null) {
+  const rawValue = String(value || "").replace(/,/g, "").trim();
+
+  if (!rawValue) {
+    return null;
+  }
+
+  const amount = Number(rawValue);
+
+  if (!Number.isFinite(amount)) {
+    throw new Error("合計金額は数字で入力してください。");
+  }
+
+  return Math.round(amount);
 }
 
 export default async function TeamSubmissionPage({

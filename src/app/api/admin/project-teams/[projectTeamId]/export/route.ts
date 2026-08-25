@@ -1,6 +1,9 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { SETTLEMENT_REPORT_TEMPLATE_BASE64 } from "@/lib/settlement-report-template";
-import { getTaxRateFromRows } from "@/lib/tax-rate";
+import {
+  getReportTotalAmountFromRows,
+  getTaxRateFromRows,
+} from "@/lib/tax-rate";
 import {
   fillXlsxTemplate,
   trimWorksheetToMaxColumn,
@@ -170,13 +173,15 @@ function buildSummarySheetUpdates({
   const totalAmount = detailRows.reduce((sum, row) => sum + subtotal(row), 0);
   const taxRate = getTaxRateFromRows(detailRows);
   const taxAmount = Math.round(totalAmount * taxRate);
+  const reportTotalAmount =
+    getReportTotalAmountFromRows(detailRows) ?? totalAmount + taxAmount;
   const updates: SheetUpdates = {
     B9: companyInfo?.company_name || "",
     B10: companyInfo?.bank_name || "",
     B11: companyInfo?.bank_account_number || "",
     B12: companyInfo?.swift_code || "",
     E30: taxAmount,
-    E31: totalAmount + taxAmount,
+    E31: reportTotalAmount,
   };
 
   for (let index = 0; index < 3; index++) {

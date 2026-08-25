@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   formatTaxRate,
+  getReportTotalAmountFromRows,
   getTaxRateFromRows,
   normalizeTaxRate,
 } from "@/lib/tax-rate";
@@ -151,6 +152,13 @@ export default function SubmissionForm({
   );
   const taxAmount = Math.round(subtotalAmount * taxRate);
   const totalAmount = subtotalAmount + taxAmount;
+  const savedReportTotalAmount = getReportTotalAmountFromRows(detailRows);
+  const [manualReportTotalValue, setManualReportTotalValue] = useState<
+    string | null
+  >(
+    savedReportTotalAmount === null ? null : String(savedReportTotalAmount)
+  );
+  const reportTotalValue = manualReportTotalValue ?? String(totalAmount);
 
   function getScreenshotForRow(index: number) {
     const rowNumber = index + 1;
@@ -693,7 +701,38 @@ export default function SubmissionForm({
               {taxAmount.toLocaleString("ja-JP")}
             </p>
           </div>
-          <AmountCard label="合計" value={totalAmount} highlight />
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+            <label className="block text-xs text-emerald-700">
+              合計（手動調整可）
+            </label>
+            <input
+              name="report_total_amount"
+              type="number"
+              step="1"
+              value={reportTotalValue}
+              onChange={(event) => {
+                setManualReportTotalValue(event.target.value);
+              }}
+              className="mt-2 w-full rounded-md border border-emerald-300 bg-white px-2 py-2 text-xl font-bold text-slate-950 outline-none focus:border-emerald-600"
+            />
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-emerald-700">
+              <span>
+                自動計算：
+                {totalAmount.toLocaleString("ja-JP")}
+              </span>
+              {manualReportTotalValue !== null ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setManualReportTotalValue(null);
+                  }}
+                  className="font-semibold underline"
+                >
+                  自動計算に戻す
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
 
         {fileError ? (
