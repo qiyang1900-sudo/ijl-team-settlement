@@ -6,6 +6,11 @@ import {
   getReportTotalAmountFromRows,
   getTaxRateFromRows,
 } from "@/lib/tax-rate";
+import {
+  getReportScreenshotOrder,
+  getReportScreenshotRowNumber,
+  REPORT_SCREENSHOT_FILE_CATEGORY,
+} from "@/lib/report-screenshots";
 import { sendProjectReturnReminder } from "@/lib/return-reminders";
 import ImagePreview from "./ImagePreview";
 
@@ -252,13 +257,20 @@ export default async function AdminSubmissionDetailPage({
   const safeReportRows = (reportRows || []) as ReportRow[];
   const safeReviewLogs = (reviewLogs || []) as ReviewLogRow[];
 
-  function getReportScreenshot(rowNumber: number | string | null | undefined) {
-    return safeFiles.find((file) => {
-      return (
-        file.file_category === "report_screenshot" &&
-        String(file.note || "").includes(`No.${rowNumber}`)
+  function getReportScreenshots(rowNumber: number | string | null | undefined) {
+    const normalizedRowNumber = Number(rowNumber || 0);
+
+    return safeFiles
+      .filter((file) => {
+        return (
+          file.file_category === REPORT_SCREENSHOT_FILE_CATEGORY &&
+          getReportScreenshotRowNumber(file.note) === normalizedRowNumber
+        );
+      })
+      .sort(
+        (a, b) =>
+          getReportScreenshotOrder(a.note) - getReportScreenshotOrder(b.note)
       );
-    });
   }
   const invoiceFile = safeFiles.find(
     (file) => file.file_category === "invoice_confirmation"
@@ -545,7 +557,7 @@ export default async function AdminSubmissionDetailPage({
 
                 <tbody>
                   {safeReportRows.map((row) => {
-                    const screenshot = getReportScreenshot(row.row_number);
+                    const screenshots = getReportScreenshots(row.row_number);
 
                     return (
                       <tr key={row.id} className="border-t border-slate-700">
@@ -578,11 +590,21 @@ export default async function AdminSubmissionDetailPage({
                         </td>
 
                         <td className="px-4 py-3">
-                          {screenshot?.file_url ? (
-                            <ImagePreview
-                              imageUrl={screenshot.file_url}
-                              fileName={screenshot.file_name}
-                            />
+                          {screenshots.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {screenshots.map((screenshot, index) =>
+                                screenshot.file_url ? (
+                                  <ImagePreview
+                                    key={`${screenshot.id}-${index}`}
+                                    imageUrl={screenshot.file_url}
+                                    fileName={
+                                      screenshot.file_name ||
+                                      `スクリーンショット ${index + 1}`
+                                    }
+                                  />
+                                ) : null
+                              )}
+                            </div>
                           ) : (
                             "-"
                           )}

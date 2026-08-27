@@ -7,6 +7,12 @@ import {
   getTaxRateFromRows,
   normalizeTaxRate,
 } from "@/lib/tax-rate";
+import {
+  getReportScreenshotOrder,
+  getReportScreenshotRowNumber,
+  MAX_REPORT_SCREENSHOTS_PER_ROW,
+  REPORT_SCREENSHOT_FILE_CATEGORY,
+} from "@/lib/report-screenshots";
 import SubmitButtons from "./SubmitButtons";
 
 type SummaryRow = {
@@ -50,11 +56,6 @@ type ScreenshotFile = {
   file_name?: string | null;
   note?: string | null;
 };
-
-function getScreenshotRowNumber(note?: string | null) {
-  const match = String(note || "").match(/No\.(\d+)/);
-  return match ? Number(match[1]) : null;
-}
 
 export default function SubmissionForm({
   action,
@@ -160,15 +161,20 @@ export default function SubmissionForm({
   );
   const reportTotalValue = manualReportTotalValue ?? String(totalAmount);
 
-  function getScreenshotForRow(index: number) {
+  function getScreenshotsForRow(index: number) {
     const rowNumber = index + 1;
 
-    return screenshotFiles?.find((file) => {
-      return (
-        file.file_category === "report_screenshot" &&
-        getScreenshotRowNumber(file.note) === rowNumber
+    return (screenshotFiles || [])
+      .filter((file) => {
+        return (
+          file.file_category === REPORT_SCREENSHOT_FILE_CATEGORY &&
+          getReportScreenshotRowNumber(file.note) === rowNumber
+        );
+      })
+      .sort(
+        (a, b) =>
+          getReportScreenshotOrder(a.note) - getReportScreenshotOrder(b.note)
       );
-    });
   }
 
   function updateSummary(index: number, key: keyof SummaryRow, value: string) {
@@ -279,7 +285,7 @@ export default function SubmissionForm({
     setReports(reports.filter((_, i) => i !== index));
   }
 
-  function validateSingleImage(event: React.ChangeEvent<HTMLInputElement>) {
+  function validateReportImages(event: React.ChangeEvent<HTMLInputElement>) {
     setFileError("");
 
     const files = Array.from(event.target.files || []);
@@ -288,29 +294,30 @@ export default function SubmissionForm({
       return;
     }
 
-    if (files.length > 1) {
+    if (files.length > MAX_REPORT_SCREENSHOTS_PER_ROW) {
       setFileError(
-        "1項目につきアップロードできるスクリーンショットは1枚までです。複数ある場合はリンク欄にGoogle Driveリンクをご記入ください。"
+        `1項目につきアップロードできるスクリーンショットは最大${MAX_REPORT_SCREENSHOTS_PER_ROW}枚までです。`
       );
       event.target.value = "";
       return;
     }
 
-    const file = files[0];
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) {
+        setFileError(
+          "アップロードできるのは画像のみです。PDF / Excel はリンク欄にGoogle Driveリンクをご記入ください。"
+        );
+        event.target.value = "";
+        return;
+      }
 
-    if (!file.type.startsWith("image/")) {
-      setFileError(
-        "アップロードできるのは画像のみです。PDF / Excel / 複数ファイルはリンク欄にGoogle Driveリンクをご記入ください。"
-      );
-      event.target.value = "";
-      return;
-    }
-
-    if (file.size > 300 * 1024) {
-      setFileError(
-        "画像は1枚300KB以内にしてください。大きい場合はリンク欄にGoogle Driveリンクをご記入ください。"
-      );
-      event.target.value = "";
+      if (file.size > 300 * 1024) {
+        setFileError(
+          "画像は1枚300KB以内にしてください。大きい場合はリンク欄にGoogle Driveリンクをご記入ください。"
+        );
+        event.target.value = "";
+        return;
+      }
     }
   }
 
@@ -541,7 +548,9 @@ export default function SubmissionForm({
         <h2 className="text-lg font-bold">④ 結果報告</h2>
 
         <div className="mt-3 rounded-lg border border-slate-300 bg-white p-3 text-xs text-slate-700">
-          ※1項目につき、リンクは1つ、スクリーンショットは1枚までです。新しい画像を選択した場合、現在のスクリーンショットを差し替えます。新しい画像を選択しない場合、現在のスクリーンショットは保持されます。
+          ※1項目につき、リンクは1つ、スクリーンショットは最大
+          {MAX_REPORT_SCREENSHOTS_PER_ROW}
+          枚までです。新しい画像を選択した場合、現在のスクリーンショットをすべて差し替えます。新しい画像を選択しない場合、現在のスクリーンショットは保持されます。
         </div>
 
         <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
@@ -553,8 +562,8 @@ export default function SubmissionForm({
                 <th className="w-28 px-3 py-2">種別</th>
                 <th className="w-32 px-3 py-2">金額</th>
                 <th className="px-3 py-2">リンク</th>
-                <th className="w-36 px-3 py-2">実施日</th>
                 <th className="w-64 px-3 py-2">スクリーンショット</th>
+                <th className="w-36 px-3 py-2">実施日</th>
               </tr>
             </thead>
 
@@ -566,7 +575,7 @@ export default function SubmissionForm({
                   implementation_date: "",
                 };
 
-                const uploadedScreenshot = getScreenshotForRow(index);
+                const uploadedScreenshots = getScreenshotsForRow(index);
 
                 return (
                   <tr key={index} className="border-t border-slate-100">
@@ -614,6 +623,58 @@ export default function SubmissionForm({
                     </td>
 
                     <td className="px-3 py-2">
+                      {uploadedScreenshots.length > 0 ? (
+                        <div className="mb-2 rounded-md border border-slate-300 bg-white p-2">
+                          <p className="text-[11px] text-slate-500">
+                            現在のファイル：
+                          </p>
+                          <ul className="mt-1 space-y-1 text-[11px] text-slate-700">
+                            {uploadedScreenshots.map((file, fileIndex) => (
+                              <li key={`${file.note}-${fileIndex}`}>
+                                {fileIndex + 1}. {file.file_name || "-"}
+                              </li>
+                            ))}
+                          </ul>
+
+                          <label className="mt-2 flex items-center gap-2 text-[11px] text-rose-700">
+                            <input
+                              type="checkbox"
+                              name={`delete_screenshot_${index}`}
+                              value="true"
+                              onChange={(event) => {
+                                if (
+                                  event.target.checked &&
+                                  !window.confirm(
+                                    "この項目の画像をすべて削除しますか？保存後、現在の画像は削除されます。"
+                                  )
+                                ) {
+                                  event.target.checked = false;
+                                }
+                              }}
+                              className="h-3 w-3"
+                            />
+                            この項目の画像をすべて削除する
+                          </label>
+                        </div>
+                      ) : null}
+
+                      <input
+                        type="file"
+                        name={`report_screenshot_${index}`}
+                        accept="image/*"
+                        multiple
+                        onChange={validateReportImages}
+                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-2"
+                      />
+
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        新しい画像を選択した場合のみ差し替えます。最大
+                        {MAX_REPORT_SCREENSHOTS_PER_ROW}
+                        枚まで選択できます。
+                      </p>
+                    </td>
+
+                    <td className="px-3 py-2">
                       <input
                         name={`implementation_date_${index}`}
                         value={report.implementation_date}
@@ -627,51 +688,6 @@ export default function SubmissionForm({
                         placeholder="2025-12-31"
                         className="w-full rounded-md border border-slate-300 bg-white px-2 py-2 outline-none focus:border-emerald-500"
                       />
-                    </td>
-
-                    <td className="px-3 py-2">
-                      {uploadedScreenshot?.file_name ? (
-                        <div className="mb-2 rounded-md border border-slate-300 bg-white p-2">
-                          <p className="text-[11px] text-slate-500">
-                            現在のファイル：
-                            <span className="text-slate-700">
-                              {uploadedScreenshot.file_name}
-                            </span>
-                          </p>
-
-                          <label className="mt-2 flex items-center gap-2 text-[11px] text-rose-700">
-                            <input
-                              type="checkbox"
-                              name={`delete_screenshot_${index}`}
-                              value="true"
-                              onChange={(event) => {
-                                if (
-                                  event.target.checked &&
-                                  !window.confirm(
-                                    "この画像を削除しますか？保存後、現在の画像は削除されます。"
-                                  )
-                                ) {
-                                  event.target.checked = false;
-                                }
-                              }}
-                              className="h-3 w-3"
-                            />
-                            この画像を削除する
-                          </label>
-                        </div>
-                      ) : null}
-
-                      <input
-                        type="file"
-                        name={`report_screenshot_${index}`}
-                        accept="image/*"
-                        onChange={validateSingleImage}
-                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-2"
-                      />
-
-                      <p className="mt-1 text-[11px] text-slate-500">
-                        新しい画像を選択した場合のみ差し替えます。
-                      </p>
                     </td>
                   </tr>
                 );
