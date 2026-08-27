@@ -14,7 +14,6 @@ import {
 import {
   getReportScreenshotOrder,
   getReportScreenshotRowNumber,
-  MAX_REPORT_SCREENSHOTS_PER_ROW,
   REPORT_SCREENSHOT_FILE_CATEGORY,
 } from "@/lib/report-screenshots";
 
@@ -380,13 +379,11 @@ function buildReportScreenshotMap(files: Row[]) {
   for (const [rowNumber, rowFiles] of screenshotMap.entries()) {
     screenshotMap.set(
       rowNumber,
-      rowFiles
-        .sort(
-          (a, b) =>
-            getReportScreenshotOrder(String(a.note || "")) -
-            getReportScreenshotOrder(String(b.note || ""))
-        )
-        .slice(0, MAX_REPORT_SCREENSHOTS_PER_ROW)
+      rowFiles.sort(
+        (a, b) =>
+          getReportScreenshotOrder(String(a.note || "")) -
+          getReportScreenshotOrder(String(b.note || ""))
+      )
     );
   }
 
@@ -400,7 +397,7 @@ function getReportScreenshotColumnCount(reportScreenshotMap: Map<number, Row[]>)
     maxCount = Math.max(maxCount, screenshots.length);
   }
 
-  return Math.min(maxCount, MAX_REPORT_SCREENSHOTS_PER_ROW);
+  return maxCount;
 }
 
 function getReportScreenshotColumnName(index: number) {

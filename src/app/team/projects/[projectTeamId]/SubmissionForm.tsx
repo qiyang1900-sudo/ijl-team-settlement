@@ -10,7 +10,6 @@ import {
 import {
   getReportScreenshotOrder,
   getReportScreenshotRowNumber,
-  MAX_REPORT_SCREENSHOTS_PER_ROW,
   REPORT_SCREENSHOT_FILE_CATEGORY,
 } from "@/lib/report-screenshots";
 import SubmitButtons from "./SubmitButtons";
@@ -139,6 +138,9 @@ export default function SubmissionForm({
 
   const [fileError, setFileError] = useState("");
   const [taxRate, setTaxRate] = useState(getTaxRateFromRows(detailRows));
+  const [reportImageInputCounts, setReportImageInputCounts] = useState<
+    Record<number, number>
+  >({});
 
   const totals = useMemo(() => {
     return details.map((row) => {
@@ -285,20 +287,23 @@ export default function SubmissionForm({
     setReports(reports.filter((_, i) => i !== index));
   }
 
+  function getReportImageInputCount(index: number) {
+    return reportImageInputCounts[index] || 1;
+  }
+
+  function addReportImageInput(index: number) {
+    setReportImageInputCounts((current) => ({
+      ...current,
+      [index]: (current[index] || 1) + 1,
+    }));
+  }
+
   function validateReportImages(event: React.ChangeEvent<HTMLInputElement>) {
     setFileError("");
 
     const files = Array.from(event.target.files || []);
 
     if (files.length === 0) {
-      return;
-    }
-
-    if (files.length > MAX_REPORT_SCREENSHOTS_PER_ROW) {
-      setFileError(
-        `1項目につきアップロードできるスクリーンショットは最大${MAX_REPORT_SCREENSHOTS_PER_ROW}枚までです。`
-      );
-      event.target.value = "";
       return;
     }
 
@@ -548,9 +553,7 @@ export default function SubmissionForm({
         <h2 className="text-lg font-bold">④ 結果報告</h2>
 
         <div className="mt-3 rounded-lg border border-slate-300 bg-white p-3 text-xs text-slate-700">
-          ※1項目につき、リンクは1つ、スクリーンショットは最大
-          {MAX_REPORT_SCREENSHOTS_PER_ROW}
-          枚までです。新しい画像を選択した場合、現在のスクリーンショットをすべて差し替えます。新しい画像を選択しない場合、現在のスクリーンショットは保持されます。
+          ※1項目につき、リンクは1つです。スクリーンショットは必要に応じて「画像を追加」から追加できます。追加しない場合、Excelは従来通りスクリーンショット列1列の形式で出力されます。
         </div>
 
         <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200">
@@ -576,6 +579,7 @@ export default function SubmissionForm({
                 };
 
                 const uploadedScreenshots = getScreenshotsForRow(index);
+                const imageInputCount = getReportImageInputCount(index);
 
                 return (
                   <tr key={index} className="border-t border-slate-100">
@@ -658,19 +662,38 @@ export default function SubmissionForm({
                         </div>
                       ) : null}
 
-                      <input
-                        type="file"
-                        name={`report_screenshot_${index}`}
-                        accept="image/*"
-                        multiple
-                        onChange={validateReportImages}
-                        className="w-full rounded-md border border-slate-300 bg-white px-2 py-2"
-                      />
+                      <div className="space-y-2">
+                        {Array.from({ length: imageInputCount }).map(
+                          (_, imageInputIndex) => (
+                            <label
+                              key={`${index}-${imageInputIndex}`}
+                              className="block rounded-md border border-slate-200 bg-slate-50 p-2"
+                            >
+                              <span className="mb-1 block text-[11px] font-semibold text-slate-600">
+                                追加画像 {imageInputIndex + 1}
+                              </span>
+                              <input
+                                type="file"
+                                name={`report_screenshot_${index}`}
+                                accept="image/*"
+                                onChange={validateReportImages}
+                                className="w-full rounded-md border border-slate-300 bg-white px-2 py-2"
+                              />
+                            </label>
+                          )
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => addReportImageInput(index)}
+                        className="mt-2 rounded-md border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        ＋画像を追加
+                      </button>
 
                       <p className="mt-1 text-[11px] text-slate-500">
-                        新しい画像を選択した場合のみ差し替えます。最大
-                        {MAX_REPORT_SCREENSHOTS_PER_ROW}
-                        枚まで選択できます。
+                        新しく選択した画像は、現在の画像の後ろに追加されます。現在の画像を消す場合のみ「この項目の画像をすべて削除する」を選択してください。
                       </p>
                     </td>
 
