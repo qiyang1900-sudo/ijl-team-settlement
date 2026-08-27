@@ -1286,7 +1286,9 @@ function ReviewRow({ row }: { row: ReviewRowData }) {
         </div>
       </div>
 
-      {row.return_reason ? <ReasonPreview reason={row.return_reason} /> : null}
+      {isReturnedStatus(String(row.status || "")) && row.return_reason ? (
+        <ReasonPreview reason={row.return_reason} />
+      ) : null}
     </article>
   );
 }

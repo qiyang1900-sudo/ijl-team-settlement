@@ -385,7 +385,7 @@ export default async function AdminSubmissionDetailPage({
             </div>
           </div>
 
-          {safeProjectTeam.return_reason ? (
+          {safeProjectTeam.status === "returned" && safeProjectTeam.return_reason ? (
             <div className="mt-6 rounded-xl border border-yellow-500 bg-yellow-950 p-5 text-yellow-100">
               <p className="font-bold">退回理由</p>
               <p className="mt-2 whitespace-pre-wrap text-sm">

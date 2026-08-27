@@ -153,9 +153,11 @@ export default async function TeamProjectsPage({
                       </div>
                     </div>
 
-                    <div className="sm:col-span-2">
-                      <ReasonBlock reason={row.return_reason || ""} />
-                    </div>
+                    {row.status === "returned" ? (
+                      <div className="sm:col-span-2">
+                        <ReasonBlock reason={row.return_reason || ""} />
+                      </div>
+                    ) : null}
 
                     <div>
                       <p className="text-xs font-semibold text-slate-500">
