@@ -4,6 +4,12 @@ import { getInvoiceUploadUrl } from "@/lib/invoice-upload-links";
 import { getStatusTone, getTeamStatusLabel } from "@/lib/status-labels";
 import { createSettlementDetailNote, normalizeTaxRate } from "@/lib/tax-rate";
 import { requireTeamAccess } from "@/lib/team-auth";
+import {
+  createReportScreenshotNote,
+  getReportScreenshotRowNumber,
+  MAX_REPORT_SCREENSHOTS_PER_ROW,
+  REPORT_SCREENSHOT_FILE_CATEGORY,
+} from "@/lib/report-screenshots";
 import SubmissionForm from "./SubmissionForm";
 
 type TeamRecord = {
@@ -28,11 +34,6 @@ type SubmissionFileRecord = {
 function createStoragePath(projectTeamId: string, fileName: string) {
   const safeFileName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, "_");
   return `${projectTeamId}/${Date.now()}-${safeFileName}`;
-}
-
-function getScreenshotRowNumber(note?: string | null) {
-  const match = String(note || "").match(/No\.(\d+)/);
-  return match ? Number(match[1]) : null;
 }
 
 function isNonEmptyString(value: string | null): value is string {
@@ -163,13 +164,13 @@ async function saveSubmission(formData: FormData) {
     .from("submission_files")
     .select("*")
     .eq("project_team_id", projectTeamId)
-    .eq("file_category", "report_screenshot");
+    .eq("file_category", REPORT_SCREENSHOT_FILE_CATEGORY);
   const safeOldScreenshotFiles =
     (oldScreenshotFiles || []) as SubmissionFileRecord[];
 
   const screenshotsToRemove =
     safeOldScreenshotFiles.filter((file) => {
-      const rowNumber = getScreenshotRowNumber(file.note);
+      const rowNumber = getReportScreenshotRowNumber(file.note);
       return rowNumber !== null && rowNumber > detailCount;
     }) || [];
 
@@ -232,7 +233,7 @@ async function saveSubmission(formData: FormData) {
 
     const oldFilesForThisRow =
       safeOldScreenshotFiles.filter((file) => {
-        return getScreenshotRowNumber(file.note) === rowNumber;
+        return getReportScreenshotRowNumber(file.note) === rowNumber;
       }) || [];
 
     const deleteScreenshot =
@@ -258,11 +259,17 @@ async function saveSubmission(formData: FormData) {
         );
     }
 
-    const reportScreenshot = formData.get(
-      `report_screenshot_${index}`
-    ) as File | null;
+    const reportScreenshots = formData
+      .getAll(`report_screenshot_${index}`)
+      .filter((value): value is File => value instanceof File && value.size > 0);
 
-    if (reportScreenshot && reportScreenshot.size > 0) {
+    if (reportScreenshots.length > MAX_REPORT_SCREENSHOTS_PER_ROW) {
+      throw new Error(
+        `1項目につきアップロードできるスクリーンショットは最大${MAX_REPORT_SCREENSHOTS_PER_ROW}枚までです。`
+      );
+    }
+
+    for (const reportScreenshot of reportScreenshots) {
       if (!reportScreenshot.type.startsWith("image/")) {
         throw new Error("スクリーンショットは画像のみアップロードできます。");
       }
@@ -272,7 +279,9 @@ async function saveSubmission(formData: FormData) {
           "スクリーンショットは1枚300KB以内にしてください。大きい場合はリンク欄にGoogle Driveリンクをご記入ください。"
         );
       }
+    }
 
+    if (reportScreenshots.length > 0) {
       if (oldFilesForThisRow.length > 0) {
         const oldStoragePaths = oldFilesForThisRow
           .map((file) => file.storage_path)
@@ -293,36 +302,43 @@ async function saveSubmission(formData: FormData) {
           );
       }
 
-      const storagePath = createStoragePath(
-        projectTeamId,
-        reportScreenshot.name || `report-screenshot-${rowNumber}`
-      );
+      for (const [
+        screenshotIndex,
+        reportScreenshot,
+      ] of reportScreenshots.entries()) {
+        const storagePath = createStoragePath(
+          projectTeamId,
+          `report-${rowNumber}-${screenshotIndex + 1}-${
+            reportScreenshot.name || "screenshot"
+          }`
+        );
 
-      const { error: uploadError } = await adminSupabase.storage
-        .from("screenshots")
-        .upload(storagePath, reportScreenshot, {
-          contentType: reportScreenshot.type || "application/octet-stream",
-          upsert: false,
+        const { error: uploadError } = await adminSupabase.storage
+          .from("screenshots")
+          .upload(storagePath, reportScreenshot, {
+            contentType: reportScreenshot.type || "application/octet-stream",
+            upsert: false,
+          });
+
+        if (uploadError) {
+          throw new Error(uploadError.message);
+        }
+
+        const { data: publicUrlData } = adminSupabase.storage
+          .from("screenshots")
+          .getPublicUrl(storagePath);
+
+        await supabase.from("submission_files").insert({
+          project_team_id: projectTeamId,
+          file_category: REPORT_SCREENSHOT_FILE_CATEGORY,
+          submit_method: "upload",
+          file_name: reportScreenshot.name,
+          file_url: publicUrlData.publicUrl,
+          storage_path: storagePath,
+          mime_type: reportScreenshot.type,
+          note: createReportScreenshotNote(rowNumber, screenshotIndex + 1),
         });
-
-      if (uploadError) {
-        throw new Error(uploadError.message);
       }
-
-      const { data: publicUrlData } = adminSupabase.storage
-        .from("screenshots")
-        .getPublicUrl(storagePath);
-
-      await supabase.from("submission_files").insert({
-        project_team_id: projectTeamId,
-        file_category: "report_screenshot",
-        submit_method: "upload",
-        file_name: reportScreenshot.name,
-        file_url: publicUrlData.publicUrl,
-        storage_path: storagePath,
-        mime_type: reportScreenshot.type,
-        note: `結果報告 No.${rowNumber} スクリーンショット`,
-      });
     }
   }
 
@@ -505,7 +521,7 @@ export default async function TeamSubmissionPage({
     .from("submission_files")
     .select("*")
     .eq("project_team_id", projectTeamId)
-    .eq("file_category", "report_screenshot")
+    .eq("file_category", REPORT_SCREENSHOT_FILE_CATEGORY)
     .order("created_at", { ascending: false });
 
   const { data: invoiceFiles } = await supabase

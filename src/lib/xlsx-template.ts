@@ -112,6 +112,29 @@ export function trimWorksheetToMaxColumn(
   return writeZipEntries(entries);
 }
 
+export function extendWorksheetToMaxColumn(
+  workbook: Buffer,
+  worksheetPath: string,
+  maxColumn: string
+) {
+  const entries = readZipEntries(workbook);
+  const worksheetEntry = findEntry(entries, worksheetPath);
+
+  if (!worksheetEntry) {
+    return workbook;
+  }
+
+  worksheetEntry.data = Buffer.from(
+    extendWorksheetXmlToMaxColumn(
+      worksheetEntry.data.toString("utf8"),
+      columnNameToIndex(maxColumn.toUpperCase())
+    ),
+    "utf8"
+  );
+
+  return writeZipEntries(entries);
+}
+
 function addWorksheetImages(entries: ZipEntry[], worksheetImages: XlsxTemplateImage[]) {
   const contentTypesEntry = findEntry(entries, "[Content_Types].xml");
 
@@ -917,6 +940,47 @@ function trimWorksheetXmlToMaxColumn(xml: string, maxColumnIndex: number) {
   return updatedXml;
 }
 
+function extendWorksheetXmlToMaxColumn(xml: string, maxColumnIndex: number) {
+  let updatedXml = xml;
+  const maxColumnNumber = maxColumnIndex + 1;
+  const maxColumnName = indexToColumnName(maxColumnIndex);
+
+  updatedXml = updatedXml.replace(
+    /<dimension\b([^>]*\bref=")([^"]+)("[^>]*\/?>)/,
+    (_match, before, ref, after) =>
+      `<dimension${before}${extendRangeRefToMaxColumn(
+        ref,
+        maxColumnIndex,
+        maxColumnName
+      )}${after}`
+  );
+
+  updatedXml = updatedXml.replace(/<row\b([^>]*)>/g, (match, attrs) => {
+    const spansMatch = attrs.match(/\bspans="(\d+):(\d+)"/);
+
+    if (!spansMatch) {
+      return match;
+    }
+
+    const spanStart = Number(spansMatch[1]);
+    const spanEnd = Number(spansMatch[2]);
+
+    if (!Number.isFinite(spanStart) || !Number.isFinite(spanEnd)) {
+      return match;
+    }
+
+    const extendedAttrs = setAttribute(
+      attrs,
+      "spans",
+      `${spanStart}:${Math.max(spanEnd, maxColumnNumber)}`
+    );
+
+    return `<row${extendedAttrs}>`;
+  });
+
+  return updatedXml;
+}
+
 function trimMergeCellsToMaxColumn(
   xml: string,
   maxColumnIndex: number,
@@ -956,6 +1020,26 @@ function trimMergeCellsToMaxColumn(
       return `<mergeCells${setAttribute(attrs, "count", String(count))}>${mergeCells}</mergeCells>`;
     }
   );
+}
+
+function extendRangeRefToMaxColumn(
+  ref: string,
+  maxColumnIndex: number,
+  maxColumnName: string
+) {
+  const [startRef, endRef = startRef] = ref.split(":");
+  const start = parseCellReference(startRef);
+  const end = parseCellReference(endRef);
+
+  if (!start || !end) {
+    return ref;
+  }
+
+  if (end.columnIndex >= maxColumnIndex) {
+    return ref;
+  }
+
+  return `${startRef}:${maxColumnName}${end.row}`;
 }
 
 function trimRangeRefToMaxColumn(
