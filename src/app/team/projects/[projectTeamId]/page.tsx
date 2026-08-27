@@ -6,8 +6,8 @@ import { createSettlementDetailNote, normalizeTaxRate } from "@/lib/tax-rate";
 import { requireTeamAccess } from "@/lib/team-auth";
 import {
   createReportScreenshotNote,
+  getReportScreenshotOrder,
   getReportScreenshotRowNumber,
-  MAX_REPORT_SCREENSHOTS_PER_ROW,
   REPORT_SCREENSHOT_FILE_CATEGORY,
 } from "@/lib/report-screenshots";
 import SubmissionForm from "./SubmissionForm";
@@ -263,12 +263,6 @@ async function saveSubmission(formData: FormData) {
       .getAll(`report_screenshot_${index}`)
       .filter((value): value is File => value instanceof File && value.size > 0);
 
-    if (reportScreenshots.length > MAX_REPORT_SCREENSHOTS_PER_ROW) {
-      throw new Error(
-        `1項目につきアップロードできるスクリーンショットは最大${MAX_REPORT_SCREENSHOTS_PER_ROW}枚までです。`
-      );
-    }
-
     for (const reportScreenshot of reportScreenshots) {
       if (!reportScreenshot.type.startsWith("image/")) {
         throw new Error("スクリーンショットは画像のみアップロードできます。");
@@ -282,25 +276,9 @@ async function saveSubmission(formData: FormData) {
     }
 
     if (reportScreenshots.length > 0) {
-      if (oldFilesForThisRow.length > 0) {
-        const oldStoragePaths = oldFilesForThisRow
-          .map((file) => file.storage_path)
-          .filter(isNonEmptyString);
-
-        if (oldStoragePaths.length > 0) {
-          await adminSupabase.storage
-            .from("screenshots")
-            .remove(oldStoragePaths);
-        }
-
-        await supabase
-          .from("submission_files")
-          .delete()
-          .in(
-            "id",
-            oldFilesForThisRow.map((file) => file.id)
-          );
-      }
+      const nextScreenshotOrder = deleteScreenshot
+        ? 1
+        : getNextReportScreenshotOrder(oldFilesForThisRow);
 
       for (const [
         screenshotIndex,
@@ -336,7 +314,10 @@ async function saveSubmission(formData: FormData) {
           file_url: publicUrlData.publicUrl,
           storage_path: storagePath,
           mime_type: reportScreenshot.type,
-          note: createReportScreenshotNote(rowNumber, screenshotIndex + 1),
+          note: createReportScreenshotNote(
+            rowNumber,
+            nextScreenshotOrder + screenshotIndex
+          ),
         });
       }
     }
@@ -408,6 +389,14 @@ function parseOptionalAmount(value: FormDataEntryValue | null) {
   }
 
   return Math.round(amount);
+}
+
+function getNextReportScreenshotOrder(files: SubmissionFileRecord[]) {
+  const maxOrder = files.reduce((currentMax, file) => {
+    return Math.max(currentMax, getReportScreenshotOrder(file.note));
+  }, 0);
+
+  return maxOrder + 1;
 }
 
 export default async function TeamSubmissionPage({

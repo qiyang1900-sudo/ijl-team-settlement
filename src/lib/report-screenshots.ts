@@ -1,5 +1,4 @@
 export const REPORT_SCREENSHOT_FILE_CATEGORY = "report_screenshot";
-export const MAX_REPORT_SCREENSHOTS_PER_ROW = 2;
 
 export function getReportScreenshotRowNumber(note?: string | null) {
   const match = String(note || "").match(/No\.(\d+)/);
