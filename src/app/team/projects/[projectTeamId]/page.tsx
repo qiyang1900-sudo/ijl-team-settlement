@@ -367,6 +367,12 @@ async function saveSubmission(formData: FormData) {
     .update({
       status: nextStatus,
       submitted_at: submittedAt,
+      ...(actionType === "submit"
+        ? {
+            returned_at: null,
+            return_reason: null,
+          }
+        : {}),
     })
     .eq("id", projectTeamId);
 
@@ -604,7 +610,7 @@ export default async function TeamSubmissionPage({
             </div>
           </div>
 
-          {projectTeam.return_reason ? (
+          {projectTeam.status === "returned" && projectTeam.return_reason ? (
             <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
               <p className="font-bold">差し戻し理由</p>
               <p className="mt-2 whitespace-pre-wrap text-xs">
