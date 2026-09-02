@@ -136,7 +136,8 @@ with seed(team_short_name, handle, reading, position_label, roster_role, sort_or
     ('ZETA', 'Shinami', 'シナミ', '队员', '求生者', 804),
     ('ZETA', 'mkmldy', 'ミコメロディ', '队员', '监管者', 805),
     ('ZETA', 'Rose', 'ローズ', '队员', '监管者', 806),
-    ('ZETA', 'MiraiK', 'ミライカン', '教练', '教练', 807)
+    ('ZETA', 'MiraiK', 'ミライカン', '教练', '教练', 807),
+    ('ZETA', 'Kznk', 'カズネコ', '队员', '求生者', 808)
 )
 insert into league_players (
   handle,

@@ -24,7 +24,12 @@ import {
   parseMonthlyPlayerRows,
   splitMonthlyRows,
 } from "@/lib/monthly-data";
-import { getPlayerDisplayName } from "@/lib/player-display";
+import {
+  getPlayerDisplayName,
+  getPlayerPositionLabel,
+  getPlayerReading,
+  getPlayerRosterRole,
+} from "@/lib/player-display";
 import { requireTeamAccess } from "@/lib/team-auth";
 
 type MonthlySubmissionRow = {
@@ -858,9 +863,9 @@ function createPlayerRowFromRecord(
     id: `player-${player.id}`,
     playerId: player.id,
     playerHandle: player.handle || "",
-    playerReading: player.reading || "",
-    playerPosition: player.position_label || "",
-    playerRole: player.roster_role || "",
+    playerReading: getPlayerReading(player),
+    playerPosition: getPlayerPositionLabel(player),
+    playerRole: getPlayerRosterRole(player),
     playerName: getPlayerDisplayName(player),
   };
 }
