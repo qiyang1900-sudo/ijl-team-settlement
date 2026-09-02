@@ -3,7 +3,12 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
-import { getPlayerDisplayName } from "@/lib/player-display";
+import {
+  getPlayerDisplayName,
+  getPlayerPositionLabel,
+  getPlayerReading,
+  getPlayerRosterRole,
+} from "@/lib/player-display";
 import PlayerTeamSelect from "./PlayerTeamSelect";
 
 type TeamOption = {
@@ -59,7 +64,7 @@ export default function PlayerRosterSelect({
             {players.map((player) => (
               <option key={player.id} value={player.id}>
                 {getPlayerDisplayName(player)}
-                {player.reading ? ` / ${player.reading}` : ""}
+                {getPlayerReading(player) ? ` / ${getPlayerReading(player)}` : ""}
                 {player.teams?.short_name ? ` / ${player.teams.short_name}` : ""}
               </option>
             ))}
@@ -76,11 +81,15 @@ export default function PlayerRosterSelect({
                 {getPlayerDisplayName(selectedPlayer)}
               </Link>
             </InfoBlock>
-            <InfoBlock label="读音">{selectedPlayer.reading || "-"}</InfoBlock>
-            <InfoBlock label="位置">
-              {selectedPlayer.position_label || "-"}
+            <InfoBlock label="读音">
+              {getPlayerReading(selectedPlayer) || "-"}
             </InfoBlock>
-            <InfoBlock label="阵营">{selectedPlayer.roster_role || "-"}</InfoBlock>
+            <InfoBlock label="位置">
+              {getPlayerPositionLabel(selectedPlayer) || "-"}
+            </InfoBlock>
+            <InfoBlock label="阵营">
+              {getPlayerRosterRole(selectedPlayer) || "-"}
+            </InfoBlock>
             <div className="md:col-span-2">
               <p className="mb-2 text-xs text-slate-500">当前俱乐部</p>
               <PlayerTeamSelect

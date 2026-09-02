@@ -11,7 +11,12 @@ import {
   buildMonthOptions,
   normalizeMonthRange,
 } from "@/lib/month-options";
-import { getPlayerDisplayName } from "@/lib/player-display";
+import {
+  getPlayerDisplayName,
+  getPlayerPositionLabel,
+  getPlayerReading,
+  getPlayerRosterRole,
+} from "@/lib/player-display";
 import MonthlyComboChart from "../../components/MonthlyComboChart";
 
 export const dynamic = "force-dynamic";
@@ -187,8 +192,9 @@ export default async function AdminPlayerDetailPage({
               {getPlayerDisplayName(safePlayer)}
             </h1>
             <p className="mt-2 text-slate-400">
-              {safePlayer.reading || "-"} / {safePlayer.position_label || "-"} /{" "}
-              {safePlayer.roster_role || "-"}
+              {getPlayerReading(safePlayer) || "-"} /{" "}
+              {getPlayerPositionLabel(safePlayer) || "-"} /{" "}
+              {getPlayerRosterRole(safePlayer) || "-"}
             </p>
             <p className="mt-1 text-sm text-slate-500">
               当前所属：{safePlayer.teams?.name || safePlayer.current_team_short_name || "未所属"}
