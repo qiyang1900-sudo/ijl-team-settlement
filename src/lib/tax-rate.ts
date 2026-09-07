@@ -10,6 +10,14 @@ export function formatTaxRate(taxRate: SettlementTaxRate) {
   return taxRate === 0 ? "0%" : "10%";
 }
 
+export function calculateTaxAmount(amount: number, taxRate: SettlementTaxRate) {
+  if (!Number.isFinite(amount)) {
+    return 0;
+  }
+
+  return Math.floor(amount * taxRate);
+}
+
 export function createTaxRateNote(taxRate: SettlementTaxRate) {
   return `tax_rate:${taxRate}`;
 }
@@ -40,7 +48,7 @@ export function getTaxRateFromRows(rows?: Array<{ note?: unknown }> | null) {
     return DEFAULT_TAX_RATE;
   }
 
-  const match = note.match(/tax_rate:(0(?:\.0)?|0\.1)/);
+  const match = note.match(/tax_rate:(0\.1|0(?:\.0)?)/);
 
   return normalizeTaxRate(match?.[1]);
 }

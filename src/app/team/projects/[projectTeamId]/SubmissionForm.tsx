@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import {
+  calculateTaxAmount,
   formatTaxRate,
   getReportTotalAmountFromRows,
   getTaxRateFromRows,
@@ -153,7 +154,7 @@ export default function SubmissionForm({
     () => totals.reduce((sum, amount) => sum + amount, 0),
     [totals]
   );
-  const taxAmount = Math.round(subtotalAmount * taxRate);
+  const taxAmount = calculateTaxAmount(subtotalAmount, taxRate);
   const totalAmount = subtotalAmount + taxAmount;
   const savedReportTotalAmount = getReportTotalAmountFromRows(detailRows);
   const [manualReportTotalValue, setManualReportTotalValue] = useState<

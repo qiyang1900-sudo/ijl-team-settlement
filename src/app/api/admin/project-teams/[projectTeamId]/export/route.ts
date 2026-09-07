@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { SETTLEMENT_REPORT_TEMPLATE_BASE64 } from "@/lib/settlement-report-template";
 import {
+  calculateTaxAmount,
   getReportTotalAmountFromRows,
   getTaxRateFromRows,
 } from "@/lib/tax-rate";
@@ -196,7 +197,7 @@ function buildSummarySheetUpdates({
 }): SheetUpdates {
   const totalAmount = detailRows.reduce((sum, row) => sum + subtotal(row), 0);
   const taxRate = getTaxRateFromRows(detailRows);
-  const taxAmount = Math.round(totalAmount * taxRate);
+  const taxAmount = calculateTaxAmount(totalAmount, taxRate);
   const reportTotalAmount =
     getReportTotalAmountFromRows(detailRows) ?? totalAmount + taxAmount;
   const updates: SheetUpdates = {
