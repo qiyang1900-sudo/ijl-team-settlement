@@ -7,6 +7,7 @@ import {
 } from "@/lib/project-labels";
 import { getAdminStatusLabel, getStatusTone } from "@/lib/status-labels";
 import ReminderButton from "../../reviews/ReminderButton";
+import { isProjectReminderTarget } from "@/lib/submission-reminder-policy";
 
 type ProjectTeamRow = {
   id: string;
@@ -208,16 +209,5 @@ export default async function ProjectDetailPage({
         </div>
       </div>
     </main>
-  );
-}
-
-function isProjectReminderTarget(row: ProjectTeamRow) {
-  const status = String(row.status || "");
-  const isSubmittedLike =
-    Boolean(row.submitted_at) && status !== "returned";
-
-  return (
-    (status === "not_submitted" || status === "draft" || status === "returned") &&
-    !isSubmittedLike
   );
 }

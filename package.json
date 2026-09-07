@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:reminders": "node --test tests/discord-reminders.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

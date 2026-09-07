@@ -1,6 +1,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { redirect } from "next/navigation";
-import { getAdminStatusLabel } from "@/lib/status-labels";
+import { getAdminStatusLabel, isApprovedLike } from "@/lib/status-labels";
 import {
   calculateTaxAmount,
   formatTaxRate,
@@ -325,7 +325,7 @@ export default async function AdminSubmissionDetailPage({
 
           <h1 className="mt-4 text-3xl font-bold">提交详情</h1>
 
-          {["approved", "exported"].includes(safeProjectTeam.status) ? (
+          {isApprovedLike(safeProjectTeam.status) ? (
             <a
               href={`/api/admin/project-teams/${projectTeamId}/export`}
               className="mt-4 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"

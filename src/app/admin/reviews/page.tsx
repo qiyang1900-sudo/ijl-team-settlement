@@ -8,7 +8,9 @@ import {
   getAdminStatusLabel,
   getStatusTone,
   isApprovedLike,
+  normalizeProjectSubmissionStatus,
 } from "@/lib/status-labels";
+import { isProjectReminderTarget, isSubmissionReminderTarget } from "@/lib/submission-reminder-policy";
 import {
   buildDefaultMonthlyDeadlineAt,
   buildDefaultSalaryScreenshotDeadlineAt,
@@ -185,38 +187,12 @@ async function updateMonthlyDataReviewStatus(formData: FormData) {
   redirect(redirectMonth ? `/admin/reviews?month=${redirectMonth}` : "/admin/reviews");
 }
 
-function isResubmittedStatus(status: string) {
-  return status === "resubmitted";
-}
-
 function isReturnedStatus(status: string) {
   return status === "returned";
 }
 
-function isSubmittedReviewRow(row: ReviewRowData) {
-  const status = String(row.status || "");
-  const submittedLikeStatuses = ["submitted", "pending", "pending_review"];
-
-  if (submittedLikeStatuses.includes(status)) {
-    return true;
-  }
-
-  return Boolean(
-    row.submitted_at &&
-      !isResubmittedStatus(status) &&
-      !isReturnedStatus(status) &&
-      !isApprovedLike(status) &&
-      !["not_submitted", "draft"].includes(status)
-  );
-}
-
 function canSendProjectReminder(row: ReviewRowData) {
-  return (
-    (row.status === "not_submitted" ||
-      row.status === "draft" ||
-      row.status === "returned") &&
-    !isSubmittedReviewRow(row)
-  );
+  return isProjectReminderTarget(row);
 }
 
 export default async function AdminReviewsPage({
@@ -1390,14 +1366,14 @@ function groupProjectReviewRows(
   const isReviewing = (row: ReviewRowData) =>
     ["pending", "pending_review"].includes(String(row.status || ""));
   const isSubmitted = (row: ReviewRowData) => {
-    const status = String(row.status || "");
+    const status = normalizeProjectSubmissionStatus(row.status);
 
     return (
       status === "submitted" ||
       status === "resubmitted" ||
       Boolean(
         row.submitted_at &&
-          !["draft", "not_submitted", "returned", "approved", "exported", "pending", "pending_review"].includes(status)
+          !["draft", "not_submitted", "returned", "approved", "pending", "pending_review"].includes(status)
       )
     );
   };
@@ -1463,14 +1439,7 @@ function getSalarySummaryForRow(row: MonthlySubmissionReviewRow) {
 }
 
 function isSalaryReviewReminderTarget(row: MonthlySubmissionReviewRow) {
-  const status = normalizeMonthlyStatus(row.salary_status);
-
-  return (
-    status === "not_submitted" ||
-    status === "draft" ||
-    status === "returned" ||
-    !getSalarySummaryForRow(row).isComplete
-  );
+  return isSubmissionReminderTarget(row.salary_status);
 }
 
 function buildMonthlySubmissionReviewRows({
@@ -1636,11 +1605,5 @@ function addReviewMonth(month: string, offset: number) {
 }
 
 function isMonthlyReviewReminderTarget(status: string | null | undefined) {
-  const normalized = normalizeMonthlyStatus(status);
-
-  return (
-    normalized === "not_submitted" ||
-    normalized === "draft" ||
-    normalized === "returned"
-  );
+  return isSubmissionReminderTarget(status);
 }

@@ -2,13 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import {
   buildMonthlyReminderSettings,
-  getMonthlyStatusLabel,
-  getSalaryScreenshotSummary,
   isMonthlyReminderEligibleMonth,
-  normalizeMonthlyStatus,
-  parseMonthlyPlayerRows,
-  splitMonthlyRows,
 } from "@/lib/monthly-data";
+import { getSubmissionReminderStatusLabel } from "@/lib/submission-reminder-policy";
 import {
   buildSubmissionReminderMessage,
   formatReminderMonth,
@@ -35,15 +31,6 @@ type MonthlySettingRow = {
   salary_screenshot_deadline_at?: string | null;
 };
 
-type MonthlySubmissionRow = {
-  id?: string | null;
-  team_id: string | null;
-  target_month: string | null;
-  status: string | null;
-  salary_status?: string | null;
-  player_rows?: unknown;
-};
-
 type ProjectRow = {
   id: string;
   title: string | null;
@@ -63,11 +50,21 @@ type ReminderSchedule = {
 };
 
 export async function GET(request: Request) {
-  return runDiscordReminders(request);
+  return handleDiscordReminders(request);
 }
 
 export async function POST(request: Request) {
-  return runDiscordReminders(request);
+  return handleDiscordReminders(request);
+}
+
+async function handleDiscordReminders(request: Request) {
+  try {
+    return await runDiscordReminders(request);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Discord 提醒读取失败";
+    console.error("Discord reminder batch stopped", { error: message });
+    return Response.json({ error: message }, { status: 500 });
+  }
 }
 
 async function runDiscordReminders(request: Request) {
@@ -77,6 +74,7 @@ async function runDiscordReminders(request: Request) {
 
   const url = new URL(request.url);
   const dryRun = isDryRunRequest(url);
+  const source = url.searchParams.get("source") === "admin_reviews" ? "admin_page_auto" : "scheduled";
   const now = new Date();
   const todayKey = getTokyoDateKey(now);
 
@@ -153,25 +151,7 @@ async function runDiscordReminders(request: Request) {
   const projects = ((projectResult.data || []) as ProjectRow[]).filter(
     (project) => project.status !== "archived"
   );
-  const [monthlySubmissions, projectTeams] = await Promise.all([
-    loadMonthlySubmissions(supabase, monthlySettings),
-    loadProjectTeams(supabase, projects),
-  ]);
-  const monthlyStatus = new Map(
-    monthlySubmissions.map((row) => [
-      `${row.team_id}:${row.target_month}`,
-      String(row.status || ""),
-    ])
-  );
-  const monthlySubmissionByTeamMonth = new Map(
-    monthlySubmissions.map((row) => [`${row.team_id}:${row.target_month}`, row])
-  );
-  const projectStatus = new Map(
-    projectTeams.map((row) => [
-      `${row.project_id}:${row.team_id}`,
-      String(row.status || ""),
-    ])
-  );
+  const projectTeams = await loadProjectTeams(supabase, projects);
   const projectTeamIds = new Map<string, Set<string>>();
 
   for (const row of projectTeams) {
@@ -203,14 +183,7 @@ async function runDiscordReminders(request: Request) {
     }
 
     for (const team of safeTeams) {
-      const status = monthlyStatus.get(`${team.id}:${setting.target_month}`);
-
-      if (isMonthlySubmissionDone(status)) {
-        results.skipped += 1;
-        continue;
-      }
-
-      const content = buildMonthlyReminderMessage({
+      const content = (status: string) => buildMonthlyReminderMessage({
         team,
         setting,
         status,
@@ -224,6 +197,7 @@ async function runDiscordReminders(request: Request) {
         reminderKey: schedule.reminderKey,
         content,
         dryRun,
+        source,
       });
 
       results[result] += 1;
@@ -242,19 +216,10 @@ async function runDiscordReminders(request: Request) {
     }
 
     for (const team of safeTeams) {
-      const submission = monthlySubmissionByTeamMonth.get(
-        `${team.id}:${setting.target_month}`
-      );
-
-      if (isSalaryScreenshotDone(submission)) {
-        results.skipped += 1;
-        continue;
-      }
-
-      const content = buildSalaryScreenshotReminderMessage({
+      const content = (status: string) => buildSalaryScreenshotReminderMessage({
         team,
         setting,
-        submission,
+        status,
       });
       const result = await sendDiscordReminderOnce({
         supabase,
@@ -265,6 +230,7 @@ async function runDiscordReminders(request: Request) {
         reminderKey: schedule.reminderKey,
         content,
         dryRun,
+        source,
       });
 
       results[result] += 1;
@@ -281,17 +247,10 @@ async function runDiscordReminders(request: Request) {
     const assignedTeamIds = projectTeamIds.get(project.id);
     const reminderTeams = assignedTeamIds
       ? safeTeams.filter((team) => assignedTeamIds.has(team.id))
-      : safeTeams;
+      : [];
 
     for (const team of reminderTeams) {
-      const status = projectStatus.get(`${project.id}:${team.id}`);
-
-      if (isProjectSubmissionDone(status)) {
-        results.skipped += 1;
-        continue;
-      }
-
-      const content = buildProjectReminderMessage({
+      const content = (status: string) => buildProjectReminderMessage({
         team,
         project,
         status,
@@ -305,6 +264,7 @@ async function runDiscordReminders(request: Request) {
         reminderKey: schedule.reminderKey,
         content,
         dryRun,
+        source,
       });
 
       results[result] += 1;
@@ -312,25 +272,6 @@ async function runDiscordReminders(request: Request) {
   }
 
   return Response.json({ ok: true, dryRun, today: todayKey, ...results });
-}
-
-async function loadMonthlySubmissions(
-  supabase: SupabaseClient,
-  settings: MonthlySettingRow[]
-) {
-  if (settings.length === 0) {
-    return [] as MonthlySubmissionRow[];
-  }
-
-  const { data } = await supabase
-    .from("monthly_data_submissions")
-    .select("id, team_id, target_month, status, salary_status, player_rows")
-    .in(
-      "target_month",
-      settings.map((setting) => setting.target_month)
-    );
-
-  return (data || []) as MonthlySubmissionRow[];
 }
 
 async function loadProjectTeams(
@@ -341,7 +282,7 @@ async function loadProjectTeams(
     return [] as ProjectTeamRow[];
   }
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("project_teams")
     .select("project_id, team_id, status")
     .in(
@@ -349,6 +290,7 @@ async function loadProjectTeams(
       projects.map((project) => project.id)
     );
 
+  if (error) throw new Error(`项目提交状态读取失败：${error.message}`);
   return (data || []) as ProjectTeamRow[];
 }
 
@@ -359,9 +301,9 @@ function buildMonthlyReminderMessage({
 }: {
   team: TeamRow;
   setting: MonthlySettingRow;
-  status?: string;
+  status: string;
 }) {
-  const statusText = status ? getMonthlyStatusLabel(status) : "未提出";
+  const statusText = getSubmissionReminderStatusLabel(status);
 
   return buildSubmissionReminderMessage({
     team,
@@ -374,13 +316,13 @@ function buildMonthlyReminderMessage({
 function buildSalaryScreenshotReminderMessage({
   team,
   setting,
-  submission,
+  status,
 }: {
   team: TeamRow;
   setting: MonthlySettingRow;
-  submission?: MonthlySubmissionRow;
+  status: string;
 }) {
-  const statusText = getSalaryScreenshotStatusLabel(submission);
+  const statusText = getSubmissionReminderStatusLabel(status);
 
   return buildSubmissionReminderMessage({
     team,
@@ -397,9 +339,9 @@ function buildProjectReminderMessage({
 }: {
   team: TeamRow;
   project: ProjectRow;
-  status?: string;
+  status: string;
 }) {
-  const statusText = formatProjectReminderStatus(status);
+  const statusText = getSubmissionReminderStatusLabel(status);
 
   return buildSubmissionReminderMessage({
     team,
@@ -457,72 +399,6 @@ function getReminderSchedule(
   return null;
 }
 
-function isMonthlySubmissionDone(status?: string) {
-  const normalized = normalizeMonthlyStatus(status);
-
-  return (
-    normalized === "submitted" ||
-    normalized === "reviewing" ||
-    normalized === "approved"
-  );
-}
-
-function isSalaryScreenshotDone(submission?: MonthlySubmissionRow) {
-  if (!submission) {
-    return false;
-  }
-
-  const status = normalizeMonthlyStatus(submission.salary_status);
-
-  if (status === "submitted" || status === "reviewing" || status === "approved") {
-    return true;
-  }
-
-  const { playerRows } = splitMonthlyRows(
-    parseMonthlyPlayerRows(submission.player_rows)
-  );
-
-  return getSalaryScreenshotSummary(playerRows).isComplete;
-}
-
-function getSalaryScreenshotStatusLabel(submission?: MonthlySubmissionRow) {
-  if (!submission) {
-    return "未提出";
-  }
-
-  const status = normalizeMonthlyStatus(submission.salary_status);
-
-  if (status === "returned") {
-    return "差し戻し（再提出待ち）";
-  }
-
-  if (status === "draft") {
-    return "下書き保存";
-  }
-
-  if (status === "submitted" || status === "reviewing" || status === "approved") {
-    return getMonthlyStatusLabel(status);
-  }
-
-  const { playerRows } = splitMonthlyRows(
-    parseMonthlyPlayerRows(submission.player_rows)
-  );
-  const summary = getSalaryScreenshotSummary(playerRows);
-
-  return summary.label;
-}
-
-function isProjectSubmissionDone(status?: string) {
-  return [
-    "submitted",
-    "reviewing",
-    "approved",
-    "resubmitted",
-    "pending",
-    "pending_review",
-  ].includes(String(status || ""));
-}
-
 function isAuthorized(request: Request) {
   const secret = process.env.CRON_SECRET;
 
@@ -544,18 +420,4 @@ function isDryRunRequest(url: URL) {
     .toLowerCase();
 
   return value === "1" || value === "true" || value === "yes";
-}
-
-function formatProjectReminderStatus(status?: string) {
-  const labels: Record<string, string> = {
-    not_submitted: "未提出",
-    draft: "未提出",
-    submitted: "提出済み",
-    reviewing: "審査中",
-    returned: "差し戻し（再提出待ち）",
-    resubmitted: "再提出済み",
-    approved: "承認済み",
-  };
-
-  return labels[String(status || "")] || "未提出";
 }

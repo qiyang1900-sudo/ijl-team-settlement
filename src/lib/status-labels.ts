@@ -3,9 +3,16 @@ const waitingReviewStatuses = [
   "resubmitted",
   "pending",
   "pending_review",
+  "reviewing",
 ];
 
+export function normalizeProjectSubmissionStatus(status: string | null | undefined) {
+  // Compatibility for records created before exports stopped changing approval state.
+  return status === "exported" ? "approved" : String(status || "");
+}
+
 export function getTeamStatusLabel(status: string) {
+  status = normalizeProjectSubmissionStatus(status);
   if (status === "returned") {
     return "差し戻し（追記必要）";
   }
@@ -18,11 +25,11 @@ export function getTeamStatusLabel(status: string) {
     return "提出済み";
   }
 
-  if (status === "resubmitted" || status === "pending" || status === "pending_review") {
+  if (isWaitingReview(status)) {
     return "審査中";
   }
 
-  if (status === "approved" || status === "exported") {
+  if (status === "approved") {
     return "承認済み";
   }
 
@@ -30,6 +37,7 @@ export function getTeamStatusLabel(status: string) {
 }
 
 export function getAdminStatusLabel(status: string) {
+  status = normalizeProjectSubmissionStatus(status);
   if (status === "returned") {
     return "已驳回需补充";
   }
@@ -42,11 +50,11 @@ export function getAdminStatusLabel(status: string) {
     return "已提交";
   }
 
-  if (status === "resubmitted" || status === "pending" || status === "pending_review") {
+  if (isWaitingReview(status)) {
     return "审核中";
   }
 
-  if (status === "approved" || status === "exported") {
+  if (status === "approved") {
     return "已通过";
   }
 
@@ -54,6 +62,7 @@ export function getAdminStatusLabel(status: string) {
 }
 
 export function getStatusTone(status: string) {
+  status = normalizeProjectSubmissionStatus(status);
   if (status === "returned") {
     return "bg-rose-50 text-rose-700 ring-rose-200";
   }
@@ -62,7 +71,7 @@ export function getStatusTone(status: string) {
     return "bg-amber-50 text-amber-700 ring-amber-200";
   }
 
-  if (status === "approved" || status === "exported") {
+  if (status === "approved") {
     return "bg-emerald-50 text-emerald-700 ring-emerald-200";
   }
 
@@ -70,7 +79,7 @@ export function getStatusTone(status: string) {
 }
 
 export function isApprovedLike(status: string) {
-  return status === "approved" || status === "exported";
+  return normalizeProjectSubmissionStatus(status) === "approved";
 }
 
 export function isWaitingReview(status: string) {

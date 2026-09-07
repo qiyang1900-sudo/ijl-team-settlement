@@ -7,17 +7,18 @@ import {
   sendDiscordReminderOnce,
   type DiscordReminderResult,
   type DiscordReminderTeam,
+  type DiscordReminderContent,
 } from "@/lib/discord-reminders";
 import {
+  isProjectReminderTarget,
+  isSubmissionReminderTarget as isMonthlyReminderTarget,
+  getSubmissionReminderStatusLabel,
+} from "@/lib/submission-reminder-policy";
+import {
   buildMonthlyReminderSettings,
-  getMonthlyStatusLabel,
-  getSalaryScreenshotSummary,
   isMonthlyDataReminderWindowOpen,
   isMonthlyReminderEligibleMonth,
   isSalaryScreenshotReminderWindowOpen,
-  normalizeMonthlyStatus,
-  parseMonthlyPlayerRows,
-  splitMonthlyRows,
 } from "@/lib/monthly-data";
 
 export const dynamic = "force-dynamic";
@@ -210,11 +211,13 @@ async function sendProjectSubmissionReminders({
       return { type: "ineligible" as const };
     }
 
-    const content = buildSubmissionReminderMessage({
-      team: row.teams,
-      targetLabel: row.projects.title || "提出物",
-      deadlineAt: row.projects.deadline_at,
-      statusLabel: formatProjectReminderStatus(row.status),
+    const team = row.teams;
+    const project = row.projects;
+    const content = (status: string) => buildSubmissionReminderMessage({
+      team,
+      targetLabel: project.title || "提出物",
+      deadlineAt: project.deadline_at,
+      statusLabel: getSubmissionReminderStatusLabel(status),
     });
 
     return {
@@ -298,16 +301,12 @@ async function sendMonthlyDataReminders({
       reminderKind === "monthly_salary_screenshot"
         ? setting?.salary_screenshot_deadline_at || null
         : setting?.deadline_at || null;
-    const statusLabel =
-      reminderKind === "monthly_salary_screenshot"
-        ? getSalaryScreenshotReminderStatus(row)
-        : getMonthlyStatusLabel(row.status || "not_submitted");
-
-    const content = buildSubmissionReminderMessage({
-      team: row.teams,
+    const team = row.teams;
+    const content = (status: string) => buildSubmissionReminderMessage({
+      team,
       targetLabel,
       deadlineAt,
-      statusLabel,
+      statusLabel: getSubmissionReminderStatusLabel(status),
     });
 
     return {
@@ -480,7 +479,7 @@ async function sendRows<T>(
         itemId: string;
         targetMonth: string | null;
         reminderKey: string;
-        content: string;
+        content: DiscordReminderContent;
       }
   >
 ) {
@@ -514,12 +513,6 @@ async function sendRows<T>(
   return stats;
 }
 
-function isProjectReminderTarget(row: ProjectReminderRow) {
-  const status = String(row.status || "");
-
-  return (status === "not_submitted" || status === "draft" || status === "returned") && !isSubmittedLike(row);
-}
-
 function getProjectDeadlineMonth(row: ProjectReminderRow) {
   const month = String(row.projects?.deadline_at || "").slice(0, 7);
 
@@ -530,61 +523,8 @@ function isReviewMonthValue(value: unknown) {
   return /^\d{4}-\d{2}$/.test(String(value || ""));
 }
 
-function isSubmittedLike(row: ProjectReminderRow) {
-  return Boolean(row.submitted_at && String(row.status || "") !== "returned");
-}
-
-function isMonthlyReminderTarget(status: string | null | undefined) {
-  const normalized = normalizeMonthlyStatus(status);
-
-  return (
-    normalized === "not_submitted" ||
-    normalized === "draft" ||
-    normalized === "returned"
-  );
-}
-
 function isSalaryScreenshotReminderTarget(row: MonthlyReminderRow) {
-  const status = normalizeMonthlyStatus(row.salary_status);
-
-  return (
-    status === "not_submitted" ||
-    status === "draft" ||
-    status === "returned" ||
-    !getSalaryScreenshotSummaryForRow(row).isComplete
-  );
-}
-
-function getSalaryScreenshotReminderStatus(row: MonthlyReminderRow) {
-  const status = normalizeMonthlyStatus(row.salary_status);
-
-  if (status === "returned") {
-    return "差し戻し（再提出待ち）";
-  }
-
-  if (status === "draft") {
-    return "下書き保存";
-  }
-
-  if (status === "submitted" || status === "reviewing" || status === "approved") {
-    return getMonthlyStatusLabel(status);
-  }
-
-  return getSalaryScreenshotSummaryForRow(row).label;
-}
-
-function getSalaryScreenshotSummaryForRow(row: MonthlyReminderRow) {
-  const { playerRows } = splitMonthlyRows(parseMonthlyPlayerRows(row.player_rows));
-
-  return getSalaryScreenshotSummary(playerRows);
-}
-
-function formatProjectReminderStatus(status?: string | null) {
-  if (status === "returned") {
-    return "差し戻し（再提出待ち）";
-  }
-
-  return "未提出";
+  return isMonthlyReminderTarget(row.salary_status);
 }
 
 function isReminderScope(value: string): value is ReminderScope {

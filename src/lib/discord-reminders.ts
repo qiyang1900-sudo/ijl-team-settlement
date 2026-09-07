@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readReminderSubmissionState } from "./submission-reminder-policy";
 
 export const REMINDER_SUBMISSION_URL =
   "https://team-settlement-system.vercel.app/team/login";
@@ -27,6 +28,9 @@ export type DiscordReminderResult =
   | "missingWebhook";
 
 const SENDING_LOG_TTL_MS = 5 * 60 * 1000;
+
+export type DiscordReminderContent = string | ((status: string) => string);
+export type DiscordReminderSource = "scheduled" | "admin_page_auto" | "manual" | "project_created" | "review_return";
 
 export function buildSubmissionReminderMessage({
   team,
@@ -121,6 +125,7 @@ export async function sendDiscordReminderOnce({
   content,
   dryRun,
   skipSameDaySentCheck = false,
+  source,
 }: {
   supabase: SupabaseClient;
   team: DiscordReminderTeam;
@@ -128,9 +133,10 @@ export async function sendDiscordReminderOnce({
   itemId: string;
   targetMonth: string | null;
   reminderKey: string;
-  content: string;
+  content: DiscordReminderContent;
   dryRun: boolean;
   skipSameDaySentCheck?: boolean;
+  source?: DiscordReminderSource;
 }): Promise<DiscordReminderResult> {
   if (!team.discord_webhook_url) {
     return "missingWebhook";
@@ -184,9 +190,13 @@ export async function sendDiscordReminderOnce({
     }
   }
 
-  if (dryRun) {
-    return "wouldSend";
-  }
+  const readState = () => readReminderSubmissionState({ supabase, teamId: team.id, reminderType, itemId, targetMonth });
+  let state = await readState();
+  let checkedAt = new Date().toISOString();
+  const renderContent = () => typeof content === "function" ? content(state.status || "") : content;
+  let message = state.outcome === "send" ? renderContent() : "";
+
+  if (dryRun) return state.outcome === "send" ? "wouldSend" : state.outcome === "skip" ? "skipped" : "failed";
 
   const reservePayload = {
     team_id: team.id,
@@ -194,10 +204,14 @@ export async function sendDiscordReminderOnce({
     item_id: itemId,
     target_month: targetMonth,
     reminder_key: reminderKey,
-    message: content,
-    delivery_status: "sending",
-    error_message: null,
+    message,
+    delivery_status: state.outcome === "send" ? "sending" : state.outcome === "skip" ? "skipped" : "failed",
+    error_message: state.outcome === "error" ? state.error || state.reason : null,
     sent_at: now.toISOString(),
+    source: source || getReminderSource(reminderType, reminderKey),
+    status_before_send: state.status,
+    checked_at: checkedAt,
+    skip_reason: state.outcome === "send" ? null : state.reason,
   };
   const reserveResult = existing
     ? await supabase
@@ -213,6 +227,7 @@ export async function sendDiscordReminderOnce({
         .maybeSingle();
 
   if (reserveResult.error) {
+    console.error("Discord reminder log reservation failed", { teamId: team.id, itemId, error: reserveResult.error.message });
     return isUniqueConstraintError(reserveResult.error) ? "skipped" : "failed";
   }
 
@@ -222,6 +237,23 @@ export async function sendDiscordReminderOnce({
     return "failed";
   }
 
+  if (state.outcome !== "send") return state.outcome === "skip" ? "skipped" : "failed";
+
+  // Approval may change while a batch is running or while reserving its delivery log.
+  state = await readState();
+  checkedAt = new Date().toISOString();
+  if (state.outcome !== "send") {
+    const { error } = await supabase.from("discord_reminder_logs").update({
+      delivery_status: state.outcome === "skip" ? "skipped" : "failed",
+      status_before_send: state.status,
+      checked_at: checkedAt,
+      skip_reason: state.reason,
+      error_message: state.outcome === "error" ? state.error || state.reason : null,
+    }).eq("id", logId);
+    return error || state.outcome === "error" ? "failed" : "skipped";
+  }
+  message = renderContent();
+
   let ok = false;
   let errorMessage: string | null = null;
 
@@ -229,7 +261,7 @@ export async function sendDiscordReminderOnce({
     const response = await fetch(String(team.discord_webhook_url), {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content: message }),
     });
     ok = response.ok;
     errorMessage = ok ? null : await response.text();
@@ -241,10 +273,13 @@ export async function sendDiscordReminderOnce({
   const { error: logError } = await supabase
     .from("discord_reminder_logs")
     .update({
-      message: content,
+      message,
       delivery_status: ok ? "sent" : "failed",
       error_message: errorMessage,
       sent_at: new Date().toISOString(),
+      status_before_send: state.status,
+      checked_at: checkedAt,
+      skip_reason: null,
     })
     .eq("id", logId);
 
@@ -253,6 +288,13 @@ export async function sendDiscordReminderOnce({
   }
 
   return ok ? "sent" : "failed";
+}
+
+function getReminderSource(kind: DiscordReminderKind, key: string): DiscordReminderSource {
+  if (key.startsWith("manual-")) return "manual";
+  if (key === "project-created") return "project_created";
+  if (kind.endsWith("_returned")) return "review_return";
+  return "scheduled";
 }
 
 export function formatDiscordMention(value: string | null | undefined) {
