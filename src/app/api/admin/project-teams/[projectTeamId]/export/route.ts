@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { isApprovedLike } from "@/lib/status-labels";
 import { SETTLEMENT_REPORT_TEMPLATE_BASE64 } from "@/lib/settlement-report-template";
 import {
   calculateTaxAmount,
@@ -82,7 +83,7 @@ export async function GET(
     });
   }
 
-  if (!["approved", "exported"].includes(projectTeam.status)) {
+  if (!isApprovedLike(projectTeam.status)) {
     return new Response("承認済みの提出のみExcel出力できます。", {
       status: 409,
     });
@@ -158,14 +159,12 @@ export async function GET(
     "G"
   );
 
-  if (projectTeam.status === "approved") {
-    await supabase
-      .from("project_teams")
-      .update({
-        status: "exported",
-        exported_at: new Date().toISOString(),
-      })
-      .eq("id", projectTeamId);
+  const { error: exportRecordError } = await supabase
+    .from("project_teams")
+    .update({ exported_at: new Date().toISOString() })
+    .eq("id", projectTeamId);
+  if (exportRecordError) {
+    return new Response("Excel出力日時の保存に失敗しました。再度お試しください。", { status: 500 });
   }
 
   const project = normalizeRelation(projectTeam.projects as unknown as Row | Row[] | null);
