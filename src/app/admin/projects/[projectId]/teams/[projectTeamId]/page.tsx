@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { redirect } from "next/navigation";
 import { getAdminStatusLabel } from "@/lib/status-labels";
 import {
+  calculateTaxAmount,
   formatTaxRate,
   getReportTotalAmountFromRows,
   getTaxRateFromRows,
@@ -307,7 +308,7 @@ export default async function AdminSubmissionDetailPage({
       return sum + (Number.isFinite(amount) ? amount : 0);
     }, 0) || 0;
   const reportTaxRate = getTaxRateFromRows(safeDetailRows);
-  const reportTax = Math.round(reportSubtotal * reportTaxRate);
+  const reportTax = calculateTaxAmount(reportSubtotal, reportTaxRate);
   const reportTotal =
     getReportTotalAmountFromRows(safeDetailRows) ?? reportSubtotal + reportTax;
 
