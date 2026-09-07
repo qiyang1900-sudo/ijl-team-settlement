@@ -14,6 +14,7 @@ import {
   formatReminderMonth,
   getTokyoDateKey,
   getTokyoDayDiff,
+  isTokyoWeekend,
   sendDiscordReminderOnce,
 } from "@/lib/discord-reminders";
 
@@ -76,6 +77,25 @@ async function runDiscordReminders(request: Request) {
 
   const url = new URL(request.url);
   const dryRun = isDryRunRequest(url);
+  const now = new Date();
+  const todayKey = getTokyoDateKey(now);
+
+  // Apply the rest-day rule only to automatic reminders, including admin-page nudges.
+  if (isTokyoWeekend(now)) {
+    return Response.json({
+      ok: true,
+      dryRun,
+      today: todayKey,
+      skipReason: "weekend",
+      sent: 0,
+      wouldSend: 0,
+      skipped: 0,
+      failed: 0,
+      missingWebhook: 0,
+      missingWebhookTeams: 0,
+    });
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -88,8 +108,6 @@ async function runDiscordReminders(request: Request) {
   }
 
   const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey, serviceRoleKey);
-  const now = new Date();
-  const todayKey = getTokyoDateKey(now);
   const [{ data: teams, error: teamError }, monthlyResult, projectResult] =
     await Promise.all([
       supabase
