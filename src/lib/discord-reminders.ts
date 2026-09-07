@@ -341,6 +341,12 @@ export function getTokyoDayDiff(from: Date, to: Date) {
   return toUtcDayNumber(to) - toUtcDayNumber(from);
 }
 
+export function isTokyoWeekend(date: Date) {
+  const weekday = new Date(`${getTokyoDateKey(date)}T00:00:00Z`).getUTCDay();
+
+  return weekday === 0 || weekday === 6;
+}
+
 function toUtcDayNumber(date: Date) {
   const [year, month, day] = getTokyoDateKey(date).split("-").map(Number);
 
