@@ -15,6 +15,11 @@ export function getInvoiceUploadUrl(teamCode?: string | null) {
   return INVOICE_UPLOAD_LINKS[normalizedTeamCode] || "";
 }
 
+export function getInvoiceUploadFolderId(teamCode?: string | null) {
+  const url = getInvoiceUploadUrl(teamCode);
+  return url ? new URL(url).pathname.match(/^\/drive\/folders\/([\w-]+)\/?$/)?.[1] || "" : "";
+}
+
 function normalizeTeamCode(teamCode?: string | null) {
   const compactCode = String(teamCode || "")
     .trim()
