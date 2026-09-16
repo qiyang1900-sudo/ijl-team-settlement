@@ -14,6 +14,8 @@ import {
 } from "@/lib/report-screenshots";
 import { sendProjectReturnReminder } from "@/lib/return-reminders";
 import ImagePreview from "./ImagePreview";
+import ReportExportButtons from "./ReportExportButtons";
+import { getInvoiceUploadFolderId } from "@/lib/invoice-upload-links";
 
 type ProjectInfo = {
   id?: string | null;
@@ -326,12 +328,15 @@ export default async function AdminSubmissionDetailPage({
           <h1 className="mt-4 text-3xl font-bold">提交详情</h1>
 
           {isApprovedLike(safeProjectTeam.status) ? (
-            <a
-              href={`/api/admin/project-teams/${projectTeamId}/export`}
-              className="mt-4 inline-block rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-slate-200"
-            >
-              导出 Excel
-            </a>
+            <ReportExportButtons
+              projectTeamId={projectTeamId}
+              folderId={getInvoiceUploadFolderId(team?.short_name || team?.name)}
+              config={{
+                clientId: process.env.GOOGLE_DRIVE_CLIENT_ID || "",
+                apiKey: process.env.GOOGLE_PICKER_API_KEY || "",
+                appId: process.env.GOOGLE_CLOUD_PROJECT_NUMBER || "",
+              }}
+            />
           ) : (
             <p className="mt-4 text-sm text-slate-500">
               审核通过后可导出指定模版 Excel。
