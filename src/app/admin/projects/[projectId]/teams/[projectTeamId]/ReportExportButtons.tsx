@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from "react";
 import {
-  authorizeReportFolder, clearGoogleDriveToken, loadGoogleDriveLibraries,
+  loadGoogleDriveLibraries,
   requestGoogleDriveToken, type GoogleDriveConfig,
 } from "@/lib/google-drive-browser";
-
-type Result = { fileUrl: string; fileName: string; folderUrl: string; warning?: string; unchanged?: boolean };
+import { exportReportToDrive } from "@/lib/google-drive-export-client";
+import type { DriveExportResult } from "@/lib/project-drive-batch";
 
 export default function ReportExportButtons({
   projectTeamId, folderId, config,
@@ -16,7 +16,7 @@ export default function ReportExportButtons({
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [result, setResult] = useState<Result | null>(null);
+  const [result, setResult] = useState<DriveExportResult | null>(null);
   useEffect(() => {
     if (!configured) return;
     let active = true;
@@ -45,23 +45,10 @@ export default function ReportExportButtons({
     setBusy("正在连接 Google…");
     try {
       const token = await requestGoogleDriveToken(config.clientId);
-      const upload = () => fetch(`/api/admin/project-teams/${projectTeamId}/export-drive`, {
-        method: "POST", headers: { Authorization: `Bearer ${token}` },
-      });
       setBusy("正在生成并上传…");
-      let response = await upload();
-      let data = await response.json().catch(() => ({ error: "服务器未返回完整结果，请重试。", code: "invalid_response" }));
-      if (data.code === "folder_authorization_required") {
-        setBusy("等待文件夹授权…");
-        await authorizeReportFolder(config, token, folderId);
-        setBusy("正在生成并上传…");
-        response = await upload();
-        data = await response.json().catch(() => ({ error: "服务器未返回完整结果，请重试。" }));
-      }
-      if (!response.ok) {
-        if (data.code === "google_auth_expired") clearGoogleDriveToken();
-        throw new Error(data.error || `导出失败（HTTP ${response.status}）。`);
-      }
+      const data = await exportReportToDrive({ projectTeamId, folderId, config, token,
+        onAuthorizing: (active) => setBusy(active ? "等待文件夹授权…" : "正在生成并上传…"),
+      });
       setResult(data);
     } catch (error) {
       setError(error instanceof Error ? error.message : "导出失败，请检查网络后重试。");

@@ -16,13 +16,15 @@ const checksum = createHash("md5").update(workbook).digest("hex");
 const MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 function harness(options = {}) {
-  const writes = [], requests = [];
+  const writes = [], requests = [], queries = [];
+  let contextReads = 0;
   let record = options.record || null;
   let file = options.file || null;
   let metadata;
   const supabase = { from(table) {
     const query = { table, operation: null, payload: null };
-    for (const method of ["select", "eq", "order"]) query[method] = () => query;
+    for (const method of ["select", "order"]) query[method] = () => query;
+    query.eq = (column, value) => { queries.push({ table, column, value }); return query; };
     for (const method of ["insert", "update"]) query[method] = (payload) => { query.operation = method; query.payload = payload; return query; };
     function execute(single) {
       if (query.operation) {
@@ -41,7 +43,12 @@ function harness(options = {}) {
         }
         return { data: null, error: null };
       }
-      if (table === "project_teams") return { data: { id: projectTeamId, status: options.status || "approved", projects: { title: "Project" }, teams: { short_name: options.team || "AWG" } }, error: null };
+      if (table === "projects") return { data: options.missingProject ? null : { id: "project" }, error: null };
+      if (table === "project_teams") {
+        if (!single) return { data: options.projectTeams || [], error: options.teamsReadError ? { message: "read failed" } : null };
+        contextReads++;
+        return { data: { id: projectTeamId, status: contextReads > 1 && options.nextStatus ? options.nextStatus : options.status || "approved", projects: { id: contextReads > 1 && options.nextProject ? options.nextProject : "project", title: "Project" }, teams: { short_name: options.team || "AWG" } }, error: null };
+      }
       if (table === "project_report_drive_exports") return { data: record, error: options.recordReadError ? { message: "missing table" } : null };
       return { data: options.tables?.[table] ?? (single ? null : []), error: options.dataReadError ? { message: "failed" } : null };
     }
@@ -78,6 +85,7 @@ function harness(options = {}) {
   const mocks = {
     "node:crypto": nodeCrypto,
     "@/lib/admin-auth": { getAdminSession: async () => options.loggedOut ? null : { role: "admin" } },
+    "@/lib/google-drive-browser": options.browserMocks || {},
     "@/lib/supabase-server": { createSupabaseServerClient: () => supabase },
     "@/lib/settlement-report-template": { SETTLEMENT_REPORT_TEMPLATE_BASE64: "" },
     "@/lib/xlsx-template": {
@@ -94,7 +102,7 @@ function harness(options = {}) {
     cache.set(filename, exports);
     const code = ts.transpileModule(fs.readFileSync(filename, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
     vm.runInNewContext(code, {
-      exports, Buffer, Uint8Array, URL, Response, Request, Date, AbortSignal,
+      exports, Buffer, Uint8Array, URL, Response, Request, Date, AbortSignal, Error,
       process: { env: { NEXT_PUBLIC_SUPABASE_URL: "test", SUPABASE_SERVICE_ROLE_KEY: "test" } },
       fetch: fetchMock,
       require(name) {
@@ -104,12 +112,14 @@ function harness(options = {}) {
     });
     return exports;
   }
-  const post = (headers = {}) => load("src/app/api/admin/project-teams/[projectTeamId]/export-drive/route.ts").POST(
-    new Request("https://website.test/api/admin/project-teams/project-team/export-drive", {
+  const post = (headers = {}, query = "") => load("src/app/api/admin/project-teams/[projectTeamId]/export-drive/route.ts").POST(
+    new Request("https://website.test/api/admin/project-teams/project-team/export-drive" + query, {
       method: "POST", headers: { origin: "https://website.test", authorization: "Bearer test-token", ...headers },
     }), { params: Promise.resolve({ projectTeamId }) }
   );
-  return { load, post, requests, writes, supabase };
+  const targets = () => load("src/app/api/admin/projects/[projectId]/drive-export-targets/route.ts").GET(
+    new Request("https://website.test/api/admin/projects/project/drive-export-targets"), { params: Promise.resolve({ projectId: "project" }) });
+  return { load, post, targets, requests, writes, queries, supabase };
 }
 
 test("all eight teams map to the supplied folders and unknown teams fail closed", () => {
@@ -253,4 +263,123 @@ test("new export-record table has RLS and no browser-role grants", () => {
   assert.match(sql, /enable row level security/);
   assert.match(sql, /revoke all .* from public, anon, authenticated/);
   assert.match(sql, /grant select, insert, update, delete .* to service_role/);
+});
+
+test("batch manifest is admin-only, uncached, project-scoped and fails closed on read errors", async () => {
+  for (const [options, status] of [[{ loggedOut: true }, 401], [{ missingProject: true }, 404], [{ teamsReadError: true }, 503]]) {
+    const h = harness(options);
+    assert.equal((await h.targets()).status, status);
+    assert.equal(h.writes.length, 0);
+  }
+  const h = harness({ projectTeams: [
+    { id: "one", status: "approved", teams: { short_name: "AWG" } },
+    { id: "two", status: "exported", teams: [{ short_name: "QTD" }] },
+    ...["draft", "returned", "submitted", "reviewing", "unknown"].map((status) => ({ id: status, status, teams: { short_name: "SZ" } })),
+  ] });
+  const response = await h.targets();
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const { targets } = await response.json();
+  assert.deepEqual(targets.filter((target) => target.eligible).map((target) => target.projectTeamId), ["one", "two"]);
+  assert.equal(targets[0].folderId, folderId);
+  assert.equal(targets[1].folderId, "1E8pYrnUX6ykLjJiE1E5plhlRvSPrMgtR");
+  assert.ok(h.queries.some((query) => query.table === "project_teams" && query.column === "project_id" && query.value === "project"));
+});
+
+test("batch upload rejects other projects and rechecks approval and project before upload", async () => {
+  const wrong = harness();
+  assert.equal((await wrong.post({}, "?projectId=other-project")).status, 409);
+  assert.equal(wrong.requests.length, 0);
+  for (const options of [{ nextStatus: "returned" }, { nextProject: "other-project" }]) {
+    const h = harness(options);
+    assert.equal((await h.post({}, "?projectId=project")).status, 409);
+    assert.equal(h.requests.some((request) => request.method === "PUT"), false);
+  }
+  assert.equal((await harness().post({}, "?projectId=project")).status, 200);
+});
+
+const target = (id, eligible = true) => ({ projectTeamId: id, teamName: id, status: eligible ? "approved" : "draft", eligible, folderId });
+const batchResult = { fileUrl: "https://drive.google.com/file/d/report/view", folderUrl: "https://drive.google.com/drive/folders/folder", fileName: "report.xlsx" };
+
+test("batch is sequential, skips unapproved rows and continues after individual failures", async () => {
+  const { prepareDriveBatch, runDriveBatch } = harness().load("src/lib/project-drive-batch.ts");
+  let active = 0, maximum = 0;
+  const calls = [], states = [];
+  const rows = await runDriveBatch({
+    rows: prepareDriveBatch([target("one"), target("skip", false), target("fail"), target("last")]),
+    shouldStop: () => false, onChange: (rows) => states.push(rows),
+    upload: async (row, authorize) => {
+      calls.push(row.projectTeamId); active++; maximum = Math.max(maximum, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      authorize(true); authorize(false); active--;
+      if (row.projectTeamId === "fail") throw new Error("folder is read-only");
+      return batchResult;
+    },
+  });
+  assert.equal(maximum, 1);
+  assert.deepEqual(calls, ["one", "fail", "last"]);
+  assert.equal(rows[1].state, "skipped");
+  assert.equal(rows[2].error, "folder is read-only");
+  assert.equal(rows[3].state, "success");
+  assert.ok(states.some((rows) => rows[0].state === "authorizing"));
+  assert.equal(states[0][0].state, "uploading");
+});
+
+test("retry retains successes, re-reads eligibility and only uploads unfinished reports", async () => {
+  const { prepareDriveBatch, runDriveBatch } = harness().load("src/lib/project-drive-batch.ts");
+  const rows = prepareDriveBatch([target("done"), target("fail"), target("revoked", false), target("new")], [
+    { ...target("done"), state: "success", result: batchResult },
+    { ...target("fail"), state: "failed", error: "old error" },
+    { ...target("revoked"), state: "success", result: batchResult },
+  ]);
+  const calls = [];
+  await runDriveBatch({ rows, shouldStop: () => false, onChange: () => {}, upload: async (row) => { calls.push(row.projectTeamId); return batchResult; } });
+  assert.deepEqual(calls, ["fail", "new"]);
+  assert.equal(rows[1].error, undefined);
+  assert.equal(rows[2].state, "skipped");
+  assert.equal(prepareDriveBatch([target("done")])[0].state, "waiting");
+});
+
+test("stop preserves completed work; expired admin or Google auth pauses remaining queue", async () => {
+  const { prepareDriveBatch, runDriveBatch } = harness().load("src/lib/project-drive-batch.ts");
+  let stop = false;
+  const stopped = await runDriveBatch({ rows: prepareDriveBatch([target("one"), target("two")]),
+    shouldStop: () => stop, onChange: () => {}, upload: async () => { stop = true; return batchResult; } });
+  assert.equal(stopped[0].state, "success");
+  assert.equal(stopped[1].state, "waiting");
+  for (const code of ["google_auth_expired", "admin_auth_required"]) {
+    const paused = await runDriveBatch({ rows: prepareDriveBatch([target("one"), target("two")]),
+      shouldStop: () => false, onChange: () => {}, upload: async () => { throw Object.assign(new Error("expired"), { code }); } });
+    assert.equal(paused[0].state, "failed");
+    assert.equal(paused[1].state, "waiting");
+  }
+});
+
+test("shared client authorizes the exact folder and retries the same project-scoped upload", async () => {
+  let requested = 0, authorized;
+  const h = harness({
+    browserMocks: { authorizeReportFolder: async (_config, _token, folder) => { authorized = folder; } },
+    fetch: async () => ++requested === 1
+      ? Response.json({ code: "folder_authorization_required" }, { status: 409 }) : Response.json(batchResult),
+  });
+  const phases = [];
+  const result = await h.load("src/lib/google-drive-export-client.ts").exportReportToDrive({
+    projectTeamId, projectId: "project", folderId, config: {}, token: "test-token", onAuthorizing: (phase) => phases.push(phase),
+  });
+  assert.equal(result.fileName, batchResult.fileName);
+  assert.equal(authorized, folderId);
+  assert.deepEqual(phases, [true, false]);
+  assert.equal(h.requests.length, 2);
+  assert.equal(h.requests[0].url, h.requests[1].url);
+  assert.match(h.requests[0].url, /\?projectId=project$/);
+});
+
+test("client rejects malformed success and clears expired tokens without exposing them", async () => {
+  const invalid = harness({ fetch: async () => new Response("not JSON") });
+  const args = { projectTeamId, folderId, config: {}, token: "test-token", onAuthorizing: () => {} };
+  await assert.rejects(invalid.load("src/lib/google-drive-export-client.ts").exportReportToDrive(args));
+  let cleared = false;
+  const expired = harness({ browserMocks: { clearGoogleDriveToken: () => { cleared = true; } },
+    fetch: async () => Response.json({ error: "expired", code: "google_auth_expired" }, { status: 401 }) });
+  await assert.rejects(expired.load("src/lib/google-drive-export-client.ts").exportReportToDrive(args), { code: "google_auth_expired" });
+  assert.equal(cleared, true);
 });

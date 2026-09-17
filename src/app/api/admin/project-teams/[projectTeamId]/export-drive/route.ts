@@ -22,11 +22,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ pro
     if (!url || !key) throw new DriveExportError("网站数据库尚未配置。", "not_configured", 503);
     const supabase = createSupabaseServerClient(url, undefined, key);
     const context = await getApprovedReportContext(supabase, projectTeamId);
+    const expectedProjectId = new URL(request.url).searchParams.get("projectId");
+    if (expectedProjectId !== null && context.projectId !== expectedProjectId) {
+      throw new DriveExportError("提交已不属于此项目，请刷新项目后重试。", "project_changed", 409);
+    }
     const folder = getReportDriveFolder(context.teamCode);
     await verifyReportDriveFolder(token, folder.id);
     const { workbook, fileName } = await generateProjectReport(supabase, context);
     const record = await reserveReportDriveFile(supabase, projectTeamId, folder.id, token);
     const latest = await getApprovedReportContext(supabase, projectTeamId);
+    if (expectedProjectId !== null && latest.projectId !== expectedProjectId) {
+      throw new DriveExportError("提交所属项目已变更，本次未上传报告。", "project_changed", 409);
+    }
     if (getReportDriveFolder(latest.teamCode).id !== folder.id) {
       throw new DriveExportError("提交所属战队已变更，请刷新页面后重试。", "team_changed", 409);
     }
