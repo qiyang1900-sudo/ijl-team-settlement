@@ -5,9 +5,10 @@ import {
   getProjectStatusLabel,
   getTemplateTypeLabel,
 } from "@/lib/project-labels";
-import { getAdminStatusLabel, getStatusTone } from "@/lib/status-labels";
+import { getAdminStatusLabel, getStatusTone, isApprovedLike } from "@/lib/status-labels";
 import ReminderButton from "../../reviews/ReminderButton";
 import { isProjectReminderTarget } from "@/lib/submission-reminder-policy";
+import ProjectDriveExport from "./ProjectDriveExport";
 
 type ProjectTeamRow = {
   id: string;
@@ -71,7 +72,7 @@ export default async function ProjectDetailPage({
   const reminderTargetCount = safeProjectTeams.filter(isProjectReminderTarget).length;
 
   return (
-    <main className="min-h-screen bg-slate-950 p-10 text-white">
+    <main className="min-h-screen bg-slate-950 p-4 text-white sm:p-10">
       <div className="mx-auto max-w-6xl">
         <div className="mb-8">
           <Link
@@ -125,6 +126,12 @@ export default async function ProjectDetailPage({
           )}
         </div>
 
+        {!projectError && !teamsError && project ? <ProjectDriveExport
+          projectId={projectId}
+          approvedCount={safeProjectTeams.filter((row) => isApprovedLike(row.status)).length}
+          config={{ clientId: process.env.GOOGLE_DRIVE_CLIENT_ID || "", apiKey: process.env.GOOGLE_PICKER_API_KEY || "", appId: process.env.GOOGLE_CLOUD_PROJECT_NUMBER || "" }}
+        /> : null}
+
         <div className="mt-10">
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
             <div>
@@ -157,8 +164,8 @@ export default async function ProjectDetailPage({
               <p className="text-slate-300">这个项目还没有参与战队。</p>
             </div>
           ) : (
-            <div className="mt-4 overflow-hidden rounded-xl border border-slate-700">
-              <table className="w-full border-collapse bg-slate-900 text-left text-sm">
+            <div className="mt-4 overflow-x-auto rounded-xl border border-slate-700">
+              <table className="w-full min-w-[640px] border-collapse bg-slate-900 text-left text-sm">
                 <thead className="bg-slate-800 text-slate-300">
                   <tr>
                     <th className="px-4 py-3">战队名</th>

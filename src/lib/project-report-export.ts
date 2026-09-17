@@ -80,7 +80,7 @@ export async function getApprovedReportContext(supabase: SupabaseClient, project
   const fileName = `${safeFilePart(String(team?.short_name || team?.name || "team"))}_${safeFilePart(
     String(project?.title || "project")
   )}_export.xlsx`;
-  return { projectTeamId, teamCode: String(team?.short_name || team?.name || ""), fileName };
+  return { projectTeamId, projectId: String(project?.id || ""), teamCode: String(team?.short_name || team?.name || ""), fileName };
 }
 
 export async function generateProjectReport(
