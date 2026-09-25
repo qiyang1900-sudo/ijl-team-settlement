@@ -46,7 +46,7 @@ export function tiktokAccountKey(link: string): string | null {
   if (displayHandle) return `@${displayHandle[1].toLowerCase()}`;
   try {
     const url = new URL(/^https?:\/\//.test(normalized) ? normalized : `https://${normalized}`);
-    if (url.protocol !== "https:" || !(url.hostname === "tiktok.com" || url.hostname.endsWith(".tiktok.com"))) return null;
+    if (!["https:", "http:"].includes(url.protocol) || !(url.hostname === "tiktok.com" || url.hostname.endsWith(".tiktok.com"))) return null;
     const handle = url.pathname.match(/^\/@([A-Za-z0-9_.]+)\/?$/)?.[1];
     if (handle) return `@${handle.toLowerCase()}`;
     const query = url.pathname === "/search" ? url.searchParams.get("q") : null;
@@ -100,7 +100,7 @@ export async function parseTiktokWorkbook(buffer: Buffer, maxMonth: string): Pro
     for (let index = 2; index <= sheet.rowCount; index++) {
       const source = sheet.getRow(index);
       const teamText = String(cellValue(source.getCell(1).value)).normalize("NFKC").trim().toUpperCase();
-      const link = String(cellValue(source.getCell(linkCol).value)).trim();
+      const link = String(cellValue(source.getCell(linkCol).value)).trim().replace(/^http:/, "https:");
       const hasNumbers = Object.keys(metrics).some((key) => cellValue(source.getCell(headers.get(metrics[key as keyof typeof metrics])!).value) !== "");
       if (/合計|合计|总计|TOTAL/i.test(teamText)) { team = ""; continue; }
       if (teamText) {

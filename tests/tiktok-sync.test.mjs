@@ -56,6 +56,7 @@ test("counts preserve true zero, commas and full-width numbers, never coerce mis
 });
 test("account identity ignores tracking parameters, supports short links and rejects other hosts", () => {
   assert.equal(api.tiktokAccountKey("www.tiktok.com/@Nameko1123?x=1"), "@nameko1123");
+  assert.equal(api.tiktokAccountKey("http://www.tiktok.com/@user31067206361655"), "@user31067206361655");
   assert.equal(api.tiktokAccountKey("nameko (@nameko1123) | TikTok"), "@nameko1123");
   assert.equal(api.tiktokAccountKey("https://www.tiktok.com/search?q=%40kruger_2volt&t=2"), "@kruger_2volt");
   assert.equal(api.tiktokAccountKey("https://evil.example/@nameko1123"), null);
