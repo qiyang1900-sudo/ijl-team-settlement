@@ -1,5 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import Link from "next/link";
+import { loadTiktokDataset } from "@/lib/tiktok-dataset";
+import TiktokDataNotice from "../components/TiktokDataNotice";
 import {
   formatMonthLabel,
   formatMonthlyNumber,
@@ -28,7 +30,7 @@ import {
   combineLeagueSummariesForPeriod,
   formatLeagueComparison,
   leagueComparisonMetrics,
-  withLeagueTiktok,
+  buildLeaguePlatformSummaries,
   type LeagueMonthlySummary,
 } from "@/lib/league-platform-summary";
 import LeagueSummaryTable from "./LeagueSummaryTable";
@@ -105,6 +107,7 @@ export default async function LeagueSummaryPage({
   }
 
   const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
+  const tiktok = await loadTiktokDataset(supabase);
   const currentMonth = getCurrentMonthValue();
   const { data: monthRows } = await supabase
     .from("monthly_data_submissions")
@@ -112,6 +115,7 @@ export default async function LeagueSummaryPage({
     .eq("status", "approved")
     .order("target_month", { ascending: true });
   const availableMonths = [
+    ...tiktok.rows.map((row) => row.month),
     ...(monthRows || []).map((row) => String(row.target_month || "")),
     ...historicalLeagueSummaryRows.map((row) => row.month),
   ];
@@ -167,9 +171,9 @@ export default async function LeagueSummaryPage({
   const statusByTeamMonth = buildStatusByTeamMonth(
     (submissionStatusRows || []) as SubmissionStatusRow[]
   );
-  const allMonthlySummaries = applyHistoricalLeagueSummaries(
+  const allMonthlySummaries = buildLeaguePlatformSummaries(applyHistoricalLeagueSummaries(
     summarizeMonthlySubmissions(allRows)
-  ).map((summary) => withLeagueTiktok(summary));
+  ), tiktok.rows, currentMonth);
   const monthlySummaries = allMonthlySummaries.filter(
     (summary) => summary.month >= fromMonth && summary.month <= toMonth
   );
@@ -301,6 +305,7 @@ export default async function LeagueSummaryPage({
 
   return (
     <main className="min-h-screen bg-slate-950 p-8 text-white">
+      <TiktokDataNotice snapshot={tiktok.snapshot} from={fromMonth} to={toMonth} />
       <div className="mx-auto max-w-7xl">
         <Link
           href="/admin/dashboard"

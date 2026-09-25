@@ -1,6 +1,7 @@
 import { formatMonthLabel } from "./monthly-data";
 import {
   combineMonthlySummariesForPeriod,
+  buildMonthlySummary,
   formatMonthlyPercent,
   type MonthlySummary,
 } from "./monthly-summary";
@@ -29,6 +30,15 @@ export function withLeagueTiktok(
   const monthRows = rows.filter((row) => row.month === summary.month);
   const tiktok = summarizeTiktokReportingRows(monthRows);
   return { ...summary, tiktok };
+}
+
+export function buildLeaguePlatformSummaries(summaries: MonthlySummary[], rows: TiktokMonthlyRow[], maxMonth: string) {
+  const months = new Map(summaries.map((summary) => [summary.month, summary]));
+  for (const row of rows) {
+    if (row.month <= maxMonth && !months.has(row.month)) months.set(row.month, buildMonthlySummary(row.month, [], [], 0));
+  }
+  return [...months.values()].filter((summary) => summary.month <= maxMonth)
+    .sort((a, b) => a.month.localeCompare(b.month)).map((summary) => withLeagueTiktok(summary, rows));
 }
 
 export function combineLeagueSummariesForPeriod(

@@ -17,6 +17,8 @@ import {
 import { getPlayerDisplayName } from "@/lib/player-display";
 import { getAdminStatusLabel, isApprovedLike, isWaitingReview } from "@/lib/status-labels";
 import { buildTeamTiktokReport, getTiktokTeamRows } from "@/lib/tiktok-reporting";
+import { loadTiktokDataset } from "@/lib/tiktok-dataset";
+import TiktokDataNotice from "../../components/TiktokDataNotice";
 import PlayerTeamSelect from "../../players/PlayerTeamSelect";
 import TeamMonthlyDataTabs from "./TeamMonthlyDataTabs";
 
@@ -194,6 +196,7 @@ export default async function AdminTeamDetailPage({
   }
 
   const safeTeam = team as TeamRow;
+  const tiktok = await loadTiktokDataset(supabase);
   const safeTeams = (teams || []) as TeamRow[];
   const safePlayers = (players || []) as unknown as PlayerRow[];
   const safeSubmissions = (submissions || []) as MonthlySubmissionRow[];
@@ -214,7 +217,7 @@ export default async function AdminTeamDetailPage({
   const monthlyStats = summarizeMonthlySubmissions(approvedSubmissions);
   const availableMonths = [
     ...monthlyStats.map((row) => row.month),
-    ...getTiktokTeamRows(safeTeam.short_name).map((row) => row.month),
+    ...getTiktokTeamRows(safeTeam.short_name, tiktok.rows).map((row) => row.month),
   ];
   const { fromMonth, toMonth } = normalizeMonthRange({
     from,
@@ -244,6 +247,7 @@ export default async function AdminTeamDetailPage({
 
   return (
     <main className="min-h-screen bg-slate-950 p-8 text-white">
+      <TiktokDataNotice snapshot={tiktok.snapshot} from={fromMonth} to={toMonth} team={safeTeam.short_name} />
       <div className="mx-auto max-w-7xl">
         <Link href="/admin/teams" className="text-sm text-slate-400 hover:text-white">
           ← 返回战队管理
@@ -434,7 +438,7 @@ export default async function AdminTeamDetailPage({
           </div>
 
           <TeamMonthlyDataTabs
-            tiktokReport={buildTeamTiktokReport(safeTeam.short_name, fromMonth, toMonth)}
+            tiktokReport={buildTeamTiktokReport(safeTeam.short_name, fromMonth, toMonth, tiktok.rows)}
             selectedSummary={selectedSummary}
             monthlyStats={filteredMonthlyStats}
           />

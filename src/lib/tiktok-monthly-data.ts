@@ -34,11 +34,12 @@ export const tiktokMonthlyRows =
 
 export function getTiktokMonthlyRows(
   month: string,
-  teamShortName?: string | null
+  teamShortName?: string | null,
+  sourceRows: TiktokMonthlyRow[] = tiktokMonthlyRows
 ) {
   const normalizedTeam = normalizeTeamShortName(teamShortName);
 
-  return tiktokMonthlyRows.filter((row) => {
+  return sourceRows.filter((row) => {
     if (row.month !== month) {
       return false;
     }
@@ -69,9 +70,10 @@ export function getTiktokRowsForMonths(
 
 export function getTiktokMonthlySummary(
   month: string,
-  teamShortName?: string | null
+  teamShortName?: string | null,
+  sourceRows: TiktokMonthlyRow[] = tiktokMonthlyRows
 ): TiktokMonthlySummary {
-  return summarizeTiktokRows(getTiktokMonthlyRows(month, teamShortName));
+  return summarizeTiktokRows(getTiktokMonthlyRows(month, teamShortName, sourceRows));
 }
 
 export function getTiktokPeriodSummary(
