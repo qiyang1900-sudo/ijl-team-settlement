@@ -2,8 +2,8 @@ import { formatMonthlyNumber } from "@/lib/monthly-data";
 
 export type MonthlyChartPoint = {
   label: string;
-  barValue?: number;
-  lineValue?: number;
+  barValue?: number | null;
+  lineValue?: number | null;
 };
 
 type MonthlyComboChartProps = {
@@ -56,32 +56,35 @@ export default function MonthlyComboChart({
     barValue: safeNumber(point.barValue),
     lineValue: safeNumber(point.lineValue),
   }));
-  const hasBars = safePoints.some((point) => point.barValue > 0);
-  const hasLine = safePoints.some((point) => point.lineValue > 0);
-  const barMax = Math.max(...safePoints.map((point) => point.barValue), 1);
-  const lineMax = Math.max(...safePoints.map((point) => point.lineValue), 1);
+  const hasBars = safePoints.some((point) => point.barValue !== null);
+  const hasLine = safePoints.some((point) => point.lineValue !== null);
+  const barMax = Math.max(...safePoints.map((point) => point.barValue ?? 0), 1);
+  const lineMax = Math.max(...safePoints.map((point) => point.lineValue ?? 0), 1);
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const slotWidth = safePoints.length > 0 ? plotWidth / safePoints.length : plotWidth;
   const barWidth = Math.min(20, Math.max(8, slotWidth * 0.48));
   const yTicks = [0, 0.25, 0.5, 0.75, 1];
   const lineCoords = safePoints.map((point, index) => {
+    if (point.lineValue === null) return null;
     const x = padding.left + slotWidth * index + slotWidth / 2;
     const y = padding.top + (1 - point.lineValue / lineMax) * plotHeight;
 
     return { x, y, label: point.label, value: point.lineValue };
   });
   const linePath = lineCoords
-    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+    .map((point, index) => point
+      ? `${index === 0 || !lineCoords[index - 1] ? "M" : "L"} ${point.x} ${point.y}`
+      : "")
     .join(" ");
   const xLabelEvery = Math.max(1, Math.ceil(safePoints.length / 12));
   const insights = showInsights
     ? providedInsights ?? buildChartInsights(safePoints, barLabel, lineLabel)
     : [];
 
-  if (safePoints.length === 0) {
+  if (!hasBars && !hasLine) {
     return (
-      <section className="rounded-lg bg-white p-5 text-slate-600">
+      <section className="min-w-0 rounded-lg bg-white p-5 text-slate-600">
         <h3 className="text-center text-2xl font-bold text-slate-500">{title}</h3>
         <div className="mt-6 flex h-56 items-center justify-center text-sm">
           暂无月数据。
@@ -91,8 +94,8 @@ export default function MonthlyComboChart({
   }
 
   return (
-    <section className="rounded-lg bg-white p-4 text-slate-900">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" className="w-full">
+    <section className="min-w-0 rounded-lg bg-white p-4 text-slate-900">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} className="w-full">
         <rect width={width} height={height} fill="#ffffff" />
         <text
           x={width / 2}
@@ -159,6 +162,7 @@ export default function MonthlyComboChart({
 
         {hasBars
           ? safePoints.map((point, index) => {
+              if (point.barValue === null) return null;
               const x = padding.left + slotWidth * index + slotWidth / 2 - barWidth / 2;
               const barHeight = (point.barValue / barMax) * plotHeight;
               const y = padding.top + plotHeight - barHeight;
@@ -188,6 +192,12 @@ export default function MonthlyComboChart({
             strokeLinejoin="round"
           />
         ) : null}
+
+        {lineCoords.map((point, index) => point ? (
+          <circle key={index} cx={point.x} cy={point.y} r="3" fill={lineColor}>
+            <title>{`${point.label} ${lineLabel}: ${formatMonthlyNumber(point.value)}`}</title>
+          </circle>
+        ) : null)}
 
         {safePoints.map((point, index) =>
           index % xLabelEvery === 0 || index === safePoints.length - 1 ? (
@@ -317,6 +327,10 @@ function buildSeriesInsights(
     const previousValue = previous[key];
     const currentValue = current[key];
 
+    if (previousValue === null || currentValue === null) {
+      continue;
+    }
+
     if (previousValue <= 0 && currentValue <= 0) {
       continue;
     }
@@ -380,6 +394,7 @@ function formatSignedPercent(value: number) {
 }
 
 function safeNumber(value: unknown) {
-  const numberValue = Number(value || 0);
-  return Number.isFinite(numberValue) ? numberValue : 0;
+  if (value === null || value === undefined || value === "") return null;
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
 }

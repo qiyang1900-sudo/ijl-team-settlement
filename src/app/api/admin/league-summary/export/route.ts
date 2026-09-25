@@ -10,16 +10,21 @@ import {
 } from "@/lib/monthly-data";
 import { getCurrentMonthValue } from "@/lib/month-options";
 import {
-  MonthlySummary,
-  combineMonthlySummariesForPeriod,
-  formatMonthlyPercent,
   summarizeMonthlySubmissions,
 } from "@/lib/monthly-summary";
 import {
   applyHistoricalLeagueSummaries,
   getPreviousYearMonth,
 } from "@/lib/league-summary-history";
-import { applyTiktokShortVideoToSummary } from "@/lib/tiktok-monthly-data";
+import {
+  combineLeagueSummariesForPeriod,
+  formatLeagueComparison,
+  leagueComparisonMetrics,
+  leaguePeriodMetrics,
+  leagueSummaryColumns,
+  withLeagueTiktok,
+  type LeagueMonthlySummary,
+} from "@/lib/league-platform-summary";
 
 export const runtime = "nodejs";
 
@@ -117,7 +122,7 @@ export async function GET(request: Request) {
   );
   const allMonthlySummaries = applyHistoricalLeagueSummaries(
     summarizeMonthlySubmissions(allSubmissions)
-  ).map((summary) => applyTiktokShortVideoToSummary(summary));
+  ).map((summary) => withLeagueTiktok(summary));
   const monthlySummaries = allMonthlySummaries.filter(
     (summary) => summary.month >= fromMonth && summary.month <= toMonth
   );
@@ -145,189 +150,45 @@ export async function GET(request: Request) {
 }
 
 function buildSummarySheet(
-  monthlySummaries: MonthlySummary[],
-  allMonthlySummaries: MonthlySummary[],
+  monthlySummaries: LeagueMonthlySummary[],
+  allMonthlySummaries: LeagueMonthlySummary[],
   selectedMonth: string
 ): SheetData {
   const current = allMonthlySummaries.find((summary) => summary.month === selectedMonth);
   const previous = allMonthlySummaries.find(
     (summary) => summary.month === getPreviousYearMonth(selectedMonth)
   );
+  const period = combineLeagueSummariesForPeriod("period", monthlySummaries);
   const rows: SheetRow[] = [
-    {
-      cells: [
-        "数据",
-        "官推条数",
-        "官推互动量",
-        "官推阅读量",
-        "互动率",
-        "粉丝数",
-        "选手推条数",
-        "互动量",
-        "阅读量",
-        "互动率",
-        "选手粉丝数",
-        "YT 登録者",
-        "投稿数量",
-        "视频播放次数",
-        "直播观看次数",
-        "直播次数",
-        "短视频投稿（Shorts+TT）",
-        "短视频播放（Shorts+TT）",
-        "点赞量",
-      ],
-      style: 2,
-    },
+    { cells: leagueSummaryColumns.map((column) => column.label), style: 2 },
     ...monthlySummaries.map((summary) => ({
-      cells: [
-        formatMonthLabel(summary.month),
-        summary.official.xTweetCount,
-        summary.official.xEngagements,
-        summary.official.xImpressions,
-        formatMonthlyPercent(summary.official.xEngagementRate),
-        summary.official.xFollowerCount,
-        summary.players.xTweetCount,
-        summary.players.xEngagements,
-        summary.players.xImpressions,
-        formatMonthlyPercent(summary.players.xEngagementRate),
-        summary.players.xFollowerCount,
-        summary.total.youtubeSubscriberCount,
-        summary.total.youtubeTotalPostCount,
-        summary.total.youtubeVideoViews,
-        summary.total.youtubeStreamViews,
-        summary.total.youtubeStreamCount,
-        summary.total.youtubeShortPostCount,
-        summary.total.youtubeShortViews,
-        summary.total.youtubeLikeCount,
-      ],
+      cells: leagueSummaryColumns.map((column) => column.value(summary)),
     })),
     { cells: [] },
-    {
-      cells: [
-        "当前期间总计算数",
-        "",
-        "总计算数放在表格下方，不混入月度表格行。",
-      ],
-      style: 1,
-    },
+    { cells: ["当前期间总计算数"], style: 1 },
     { cells: ["指标", "数值"], style: 2 },
-    ...buildPeriodTotalRows(monthlySummaries),
+    ...leaguePeriodMetrics.map((metric) => ({
+      cells: [metric.label, metric.value(period)],
+    })),
     { cells: [] },
-    {
-      cells: [
-        `${formatMonthLabel(selectedMonth)} 指定月份总数据`,
-        "",
-        "表格合计放在这里，不混入月度表格行。",
-      ],
-      style: 1,
-    },
+    { cells: [`${formatMonthLabel(selectedMonth)} 指定月份总数据`], style: 1 },
     { cells: ["指标", "当前", "去年同月", "增减"], style: 2 },
-    ...buildComparisonRows(current, previous),
+    ...(current ? leagueComparisonMetrics.map((metric) => ({
+      cells: [
+        metric.label,
+        metric.value(current),
+        previous ? metric.value(previous) : null,
+        formatLeagueComparison(metric.value(current), previous ? metric.value(previous) : null),
+      ],
+    })) : [{ cells: ["暂无该月份数据"], style: 0 }]),
   ];
 
   return {
     name: "汇总",
     rows,
     merges: [],
-    widths: [
-      14, 12, 14, 14, 12, 12, 14, 14, 14, 12, 14, 14, 12, 14, 14, 12, 14,
-      14, 12,
-    ],
+    widths: leagueSummaryColumns.map((column) => column.width),
   };
-}
-
-function buildPeriodTotalRows(monthlySummaries: MonthlySummary[]): SheetRow[] {
-  const summary = combineMonthlySummariesForPeriod(
-    "period",
-    monthlySummaries,
-    monthlySummaries.reduce((sum, row) => sum + row.submissionCount, 0)
-  );
-  const metrics = [
-    { label: "总条数", value: summary.total.xTweetCount },
-    { label: "总曝光", value: summary.total.xImpressions },
-    { label: "总互动", value: summary.total.xEngagements },
-    { label: "视频播放合计", value: summary.total.youtubeVideoViews },
-    { label: "短视频播放合计（Shorts+TT）", value: summary.total.youtubeShortViews },
-    { label: "直播观看合计", value: summary.total.youtubeStreamViews },
-    { label: "直播次数合计", value: summary.total.youtubeStreamCount },
-    { label: "合计播放数", value: summary.total.youtubeTotalPlayback },
-  ];
-
-  return metrics.map((metric) => ({
-    cells: [metric.label, metric.value],
-  }));
-}
-
-function buildComparisonRows(
-  current: MonthlySummary | undefined,
-  previous: MonthlySummary | undefined
-): SheetRow[] {
-  if (!current) {
-    return [{ cells: ["暂无该月份数据", "", "", ""], style: 0 }];
-  }
-
-  const metrics = [
-    {
-      label: "X 总推文",
-      value: current.total.xTweetCount,
-      previous: previous?.total.xTweetCount,
-    },
-    {
-      label: "X 总曝光",
-      value: current.total.xImpressions,
-      previous: previous?.total.xImpressions,
-    },
-    {
-      label: "X 总互动",
-      value: current.total.xEngagements,
-      previous: previous?.total.xEngagements,
-    },
-    {
-      label: "视频播放",
-      value: current.total.youtubeVideoViews,
-      previous: previous?.total.youtubeVideoViews,
-    },
-    {
-      label: "短视频播放（Shorts+TT）",
-      value: current.total.youtubeShortViews,
-      previous: previous?.total.youtubeShortViews,
-    },
-    {
-      label: "直播观看",
-      value: current.total.youtubeStreamViews,
-      previous: previous?.total.youtubeStreamViews,
-    },
-    {
-      label: "直播次数",
-      value: current.total.youtubeStreamCount,
-      previous: previous?.total.youtubeStreamCount,
-    },
-    {
-      label: "YouTube 登録者",
-      value: current.total.youtubeSubscriberCount,
-      previous: previous?.total.youtubeSubscriberCount,
-    },
-  ];
-
-  return metrics.map((metric) => ({
-    cells: [
-      metric.label,
-      metric.value,
-      metric.previous ?? "",
-      formatComparison(metric.value, metric.previous),
-    ],
-  }));
-}
-
-function formatComparison(current: number, previous?: number) {
-  if (!previous) {
-    return "-";
-  }
-
-  const change = (current - previous) / previous;
-  const sign = change > 0 ? "+" : "";
-
-  return `${sign}${(change * 100).toFixed(1)}%`;
 }
 
 function normalizeExportMonth(month: string, maxMonth: string) {

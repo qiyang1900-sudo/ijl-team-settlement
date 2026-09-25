@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test:reminders": "node --test tests/discord-reminders.test.mjs",
-    "test:drive-export": "node --test tests/google-drive-report.test.mjs"
+    "test:drive-export": "node --test tests/google-drive-report.test.mjs",
+    "test:league-summary": "node --test tests/league-platform-summary.test.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
