@@ -5,23 +5,15 @@ import {
   type MonthlySummary,
 } from "./monthly-summary";
 import { getTiktokMonthlyRows, type TiktokMonthlyRow } from "./tiktok-monthly-data";
-
-export type LeagueTiktokMetrics = {
-  followerCount: number | null;
-  postCount: number | null;
-  videoViews: number | null;
-  likeCount: number | null;
-  streamViews: number | null;
-  streamCount: number | null;
-};
+import {
+  combineTiktokReportingMonths,
+  summarizeTiktokReportingRows,
+  type TiktokReportingMetrics,
+} from "./tiktok-reporting";
 
 export type LeagueMonthlySummary = MonthlySummary & {
-  tiktok: LeagueTiktokMetrics;
+  tiktok: TiktokReportingMetrics;
 };
-
-const tiktokMetricKeys = [
-  "followerCount", "postCount", "videoViews", "likeCount", "streamViews", "streamCount",
-] as const;
 
 function completeSum(values: Array<number | null | undefined>): number | null {
   if (!values.length || values.some((value) => value == null || !Number.isFinite(value))) {
@@ -35,9 +27,7 @@ export function withLeagueTiktok(
   rows: TiktokMonthlyRow[] = getTiktokMonthlyRows(summary.month)
 ): LeagueMonthlySummary {
   const monthRows = rows.filter((row) => row.month === summary.month);
-  const tiktok = Object.fromEntries(
-    tiktokMetricKeys.map((key) => [key, completeSum(monthRows.map((row) => row[key]))])
-  ) as LeagueTiktokMetrics;
+  const tiktok = summarizeTiktokReportingRows(monthRows);
   return { ...summary, tiktok };
 }
 
@@ -46,14 +36,9 @@ export function combineLeagueSummariesForPeriod(
   summaries: LeagueMonthlySummary[],
   submissionCount?: number
 ): LeagueMonthlySummary {
-  const latest = [...summaries].sort((a, b) => a.month.localeCompare(b.month)).at(-1);
-  // Missing months stay unknown; follower counts are the last month's snapshot.
-  const tiktok = Object.fromEntries(tiktokMetricKeys.map((key) => [
-    key,
-    key === "followerCount"
-      ? latest?.tiktok.followerCount ?? null
-      : completeSum(summaries.map((summary) => summary.tiktok[key])),
-  ])) as LeagueTiktokMetrics;
+  const tiktok = combineTiktokReportingMonths(
+    summaries.map((summary) => ({ month: summary.month, total: summary.tiktok }))
+  );
   return {
     ...combineMonthlySummariesForPeriod(month, summaries, submissionCount),
     tiktok,
@@ -90,10 +75,9 @@ export const leagueSummaryColumns: LeagueColumn[] = [
   { key: "ttStreams", label: "直播次数（TT）", width: 20, value: (row) => row.tiktok.streamCount },
   { key: "ytShortPosts", label: "短视频投稿（YT）", width: 22, value: (row) => row.total.youtubeShortPostCount },
   { key: "ytShortViews", label: "短视频播放（YT）", width: 22, value: (row) => row.total.youtubeShortViews },
-  { key: "ytLikes", label: "点赞量（YT）", width: 24, value: (row) => row.total.youtubeLikeCount },
+  { key: "ytLikes", label: "短视频点赞量（YT）", width: 24, value: (row) => row.total.youtubeLikeCount },
   { key: "ttPosts", label: "短视频投稿（TT）", width: 22, value: (row) => row.tiktok.postCount },
   { key: "ttViews", label: "短视频播放（TT）", width: 22, value: (row) => row.tiktok.videoViews },
-  { key: "ttLikes", label: "短视频点赞量（TT）", width: 24, value: (row) => row.tiktok.likeCount },
 ];
 
 export type LeagueMetric = {
