@@ -16,7 +16,7 @@ import {
 } from "@/lib/monthly-summary";
 import { getPlayerDisplayName } from "@/lib/player-display";
 import { getAdminStatusLabel, isApprovedLike, isWaitingReview } from "@/lib/status-labels";
-import { applyTiktokShortVideoToSummary } from "@/lib/tiktok-monthly-data";
+import { buildTeamTiktokReport, getTiktokTeamRows } from "@/lib/tiktok-reporting";
 import PlayerTeamSelect from "../../players/PlayerTeamSelect";
 import TeamMonthlyDataTabs from "./TeamMonthlyDataTabs";
 
@@ -211,13 +211,15 @@ export default async function AdminTeamDetailPage({
   const approvedSubmissions = safeSubmissions.filter(
     (submission) => submission.status === "approved"
   );
-  const monthlyStats = summarizeMonthlySubmissions(approvedSubmissions).map(
-    (summary) => applyTiktokShortVideoToSummary(summary, safeTeam.short_name)
-  );
+  const monthlyStats = summarizeMonthlySubmissions(approvedSubmissions);
+  const availableMonths = [
+    ...monthlyStats.map((row) => row.month),
+    ...getTiktokTeamRows(safeTeam.short_name).map((row) => row.month),
+  ];
   const { fromMonth, toMonth } = normalizeMonthRange({
     from,
     to,
-    availableMonths: monthlyStats.map((row) => row.month),
+    availableMonths,
     maxMonth: currentMonth,
   });
   const filteredMonthlyStats = monthlyStats.filter(
@@ -232,7 +234,7 @@ export default async function AdminTeamDetailPage({
         )
       : null;
   const monthOptions = buildMonthOptions(
-    monthlyStats.map((row) => row.month),
+    availableMonths,
     {
       includeRelativeMonths: false,
       includeCurrentMonth: false,
@@ -432,6 +434,7 @@ export default async function AdminTeamDetailPage({
           </div>
 
           <TeamMonthlyDataTabs
+            tiktokReport={buildTeamTiktokReport(safeTeam.short_name, fromMonth, toMonth)}
             selectedSummary={selectedSummary}
             monthlyStats={filteredMonthlyStats}
           />

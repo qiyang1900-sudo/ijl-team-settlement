@@ -128,9 +128,9 @@ export default function MonthlyComboChart({
                 fill="#262626"
                 fontSize="12"
               >
-                {formatMonthlyNumber(Math.round(barMax * tick))}
+                {formatMonthlyNumber(Math.round((hasBars ? barMax : lineMax) * tick))}
               </text>
-              {hasLine ? (
+              {hasLine && hasBars ? (
                 <text
                   x={width - padding.right + 10}
                   y={y + 4}

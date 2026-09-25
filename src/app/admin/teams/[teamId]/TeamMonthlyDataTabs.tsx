@@ -9,23 +9,28 @@ import {
   formatMonthlyPercent,
 } from "@/lib/monthly-summary";
 import MonthlyComboChart from "../../components/MonthlyComboChart";
+import type { TeamTiktokReport } from "@/lib/tiktok-reporting";
+import TeamTiktokPanel from "./TeamTiktokPanel";
 
 type TeamMonthlyDataTabsProps = {
   selectedSummary: MonthlySummary | null;
   monthlyStats: MonthlySummary[];
+  tiktokReport: TeamTiktokReport;
 };
 
 export default function TeamMonthlyDataTabs({
   selectedSummary,
   monthlyStats,
+  tiktokReport,
 }: TeamMonthlyDataTabsProps) {
-  const [view, setView] = useState<"x" | "youtube">("x");
+  const [view, setView] = useState<"x" | "youtube" | "tiktok">("x");
 
   return (
     <>
-      <div className="mt-5 inline-flex overflow-hidden rounded-lg border border-slate-700 bg-slate-950 p-1 text-sm">
+      <div role="group" aria-label="数据平台" className="mt-5 inline-flex overflow-hidden rounded-lg border border-slate-700 bg-slate-950 p-1 text-sm">
         <button
           type="button"
+          aria-pressed={view === "x"}
           onClick={() => setView("x")}
           className={`rounded-md px-4 py-2 font-semibold ${
             view === "x"
@@ -37,6 +42,7 @@ export default function TeamMonthlyDataTabs({
         </button>
         <button
           type="button"
+          aria-pressed={view === "youtube"}
           onClick={() => setView("youtube")}
           className={`rounded-md px-4 py-2 font-semibold ${
             view === "youtube"
@@ -46,9 +52,23 @@ export default function TeamMonthlyDataTabs({
         >
           YouTube
         </button>
+        <button
+          type="button"
+          aria-pressed={view === "tiktok"}
+          onClick={() => setView("tiktok")}
+          className={`rounded-md px-4 py-2 font-semibold ${
+            view === "tiktok"
+              ? "bg-teal-300 text-slate-950"
+              : "text-slate-300 hover:bg-slate-800"
+          }`}
+        >
+          TT
+        </button>
       </div>
 
-      {selectedSummary ? (
+      {view === "tiktok" ? (
+        <TeamTiktokPanel report={tiktokReport} />
+      ) : selectedSummary ? (
         view === "x" ? (
           <XTotalPanel summary={selectedSummary} />
         ) : (
@@ -61,7 +81,7 @@ export default function TeamMonthlyDataTabs({
       {view === "x" ? (
         <section className="mt-6 grid gap-4 xl:grid-cols-2">
           <MonthlyComboChart
-            title="IJL联盟战队推特数据推移"
+            title="战队 X 数据推移"
             barLabel="互动量"
             lineLabel="阅读量"
             barColor="#7e57c2"
@@ -73,7 +93,7 @@ export default function TeamMonthlyDataTabs({
             }))}
           />
           <MonthlyComboChart
-            title="IJL联盟战队推特粉丝数推移"
+            title="战队 X 粉丝数推移"
             lineLabel="粉丝数"
             lineColor="#f4b400"
             points={monthlyStats.map((row) => ({
@@ -82,10 +102,10 @@ export default function TeamMonthlyDataTabs({
             }))}
           />
         </section>
-      ) : (
+      ) : view === "youtube" ? (
         <section className="mt-6 grid gap-4 xl:grid-cols-2">
           <MonthlyComboChart
-            title="IJL联盟Youtube投稿数据"
+            title="战队 YouTube 投稿数据"
             barLabel="视频播放次数"
             lineLabel="登録者数"
             barColor="#ef4444"
@@ -97,9 +117,9 @@ export default function TeamMonthlyDataTabs({
             }))}
           />
           <MonthlyComboChart
-            title="IJL联盟 Shorts / TikTok 短视频数据"
-            barLabel="短视频播放"
-            lineLabel="短视频投稿"
+            title="战队短视频（YT）数据"
+            barLabel="短视频播放（YT）"
+            lineLabel="短视频投稿（YT）"
             barColor="#f97316"
             lineColor="#22c55e"
             points={monthlyStats.map((row) => ({
@@ -109,7 +129,7 @@ export default function TeamMonthlyDataTabs({
             }))}
           />
           <MonthlyComboChart
-            title="IJL联盟Youtube直播数据"
+            title="战队 YouTube 直播数据"
             barLabel="直播观看"
             lineLabel="直播次数"
             barColor="#3b82f6"
@@ -121,7 +141,7 @@ export default function TeamMonthlyDataTabs({
             }))}
           />
         </section>
-      )}
+      ) : null}
     </>
   );
 }
@@ -160,9 +180,9 @@ function YoutubeTotalPanel({ summary }: { summary: MonthlySummary }) {
   return (
     <section className="mt-5 overflow-hidden rounded-lg border border-slate-700">
       <div className="grid gap-3 bg-slate-950 p-4 sm:grid-cols-2 lg:grid-cols-6">
-        <MiniStat label="投稿数量（含短视频）" value={formatMonthlyNumber(summary.total.youtubeTotalPostCount)} />
+        <MiniStat label="投稿数量（YT，含短视频）" value={formatMonthlyNumber(summary.total.youtubeTotalPostCount)} />
         <MiniStat label="视频播放" value={formatMonthlyNumber(summary.total.youtubeVideoViews)} />
-        <MiniStat label="短视频播放（Shorts+TT）" value={formatMonthlyNumber(summary.total.youtubeShortViews)} />
+        <MiniStat label="短视频播放（YT）" value={formatMonthlyNumber(summary.total.youtubeShortViews)} />
         <MiniStat label="直播观看" value={formatMonthlyNumber(summary.total.youtubeStreamViews)} />
         <MiniStat label="合計Imp" value={formatMonthlyNumber(summary.total.youtubeTotalImpressions)} />
         <MiniStat label="登録者数" value={formatMonthlyNumber(summary.total.youtubeSubscriberCount)} />
@@ -198,8 +218,8 @@ function MonthlyXDetailRows({ summary }: { summary: MonthlySummary }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map(({ type, row }) => (
-            <tr key={`${type}-${row.id}`} className="border-t border-slate-800">
+          {rows.map(({ type, row }, index) => (
+            <tr key={`${type}-${row.id}-${index}`} className="border-t border-slate-800">
               <td className="px-4 py-2 text-slate-400">{type}</td>
               <td className="px-4 py-2 font-semibold">{row.playerName}</td>
               <td className="px-4 py-2 text-slate-300">{formatMonthlyNumber(row.xTweetCount)}</td>
@@ -230,18 +250,18 @@ function MonthlyYoutubeDetailRows({ summary }: { summary: MonthlySummary }) {
             <th className="px-4 py-2">名称</th>
             <th className="px-4 py-2">動画投稿</th>
             <th className="px-4 py-2">動画視聴</th>
-            <th className="px-4 py-2">ショート投稿</th>
-            <th className="px-4 py-2">ショート視聴</th>
+            <th className="px-4 py-2">短视频投稿（YT）</th>
+            <th className="px-4 py-2">短视频播放（YT）</th>
             <th className="px-4 py-2">配信回数</th>
             <th className="px-4 py-2">配信視聴</th>
-            <th className="px-4 py-2">いいね</th>
+            <th className="px-4 py-2">短视频点赞量（YT）</th>
             <th className="px-4 py-2">合計Imp</th>
             <th className="px-4 py-2">登録者</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map(({ type, row }) => (
-            <tr key={`${type}-${row.id}`} className="border-t border-slate-800">
+          {rows.map(({ type, row }, index) => (
+            <tr key={`${type}-${row.id}-${index}`} className="border-t border-slate-800">
               <td className="px-4 py-2 text-slate-400">{type}</td>
               <td className="px-4 py-2 font-semibold">{row.playerName}</td>
               <td className="px-4 py-2 text-slate-300">{formatMonthlyNumber(row.youtubeVideoPostCount)}</td>
