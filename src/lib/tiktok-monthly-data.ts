@@ -12,6 +12,7 @@ export type TiktokMonthlyRow = {
   postCount: number;
   streamViews: number;
   videoViews: number;
+  likeCount?: number | null;
 };
 
 export type TiktokMetricSummary = {
