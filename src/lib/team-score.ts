@@ -6,7 +6,7 @@ import {
 } from "./monthly-data";
 import type { MonthlyPlayerRow } from "./monthly-data";
 import { buildMonthlySummary } from "./monthly-summary";
-import { getTiktokMonthlySummary } from "./tiktok-monthly-data";
+import { getTiktokMonthlySummary, tiktokMonthlyRows, type TiktokMonthlyRow } from "./tiktok-monthly-data";
 
 export type TeamScoreTeam = {
   id: string;
@@ -135,7 +135,8 @@ export function buildTeamMonthlyScores(
   teams: TeamScoreTeam[],
   submissions: TeamScoreSubmission[],
   month: string,
-  reviews: TeamScoreReview[] = []
+  reviews: TeamScoreReview[] = [],
+  tiktokRows: TiktokMonthlyRow[] = tiktokMonthlyRows
 ): TeamMonthlyScore[] {
   const submissionsByTeam = new Map<string, TeamScoreSubmission[]>();
   const reviewsByTeam = new Map<string, TeamScoreReview>();
@@ -166,7 +167,8 @@ export function buildTeamMonthlyScores(
         team,
         submissionsByTeam.get(team.id) || [],
         month,
-        reviewsByTeam.get(team.id)
+        reviewsByTeam.get(team.id),
+        tiktokRows
       )
     );
 }
@@ -175,7 +177,8 @@ function calculateTeamMonthlyScore(
   team: TeamScoreTeam,
   submissions: TeamScoreSubmission[],
   month: string,
-  review: TeamScoreReview | undefined
+  review: TeamScoreReview | undefined,
+  tiktokRows: TiktokMonthlyRow[]
 ): TeamMonthlyScore {
   const teamName = team.name || getTeamShortName(team);
   const shortName = getTeamShortName(team);
@@ -215,7 +218,7 @@ function calculateTeamMonthlyScore(
   }
 
   const summary = buildMonthlySummary(month, officialRows, playerRows, submissions.length);
-  const tiktokSummary = getTiktokMonthlySummary(month, shortName);
+  const tiktokSummary = getTiktokMonthlySummary(month, shortName, tiktokRows);
   const youtubeShortPosts = summary.total.youtubeShortPostCount;
   const tiktokShortPosts = tiktokSummary.total.postCount;
   const metrics = {

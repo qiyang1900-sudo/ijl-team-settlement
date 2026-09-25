@@ -22,7 +22,7 @@ import {
   leagueComparisonMetrics,
   leaguePeriodMetrics,
   leagueSummaryColumns,
-  withLeagueTiktok,
+  buildLeaguePlatformSummaries,
   type LeagueMonthlySummary,
 } from "@/lib/league-platform-summary";
 
@@ -95,6 +95,8 @@ export async function GET(request: Request) {
   }
 
   const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
+  const { loadTiktokDataset } = await import("@/lib/tiktok-dataset");
+  const tiktok = await loadTiktokDataset(supabase);
   const { data, error } = await supabase
     .from("monthly_data_submissions")
     .select(
@@ -120,9 +122,9 @@ export async function GET(request: Request) {
     (submission) =>
       submission.target_month >= fromMonth && submission.target_month <= toMonth
   );
-  const allMonthlySummaries = applyHistoricalLeagueSummaries(
+  const allMonthlySummaries = buildLeaguePlatformSummaries(applyHistoricalLeagueSummaries(
     summarizeMonthlySubmissions(allSubmissions)
-  ).map((summary) => withLeagueTiktok(summary));
+  ), tiktok.rows, currentMonth);
   const monthlySummaries = allMonthlySummaries.filter(
     (summary) => summary.month >= fromMonth && summary.month <= toMonth
   );

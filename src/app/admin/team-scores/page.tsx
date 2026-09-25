@@ -1,6 +1,8 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { loadTiktokDataset } from "@/lib/tiktok-dataset";
+import TiktokDataNotice from "../components/TiktokDataNotice";
 import { redirect } from "next/navigation";
 import {
   formatMonthLabel,
@@ -124,7 +126,8 @@ async function saveTeamScoreReview(formData: FormData) {
     [team as TeamRow],
     (submissions || []) as MonthlySubmissionRow[],
     targetMonth,
-    [draftReview]
+    [draftReview],
+    (await loadTiktokDataset(supabase)).rows
   );
 
   if (!calculatedScore?.hasApprovedData) {
@@ -210,6 +213,7 @@ export default async function AdminTeamScoresPage({
     .eq("target_month", selectedMonth);
 
   const safeTeams = (teams || []) as TeamRow[];
+  const tiktok = await loadTiktokDataset(supabase);
   const safeSubmissions = (submissions || []) as MonthlySubmissionRow[];
   const safeReviews = reviewRowsError
     ? []
@@ -218,7 +222,8 @@ export default async function AdminTeamScoresPage({
     safeTeams,
     safeSubmissions,
     selectedMonth,
-    safeReviews
+    safeReviews,
+    tiktok.rows
   );
   const scoreTableReady = !reviewRowsError;
   const approvedCount = scores.filter((score) => score.hasApprovedData).length;
@@ -234,6 +239,7 @@ export default async function AdminTeamScoresPage({
 
   return (
     <main className="min-h-screen bg-slate-950 p-8 text-white">
+      <TiktokDataNotice snapshot={tiktok.snapshot} from={selectedMonth} to={selectedMonth} />
       <div className="mx-auto max-w-7xl">
         <Link
           href="/admin/dashboard"

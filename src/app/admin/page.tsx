@@ -1,4 +1,5 @@
 import Link from "next/link";
+import TiktokSyncButton from "./components/TiktokSyncButton";
 
 export default function AdminPage() {
   return (
@@ -14,6 +15,7 @@ export default function AdminPage() {
           项目创建、战队管理、审核、提醒、Excel导出都将在这里管理。
         </p>
 
+        <div id="tiktok-sync"><TiktokSyncButton /></div>
         <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           <Link
             href="/admin/projects"

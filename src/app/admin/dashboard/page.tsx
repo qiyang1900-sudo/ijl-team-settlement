@@ -1,4 +1,5 @@
 import Link from "next/link";
+import TiktokSyncButton from "../components/TiktokSyncButton";
 
 export default function AdminDashboardPage() {
   return (
@@ -13,6 +14,7 @@ export default function AdminDashboardPage() {
           管理项目进度、战队资料与进度、选手名单、提交审核和月数据审核。
         </p>
 
+        <div id="tiktok-sync"><TiktokSyncButton /></div>
         <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           <Link
             href="/admin/projects"
