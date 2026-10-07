@@ -8,6 +8,10 @@ import {
   useRef,
   useState,
 } from "react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import MonthlyContentFields from "./MonthlyContentFields";
+import { type MonthlyContentEntry, parseMonthlyContent, shouldConfirmEmptyContent, validateMonthlyContent } from "@/lib/monthly-content";
 import {
   MonthlyPlayerRow,
   formatMonthlyNumber,
@@ -18,6 +22,7 @@ import {
   ClubActivityItem,
   emptyClubActivityItem,
   hasClubActivityContent,
+  validatePopularActivities,
 } from "@/lib/club-activities";
 
 export type MonthlyDataActionState = {
@@ -25,6 +30,11 @@ export type MonthlyDataActionState = {
   message?: string;
   redirectTo?: string;
   submittedAt?: number;
+  actionType?: string;
+  savedOfficialRow?: MonthlyPlayerRow;
+  savedPlayers?: MonthlyPlayerRow[];
+  savedActivities?: ClubActivityItem[];
+  savedContent?: MonthlyContentEntry[];
 };
 
 type MonthlyDataFormProps = {
@@ -37,6 +47,7 @@ type MonthlyDataFormProps = {
   initialOfficialRow: MonthlyPlayerRow;
   initialPlayers: MonthlyPlayerRow[];
   clubActivityItems: ClubActivityItem[];
+  initialContentEntries?: MonthlyContentEntry[];
   isMonthlyDataLocked: boolean;
   isSalaryLocked: boolean;
   canSaveSalaryScreenshots: boolean;
@@ -110,6 +121,7 @@ type LocalMonthlyDraft = {
   officialRow?: MonthlyPlayerRow;
   players?: MonthlyPlayerRow[];
   activities?: ClubActivityItem[];
+  contentEntries?: MonthlyContentEntry[];
   savedAt?: number;
 };
 
@@ -128,21 +140,30 @@ export default function MonthlyDataForm({
   initialOfficialRow,
   initialPlayers,
   clubActivityItems,
+  initialContentEntries = [],
   isMonthlyDataLocked,
   isSalaryLocked,
   canSaveSalaryScreenshots,
   isDataScreenshotRequired,
 }: MonthlyDataFormProps) {
-  const [actionState, formAction, isPending] = useActionState(
-    action,
-    initialActionState
-  );
+  const router = useRouter();
   const [activities, setActivities] = useState<ClubActivityItem[]>(
     clubActivityItems.length > 0 ? clubActivityItems : [emptyClubActivityItem()]
   );
   const [officialRow, setOfficialRow] =
     useState<MonthlyPlayerRow>(initialOfficialRow);
   const [players, setPlayers] = useState<MonthlyPlayerRow[]>(initialPlayers);
+  const [contentEntries, setContentEntries] = useState(initialContentEntries);
+  const [page, setPage] = useState<1 | 2>(1);
+  const [confirmEmptyPage, setConfirmEmptyPage] = useState(false);
+  const monthlyFormRef = useRef<HTMLFormElement>(null);
+  const salaryFormRef = useRef<HTMLFormElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const confirmedEmptyRef = useRef(false);
+  const submitterRef = useRef<HTMLButtonElement | null>(null);
+  const restoredKeyRef = useRef("");
+  const feedbackRef = useRef<HTMLDivElement>(null);
+  const contentAccounts = [{ id: "official", name: officialRow.playerName || "公式アカウント" }, ...players.map((player) => ({ id: player.playerId || player.id, name: player.playerName }))];
   const [clientError, setClientError] = useState("");
   const [clientInfo, setClientInfo] = useState("");
   const [draftReady, setDraftReady] = useState(false);
@@ -164,49 +185,108 @@ export default function MonthlyDataForm({
     [players]
   );
 
-  useEffect(() => {
-    if (actionState.status !== "success" || !actionState.redirectTo) {
+  function applySavedResult(result: MonthlyDataActionState) {
+    setClientInfo("");
+    confirmedEmptyRef.current = false;
+    if (result.status !== "success") {
       return;
     }
-
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(draftStorageKey);
+    const salaryAction = result.actionType?.startsWith("salary_screenshots");
+    if (result.savedPlayers) {
+      setPlayers((current) => current.map((player, index) => {
+        const saved = findSavedPlayerForDraft(player, result.savedPlayers!, index);
+        if (!saved) return player;
+        if (salaryAction) return { ...player, salaryAmount: saved.salaryAmount, salaryScreenshotName: saved.salaryScreenshotName, salaryScreenshotUrl: saved.salaryScreenshotUrl, salaryScreenshotStoragePath: saved.salaryScreenshotStoragePath, salaryScreenshotMimeType: saved.salaryScreenshotMimeType };
+        return { ...saved, salaryAmount: player.salaryAmount, salaryScreenshotName: player.salaryScreenshotName, salaryScreenshotUrl: player.salaryScreenshotUrl, salaryScreenshotStoragePath: player.salaryScreenshotStoragePath, salaryScreenshotMimeType: player.salaryScreenshotMimeType };
+      }));
     }
+    if (!salaryAction) {
+      if (result.savedOfficialRow) setOfficialRow(result.savedOfficialRow);
+      if (result.savedActivities) setActivities(result.savedActivities.length ? result.savedActivities : [emptyClubActivityItem()]);
+      if (result.savedContent) setContentEntries(result.savedContent);
+    }
+    const savedForm = salaryAction ? salaryFormRef.current : monthlyFormRef.current;
+    savedForm?.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach((input) => { input.value = ""; });
+    confirmedEmptyRef.current = false;
+    setClientInfo("");
+    setRestoredDraftAt(null);
+    router.refresh();
+  }
 
-    window.location.assign(actionState.redirectTo);
-  }, [actionState, draftStorageKey]);
+  const [actionState, formAction, isPending] = useActionState(
+    async (state: MonthlyDataActionState, formData: FormData) => {
+      try {
+        const result = await action(state, formData);
+        applySavedResult(result);
+        return result;
+      } catch (error) {
+        setClientInfo("");
+        confirmedEmptyRef.current = false;
+        return { status: "error" as const, message: `送信に失敗しました。入力内容はこの画面に保持されています。${error instanceof Error ? error.message : "接続を確認して再度お試しください。"}` };
+      }
+    },
+    initialActionState
+  );
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (confirmEmptyPage) dialogRef.current?.showModal();
+    else dialogRef.current?.close();
+  }, [confirmEmptyPage]);
+
+  useEffect(() => {
+    if (clientError || actionState.status === "error") {
+      feedbackRef.current?.focus();
+    }
+  }, [clientError, actionState]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || restoredKeyRef.current === draftStorageKey) {
       return;
     }
 
     const timeoutId = window.setTimeout(() => {
+      restoredKeyRef.current = draftStorageKey;
       const rawDraft = window.localStorage.getItem(draftStorageKey);
 
       if (rawDraft) {
         try {
           const draft = JSON.parse(rawDraft) as LocalMonthlyDraft;
 
-          if (draft.officialRow) {
+          if (draft.officialRow && !isMonthlyDataLocked) {
             setOfficialRow(
               mergeLocalDraftRowWithSavedFiles(draft.officialRow, initialOfficialRow)
             );
           }
 
           if (Array.isArray(draft.players)) {
+            const draftPlayers = draft.players;
             setPlayers(
-              draft.players.map((player, index) =>
-                mergeLocalDraftRowWithSavedFiles(
-                  player,
-                  findSavedPlayerForDraft(player, initialPlayers, index)
-                )
-              )
+              initialPlayers.map((saved, index) => {
+                const draftRow = findSavedPlayerForDraft(saved, draftPlayers, index);
+                if (!draftRow) return saved;
+                const merged = mergeLocalDraftRowWithSavedFiles(draftRow, saved);
+                const salary = isSalaryLocked ? saved : merged;
+                return {
+                  ...(isMonthlyDataLocked ? saved : merged),
+                  salaryAmount: salary.salaryAmount,
+                  salaryScreenshotName: salary.salaryScreenshotName,
+                  salaryScreenshotUrl: salary.salaryScreenshotUrl,
+                  salaryScreenshotStoragePath: salary.salaryScreenshotStoragePath,
+                  salaryScreenshotMimeType: salary.salaryScreenshotMimeType,
+                };
+              })
             );
           }
 
-          if (Array.isArray(draft.activities) && draft.activities.length > 0) {
+          if (!isMonthlyDataLocked && Array.isArray(draft.activities) && draft.activities.length > 0) {
             setActivities(draft.activities);
+          }
+          if (Array.isArray(draft.contentEntries) && !isMonthlyDataLocked) {
+            const savedById = new Map(initialContentEntries.map((entry) => [entry.id, entry]));
+            setContentEntries(parseMonthlyContent(draft.contentEntries).map((entry) => {
+              const saved = savedById.get(entry.id);
+              return saved?.imageUrl ? { ...entry, imageName: saved.imageName, imageUrl: saved.imageUrl, imageStoragePath: saved.imageStoragePath, imageMimeType: saved.imageMimeType } : entry;
+            }));
           }
 
           setRestoredDraftAt(draft.savedAt || Date.now());
@@ -219,7 +299,7 @@ export default function MonthlyDataForm({
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
-  }, [draftStorageKey, initialOfficialRow, initialPlayers]);
+  }, [draftStorageKey, initialOfficialRow, initialPlayers, initialContentEntries, isMonthlyDataLocked, isSalaryLocked]);
 
   useEffect(() => {
     if (!draftReady || typeof window === "undefined") {
@@ -231,6 +311,7 @@ export default function MonthlyDataForm({
         officialRow,
         players,
         activities,
+        contentEntries,
         savedAt: Date.now(),
       };
 
@@ -244,7 +325,7 @@ export default function MonthlyDataForm({
     }, 350);
 
     return () => window.clearTimeout(timeoutId);
-  }, [activities, draftReady, draftStorageKey, officialRow, players]);
+  }, [activities, contentEntries, draftReady, draftStorageKey, officialRow, players]);
 
   function updatePlayer(index: number, key: PlayerField, value: string) {
     setPlayers((current) =>
@@ -293,6 +374,7 @@ export default function MonthlyDataForm({
     setRestoredDraftAt(null);
     setOfficialRow(initialOfficialRow);
     setPlayers(initialPlayers);
+    setContentEntries(initialContentEntries);
     setActivities(
       clubActivityItems.length > 0 ? clubActivityItems : [emptyClubActivityItem()]
     );
@@ -312,6 +394,39 @@ export default function MonthlyDataForm({
     const fileEntries = getFormFileEntries(form);
 
     setClientError("");
+    if (isPending || isCompressingRef.current) { event.preventDefault(); return; }
+    const actionType = submitter?.value || "draft";
+    if (actionType === "submit") {
+      if (!confirmedEmptyRef.current && shouldConfirmEmptyContent(actionType, contentEntries)) {
+        event.preventDefault();
+        submitterRef.current = submitter;
+        setClientInfo("");
+        setConfirmEmptyPage(true);
+        return;
+      }
+      const contentErrors = validateMonthlyContent(contentEntries, selectedMonth, contentAccounts.map((account) => account.id));
+      if (contentErrors.length) {
+        event.preventDefault();
+        confirmedEmptyRef.current = false;
+        setPage(2);
+        setClientInfo("");
+        setClientError(contentErrors.join("\n"));
+        return;
+      }
+      const ack = form.elements.namedItem("content_page_acknowledged") as HTMLInputElement;
+      ack.value = confirmedEmptyRef.current ? "yes" : "no";
+      const activityErrors = validatePopularActivities(activities, selectedMonth);
+      if (activityErrors.length) {
+        event.preventDefault(); setPage(1); setClientInfo(""); setClientError(activityErrors.join("\n")); return;
+      }
+      if (!form.checkValidity()) {
+        event.preventDefault();
+        setPage(1);
+        setClientInfo("");
+        setClientError("1ページ目の必須スクリーンショットと数値を確認してください。");
+        return;
+      }
+    }
 
     if (fileEntries.length === 0) {
       setClientInfo(getSubmittingMessage(submitter?.value));
@@ -399,8 +514,9 @@ export default function MonthlyDataForm({
 
   return (
     <div className="space-y-6">
+      <div ref={feedbackRef} tabIndex={-1} className="space-y-3 outline-none">
       {clientError ? (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">
+        <div role="alert" className="whitespace-pre-line rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">
           {clientError}
         </div>
       ) : null}
@@ -429,7 +545,7 @@ export default function MonthlyDataForm({
       ) : null}
 
       {actionState.status === "error" ? (
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">
+        <div role="alert" className="whitespace-pre-line rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">
           {actionState.message || "保存できませんでした。入力内容を確認してください。"}
         </div>
       ) : null}
@@ -439,6 +555,7 @@ export default function MonthlyDataForm({
           {actionState.message || "保存しました。画面を更新しています。"}
         </div>
       ) : null}
+      </div>
 
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -458,7 +575,7 @@ export default function MonthlyDataForm({
         </div>
       </section>
 
-      <form action={formAction} onSubmitCapture={handleFormSubmit} className="space-y-6">
+      <form ref={salaryFormRef} action={formAction} onReset={(event) => event.preventDefault()} onSubmitCapture={handleFormSubmit} className="space-y-6">
         <input type="hidden" name="team_id" value={teamId} />
         <input
           type="hidden"
@@ -483,7 +600,9 @@ export default function MonthlyDataForm({
         />
       </form>
 
-      <form action={formAction} onSubmitCapture={handleFormSubmit} className="space-y-6">
+      <form ref={monthlyFormRef} action={formAction} noValidate onReset={(event) => event.preventDefault()} onSubmitCapture={handleFormSubmit} className="space-y-6">
+        <input type="hidden" name="content_entries" value={JSON.stringify(contentEntries)} />
+        <input type="hidden" name="content_page_acknowledged" defaultValue="no" />
         <input type="hidden" name="team_id" value={teamId} />
         <input
           type="hidden"
@@ -499,6 +618,11 @@ export default function MonthlyDataForm({
           value={JSON.stringify(activities)}
         />
 
+        <nav aria-label="月データのページ" className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+          <button type="button" aria-current={page === 1 ? "step" : undefined} onClick={() => setPage(1)} className={`rounded-md px-4 py-2 text-sm font-semibold ${page === 1 ? "bg-emerald-600 text-white" : "bg-white text-slate-700"}`}>1. 月データ</button>
+          <button type="button" aria-current={page === 2 ? "step" : undefined} onClick={() => setPage(2)} className={`rounded-md px-4 py-2 text-sm font-semibold ${page === 2 ? "bg-emerald-600 text-white" : "bg-white text-slate-700"}`}>2. 動画・投稿実績</button>
+        </nav>
+        <div hidden={page !== 1} className="space-y-6">
         <MetricSection
           title="② X"
           kind="x"
@@ -530,13 +654,15 @@ export default function MonthlyDataForm({
           removeActivity={removeActivity}
           disabled={isMonthlyDataLocked || isPending}
         />
+        </div>
+        <div hidden={page !== 2}>
+          <MonthlyContentFields entries={contentEntries} onChange={(entries) => { confirmedEmptyRef.current = false; setContentEntries(entries); }} accounts={contentAccounts} disabled={isMonthlyDataLocked || isPending} />
+        </div>
 
         <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-sm font-bold text-slate-900">月データ</p>
-          <p className="mt-1 text-xs text-slate-500">
-            X、YouTube、クラブ活動の内容を保存・提出します。
-          </p>
           <div className="mt-4 flex flex-wrap gap-3">
+            <button type="button" onClick={() => setPage(page === 1 ? 2 : 1)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700">{page === 1 ? <>次へ<ArrowRight size={16} /></> : <><ArrowLeft size={16} />戻る</>}</button>
             <button
               type="submit"
               name="action_type"
@@ -560,6 +686,14 @@ export default function MonthlyDataForm({
           </div>
         </div>
       </form>
+      <dialog ref={dialogRef} aria-labelledby="empty-content-title" aria-describedby="empty-content-description" onCancel={() => setConfirmEmptyPage(false)} onClose={() => setConfirmEmptyPage(false)} className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-lg border border-slate-200 bg-white p-6 text-slate-950 shadow-xl backdrop:bg-black/40">
+        <h2 id="empty-content-title" className="text-lg font-bold">2ページ目が未入力です</h2>
+        <p id="empty-content-description" className="mt-3 text-sm leading-6 text-slate-600">動画・投稿実績のページがまだ入力されていません。入力せずに月データを審査へ提出しますか？</p>
+        <div className="mt-6 flex flex-wrap justify-end gap-3">
+          <button type="button" autoFocus onClick={() => { setConfirmEmptyPage(false); setPage(2); }} className="rounded-md border border-slate-300 px-4 py-2.5 text-sm font-semibold">戻って入力する</button>
+          <button type="button" onClick={() => { confirmedEmptyRef.current = true; setConfirmEmptyPage(false); monthlyFormRef.current?.requestSubmit(submitterRef.current || undefined); }} className="rounded-md bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white">入力せずに提出</button>
+        </div>
+      </dialog>
     </div>
   );
 }
@@ -654,6 +788,15 @@ function ClubActivitySection({
               </label>
             </div>
 
+            <div className="mt-4 border-t border-slate-200 pt-3">
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-800"><input type="checkbox" checked={Boolean(activity.popular)} disabled={disabled} onChange={(event) => updateActivity(index, { popular: event.target.checked })} />人気イベント加点を申請する</label>
+              <p className="mt-1 text-xs leading-5 text-slate-500">オンライン視聴3,000超／オフライン参加100人超／対象大会の同時視聴1,000以上</p>
+              {activity.popular && <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                <label className="grid gap-1 text-xs text-slate-600">活動種別<select disabled={disabled} value={activity.popularKind || "online"} onChange={(event) => updateActivity(index, { popularKind: event.target.value as ClubActivityItem["popularKind"] })} className="min-w-0 rounded-md border border-slate-300 bg-white p-2 text-sm"><option value="online">オンラインイベント・配信</option><option value="offline">オフラインイベント</option><option value="tournament">第三者主催大会（非公式スポンサー）</option></select></label>
+                <label className="grid gap-1 text-xs text-slate-600">実施日<input type="date" disabled={disabled} value={activity.activityDate || ""} onChange={(event) => updateActivity(index, { activityDate: event.target.value })} className="min-w-0 rounded-md border border-slate-300 bg-white p-2 text-sm" /></label>
+                <label className="grid gap-1 text-xs text-slate-600">{activity.popularKind === "offline" ? "参加人数" : activity.popularKind === "tournament" ? "同時視聴者数" : "視聴数"}<input inputMode="numeric" disabled={disabled} value={activity.audienceCount ?? ""} onChange={(event) => updateActivity(index, { audienceCount: event.target.value })} className="min-w-0 rounded-md border border-slate-300 bg-white p-2 text-sm" /></label>
+              </div>}
+            </div>
             {activity.imageUrl ? (
               <a
                 href={activity.imageUrl}

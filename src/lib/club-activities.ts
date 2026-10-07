@@ -5,6 +5,10 @@ export type ClubActivityItem = {
   imageName: string;
   imageMimeType: string;
   imageStoragePath: string;
+  popular?: boolean;
+  popularKind?: "online" | "offline" | "tournament";
+  activityDate?: string;
+  audienceCount?: string;
 };
 
 export function emptyClubActivityItem(index = 0): ClubActivityItem {
@@ -77,7 +81,7 @@ export function serializeClubActivityItems(items: ClubActivityItem[]) {
 
 export function hasClubActivityContent(item: ClubActivityItem) {
   return Boolean(
-    item.link.trim() || item.imageUrl.trim() || item.imageName.trim()
+    item.link.trim() || item.imageUrl.trim() || item.imageName.trim() || item.popular
   );
 }
 
@@ -98,5 +102,22 @@ function normalizeClubActivityItem(value: unknown, index: number): ClubActivityI
     imageName: String(row.imageName || "").trim(),
     imageMimeType: String(row.imageMimeType || "").trim(),
     imageStoragePath: String(row.imageStoragePath || "").trim(),
+    popular: row.popular === true,
+    popularKind: row.popularKind === "offline" || row.popularKind === "tournament" ? row.popularKind : "online",
+    activityDate: String(row.activityDate || ""),
+    audienceCount: String(row.audienceCount ?? ""),
   };
+}
+
+export function validatePopularActivities(items: ClubActivityItem[], month: string) {
+  const errors: string[] = [];
+  items.forEach((item, index) => {
+    if (!item.popular) return;
+    const prefix = `クラブ活動 ${index + 1}`;
+    const date = new Date(`${item.activityDate}T00:00:00Z`);
+    if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== item.activityDate || !item.activityDate?.startsWith(`${month}-`)) errors.push(`${prefix}：対象月内の実施日を入力してください。`);
+    if (!/^\d+$/.test(item.audienceCount || "") || !Number.isSafeInteger(Number(item.audienceCount))) errors.push(`${prefix}：視聴数・参加人数を0以上の整数で入力してください。`);
+    if (!item.link.trim() && !item.imageUrl && !item.imageName) errors.push(`${prefix}：人気イベント申請のリンクまたは証明画像を添付してください。`);
+  });
+  return errors;
 }

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatDateTime } from "@/lib/date-format";
 import { parseClubActivityItems } from "@/lib/club-activities";
+import MonthlyContentReview from "../components/MonthlyContentReview";
 import { sendMonthlyReturnReminder } from "@/lib/return-reminders";
 import DeleteMonthlySubmissionButton from "./DeleteMonthlySubmissionButton";
 import ImagePreview from "./ImagePreview";
@@ -40,6 +41,8 @@ type MonthlySubmissionRow = {
   status: string;
   salary_status?: string | null;
   player_rows: unknown;
+  content_entries?: unknown;
+  content_skipped?: boolean;
   club_activity_link: string | null;
   club_activity_image_url: string | null;
   club_activity_image_name: string | null;
@@ -793,6 +796,7 @@ function ReviewRow({
           <div className="space-y-4">
             <OfficialDataPanel officialRow={officialRow} />
             <ActivityPanel row={row} />
+            <MonthlyContentReview value={row.content_entries} skipped={row.content_skipped} />
           </div>
         </div>
       )}
@@ -1043,6 +1047,7 @@ function ActivityPanel({ row }: { row: MonthlySubmissionRow }) {
                   {activity.link}
                 </a>
               ) : null}
+              {activity.popular && <p className="mt-2 text-xs text-amber-300">人气活动申报，需人工复核：{activity.activityDate} · {activity.popularKind === "offline" ? "线下参与人数" : activity.popularKind === "tournament" ? "第三方赛事同时观看人数" : "线上观看数"} {activity.audienceCount || "未填"}</p>}
               {activity.imageUrl ? (
                 <div className="mt-3">
                   <ImagePreview
