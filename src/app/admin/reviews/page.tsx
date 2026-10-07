@@ -31,6 +31,7 @@ import {
 import ImagePreview from "../reward/ImagePreview";
 import AutoDiscordReminderNudge from "./AutoDiscordReminderNudge";
 import ReminderButton from "./ReminderButton";
+import MonthlyContentReview from "../components/MonthlyContentReview";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +60,8 @@ type MonthlySubmissionReviewRow = {
   status: string;
   salary_status?: string | null;
   player_rows?: unknown;
+  content_entries?: unknown;
+  content_skipped?: boolean;
   club_activity_link?: string | null;
   club_activity_image_url?: string | null;
   club_activity_image_name?: string | null;
@@ -258,6 +261,8 @@ export default async function AdminReviewsPage({
           status,
           salary_status,
           player_rows,
+          content_entries,
+          content_skipped,
           club_activity_link,
           club_activity_image_url,
           club_activity_image_name,
@@ -890,6 +895,7 @@ function InlineMonthlyDetails({
         <OfficialDataPanel officialRow={officialRow} />
         <PlayerDataTable players={playerRows} />
         <ActivityPanel row={row} />
+        <MonthlyContentReview value={row.content_entries} skipped={row.content_skipped} />
       </div>
     </details>
   );
@@ -1090,6 +1096,7 @@ function ActivityPanel({ row }: { row: MonthlySubmissionReviewRow }) {
                   {activity.link}
                 </a>
               ) : null}
+              {activity.popular && <p className="mt-2 text-xs text-amber-300">人气活动申报，需人工复核：{activity.activityDate} · {activity.popularKind === "offline" ? "线下参与人数" : activity.popularKind === "tournament" ? "第三方赛事同时观看人数" : "线上观看数"} {activity.audienceCount || "未填"}</p>}
               {activity.imageUrl ? (
                 <div className="mt-3">
                   <ImagePreview
