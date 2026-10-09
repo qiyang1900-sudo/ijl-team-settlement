@@ -167,11 +167,13 @@ export default function IncentiveScoreBoard({
               {sorted.map((team) => (
                 <tr key={team.teamId} className="border-b border-slate-800">
                   <td className="px-3 py-3">
-                    {!team.eligible
-                      ? "不参评"
-                      : result.scoreIncomplete
-                        ? "待计算"
-                        : (team.rank ?? "五名外")}
+                    {team.a.score === null
+                      ? "资格待确认"
+                      : !team.eligible
+                        ? "不参评"
+                        : result.scoreIncomplete
+                          ? "待计算"
+                          : (team.rank ?? "五名外")}
                   </td>
                   <th className="px-3 py-3">{team.shortName}</th>
                   <td className="px-3 py-3">{number(team.a.score)}</td>
@@ -491,7 +493,11 @@ function TeamCard({
           <p className="text-xs text-amber-200">{status}</p>
           <p className="mt-2 text-2xl font-bold tabular-nums">
             {number(team.total)}
-            <span className="ml-1 text-xs font-normal text-slate-400">分</span>
+            {team.total !== null && (
+              <span className="ml-1 text-xs font-normal text-slate-400">
+                分
+              </span>
+            )}
           </p>
         </div>
       </header>

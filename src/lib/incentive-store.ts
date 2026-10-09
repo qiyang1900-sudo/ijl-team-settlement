@@ -92,43 +92,57 @@ export async function loadIncentiveWorkspace(
   supabase: SupabaseClient,
   month: string,
 ) {
-  const { data: teamRows, error: teamsError } = await supabase
-    .from("teams")
-    .select("id,name,short_name,is_active")
-    .order("short_name");
+  const [
+    teamResult,
+    submissionResult,
+    reviewResult,
+    snapshotResult,
+    legacyResult,
+    tiktok,
+  ] = await Promise.all([
+    supabase
+      .from("teams")
+      .select("id,name,short_name,is_active")
+      .order("short_name"),
+    supabase
+      .from("monthly_data_submissions")
+      .select(
+        "team_id,target_month,status,player_rows,content_entries,content_skipped,club_activity_link",
+      )
+      .eq("status", "approved")
+      .in("target_month", [month, previousIncentiveMonth(month)])
+      .order("team_id"),
+    supabase
+      .from("team_incentive_reviews")
+      .select("team_id,target_month,status,inputs,source_hash,updated_at")
+      .eq("target_month", month)
+      .order("team_id"),
+    supabase
+      .from("monthly_incentive_results")
+      .select("id,target_month,source_hash,result,created_at")
+      .eq("target_month", month)
+      .order("created_at", { ascending: false })
+      .limit(1),
+    supabase
+      .from("team_monthly_scores")
+      .select("team_id,finalized_score,finalized_grade,finalized_at")
+      .eq("target_month", month)
+      .eq("status", "finalized"),
+    loadTiktokDataset(supabase),
+  ]);
+  const { data: teamRows, error: teamsError } = teamResult;
+  const { data: submissionRows, error: submissionsError } = submissionResult;
+  const { data: reviewRows, error: reviewsError } = reviewResult;
+  const { data: snapshots, error: snapshotsError } = snapshotResult;
+  const { data: legacyRows, error: legacyError } = legacyResult;
   if (teamsError) throw new Error(`战队读取失败：${teamsError.message}`);
-  const { data: submissionRows, error: submissionsError } = await supabase
-    .from("monthly_data_submissions")
-    .select(
-      "team_id,target_month,status,player_rows,content_entries,content_skipped,club_activity_link",
-    )
-    .eq("status", "approved")
-    .in("target_month", [month, previousIncentiveMonth(month)])
-    .order("team_id");
   if (submissionsError)
     throw new Error(`月数据读取失败：${submissionsError.message}`);
-  const { data: reviewRows, error: reviewsError } = await supabase
-    .from("team_incentive_reviews")
-    .select("team_id,target_month,status,inputs,source_hash,updated_at")
-    .eq("target_month", month)
-    .order("team_id");
   if (reviewsError)
     throw new Error(`新版积分保存表读取失败：${reviewsError.message}`);
-  const { data: snapshots, error: snapshotsError } = await supabase
-    .from("monthly_incentive_results")
-    .select("id,target_month,source_hash,result,created_at")
-    .eq("target_month", month)
-    .order("created_at", { ascending: false })
-    .limit(1);
   if (snapshotsError)
     throw new Error(`月结算记录读取失败：${snapshotsError.message}`);
-  const { data: legacyRows, error: legacyError } = await supabase
-    .from("team_monthly_scores")
-    .select("team_id,finalized_score,finalized_grade,finalized_at")
-    .eq("target_month", month)
-    .eq("status", "finalized");
   if (legacyError) throw new Error(`旧制留档读取失败：${legacyError.message}`);
-  const tiktok = await loadTiktokDataset(supabase);
   const submissions = (submissionRows || []) as IncentiveSubmission[];
   const teams = (teamRows || []).filter(
     (team) =>
