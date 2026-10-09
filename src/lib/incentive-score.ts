@@ -368,7 +368,7 @@ export function proposeIncentiveValues(
       likes !== null &&
       likes > 2000
     )
-      hotShortAccounts.add(work.accountId);
+      hotShortAccounts.add(`${work.platform}:${work.accountId}`);
     if (
       work.claims.includes("hot_x") &&
       work.platform === "x" &&

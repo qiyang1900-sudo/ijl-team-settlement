@@ -391,6 +391,17 @@ test("single-work thresholds, duplicate links and account caps are distinct from
   assert.equal(values.hotShort, 1);
   assert.equal(values.hotOfficialVideo, 2);
   assert.equal(values.bonusVideos, 2);
+  f.context.submissions[0].content_entries.push(
+    work("tt", {
+      platform: "tiktok",
+      url: "https://www.tiktok.com/@official/video/12345",
+      claims: ["hot_short"],
+    }),
+  );
+  assert.equal(
+    api.proposeIncentiveValues(f.context.teams[0], f.context).values.hotShort,
+    2,
+  );
   f.context.submissions[0].content_entries = [
     work("long", {
       platform: "youtube",
