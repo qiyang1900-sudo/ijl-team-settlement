@@ -594,3 +594,17 @@ test("API reports DB failures; finalization is append-only and never touches old
     false,
   );
 });
+test("API only confirms review after recalculating complete supplemental inputs", async () => {
+  const h = routeHarness();
+  const pending = await h.send({ reviewed: true, confirmed: true });
+  assert.equal(pending.status, 400);
+  assert.match((await pending.json()).error, /请先补齐/);
+  assert.equal(h.writes.length, 0);
+  const complete = await h.send({
+    reviewed: true,
+    confirmed: true,
+    inputs: { overrides: goodValues(), note: "Verified source" },
+  });
+  assert.equal(complete.status, 200);
+  assert.equal(h.writes[0].row.status, "reviewed");
+});

@@ -6,9 +6,11 @@ import {
   loadIncentiveWorkspace,
 } from "@/lib/incentive-store";
 import {
+  buildIncentiveMonth,
   incentiveRuleVersion,
   incentiveStartMonth,
   normalizeIncentiveReview,
+  type IncentiveReview,
 } from "@/lib/incentive-score";
 
 export const runtime = "nodejs";
@@ -78,7 +80,7 @@ export async function POST(request: Request) {
         !inputs.note
       )
         throw new Error("有人工补录或修正时，请填写审核备注和数据来源。");
-      const record = {
+      const record: IncentiveReview = {
         team_id: teamId,
         target_month: month,
         status,
@@ -86,6 +88,16 @@ export async function POST(request: Request) {
         source_hash: workspace.hashes[teamId],
         updated_at: new Date().toISOString(),
       };
+      if (status === "reviewed") {
+        const recalculated = buildIncentiveMonth(workspace.context, [
+          ...workspace.reviews.filter((review) => review.team_id !== teamId),
+          record,
+        ]).teams.find((row) => row.teamId === teamId)!;
+        if (recalculated.missing.length)
+          throw new Error(
+            `尚不能确认复核，请先补齐：${recalculated.missing.join("、")}。可先保存草稿。`,
+          );
+      }
       const query = existing
         ? supabase
             .from("team_incentive_reviews")
