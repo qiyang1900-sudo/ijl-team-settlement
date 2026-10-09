@@ -4,6 +4,9 @@ import Link from "next/link";
 import { loadTiktokDataset } from "@/lib/tiktok-dataset";
 import TiktokDataNotice from "../components/TiktokDataNotice";
 import { redirect } from "next/navigation";
+import { getAdminSession } from "@/lib/admin-auth";
+import { incentiveStartMonth } from "@/lib/incentive-score";
+import IncentiveScoresPage from "./IncentiveScoresPage";
 import {
   formatMonthLabel,
   formatMonthlyNumber,
@@ -43,6 +46,8 @@ type TeamScoreReviewRow = TeamScoreReview & {
 async function saveTeamScoreReview(formData: FormData) {
   "use server";
 
+  if (!(await getAdminSession())) throw new Error("管理员登录已过期，请重新登录。");
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -53,6 +58,7 @@ async function saveTeamScoreReview(formData: FormData) {
 
   const teamId = String(formData.get("team_id") || "");
   const targetMonth = String(formData.get("target_month") || "");
+  if (targetMonth >= incentiveStartMonth) throw new Error("此月份请使用新版评分页面，旧制留档不可覆盖。");
   const reviewStatus =
     String(formData.get("review_status") || "") === "finalized"
       ? "finalized"
@@ -158,6 +164,7 @@ export default async function AdminTeamScoresPage({
 }: {
   searchParams: Promise<{ month?: string }>;
 }) {
+  if (!(await getAdminSession())) redirect("/admin/login");
   const { month } = await searchParams;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -194,6 +201,8 @@ export default async function AdminTeamScoresPage({
     month && /^\d{4}-\d{2}$/.test(month) && month <= currentMonth
       ? month
       : latestApprovedMonth || currentMonth;
+
+  if (selectedMonth >= incentiveStartMonth) return <IncentiveScoresPage supabase={supabase} month={selectedMonth} months={monthOptions} />;
 
   const { data: teams, error: teamsError } = await supabase
     .from("teams")
