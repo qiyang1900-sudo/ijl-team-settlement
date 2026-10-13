@@ -5,6 +5,7 @@ import {
   getPrimaryClubActivityItem,
   parseClubActivityItems,
   serializeClubActivityItems,
+  retainClubActivityImages,
   validatePopularActivities,
 } from "@/lib/club-activities";
 import MonthPicker from "./MonthPicker";
@@ -32,6 +33,7 @@ import {
   getPlayerRosterRole,
 } from "@/lib/player-display";
 import { requireTeamAccess } from "@/lib/team-auth";
+import { monthlyDraftRevision } from "@/lib/monthly-draft-revision";
 import { contentSubmissionPatch, hasContentEntry, parseMonthlyContent, validateMonthlyContent, type MonthlyContentEntry } from "@/lib/monthly-content";
 
 type MonthlySubmissionRow = {
@@ -207,6 +209,11 @@ async function saveMonthlyData(
   if (existingError) throw new Error(existingError.message);
   const relevantStatus = isSalaryScreenshotAction ? existingSubmission?.salary_status : existingSubmission?.status;
   if (["submitted", "reviewing", "approved"].includes(String(relevantStatus))) throw new Error("提出済み・審査中・承認済みの内容は変更できません。提出状況を確認してください。");
+  const baseRevision = formData.get("base_revision");
+  if (!baseRevision) throw new Error("この入力画面は旧バージョンです。未送信の入力内容を控え、ページを開き直してから保存してください。サーバーのデータは変更していません。");
+  if (baseRevision !== monthlyDraftRevision(existingSubmission, isSalaryScreenshotAction)) {
+    throw new Error("他の画面で内容または審査状況が更新されました。入力内容はこの画面に保持されています。別のタブで最新の保存内容を確認してください。古い内容による上書きは行っていません。");
+  }
   const contentEntries = isSalaryScreenshotAction ? [] : parseMonthlyContent(formData.has("content_entries") ? formData.get("content_entries") : existingSubmission?.content_entries);
   const acknowledgedEmptyContent = formData.get("content_page_acknowledged") === "yes";
   if (isMonthlySubmitAction) {
@@ -283,6 +290,13 @@ async function saveMonthlyData(
     : await uploadClubActivityImages({
         formData,
         items: clubActivityItems,
+        existing: parseClubActivityItems({
+          link: existingSubmission?.club_activity_link,
+          imageUrl: existingSubmission?.club_activity_image_url,
+          imageName: existingSubmission?.club_activity_image_name,
+          imageMimeType: existingSubmission?.club_activity_image_mime_type,
+          imageStoragePath: existingSubmission?.club_activity_image_storage_path,
+        }),
         teamId,
         targetMonth,
         storageClient,
@@ -290,6 +304,10 @@ async function saveMonthlyData(
   const primaryClubActivity = uploadedClubActivityItems
     ? getPrimaryClubActivityItem(uploadedClubActivityItems)
     : null;
+  if (isMonthlySubmitAction) {
+    const activityErrors = validatePopularActivities(uploadedClubActivityItems || [], targetMonth);
+    if (activityErrors.length) throw new Error(activityErrors.join("\n"));
+  }
   const uploadedContent = isSalaryScreenshotAction ? [] : await uploadContentImages({
     formData,
     entries: contentEntries,
@@ -323,9 +341,7 @@ async function saveMonthlyData(
     club_activity_image_storage_path: isSalaryScreenshotAction
       ? existingSubmission?.club_activity_image_storage_path || null
       : primaryClubActivity?.imageStoragePath || null,
-    return_reason: isSalaryScreenshotAction
-      ? existingSubmission?.return_reason || null
-      : null,
+    return_reason: actionType === "submit" ? null : existingSubmission?.return_reason || null,
     salary_return_reason:
       isSalaryScreenshotAction && actionType === "salary_screenshots_submit"
         ? null
@@ -356,11 +372,15 @@ async function saveMonthlyData(
       ? write.eq("updated_at", existingSubmission.updated_at)
       : write.is("updated_at", null)
     : write;
-  const { data: savedSubmission, error } = await guardedWrite.select("id").maybeSingle();
+  const { data: savedSubmission, error } = await guardedWrite.select("*").maybeSingle();
   if (error) throw new Error(error.message);
   if (!savedSubmission) {
     throw new Error("他の画面で内容または審査状況が更新されました。入力内容はこの画面に保持されています。最新の状況を確認してから再度保存してください。");
   }
+  if (monthlyDraftRevision(savedSubmission, isSalaryScreenshotAction) !== monthlyDraftRevision(payload, isSalaryScreenshotAction)) {
+    throw new Error("保存後のデータ確認に失敗しました。入力内容はこの画面に保持されています。別のタブで保存内容を確認し、管理者にご連絡ください。");
+  }
+  const savedRows = splitMonthlyRows(parseMonthlyPlayerRows(savedSubmission.player_rows));
 
   return {
     status: "success",
@@ -370,9 +390,12 @@ async function saveMonthlyData(
     )}&result=${actionType}`,
     submittedAt: Date.now(),
     actionType,
-    savedOfficialRow: officialRowForPayload,
-    savedPlayers: monthlyRowsForPayload,
-    ...(isSalaryScreenshotAction ? {} : { savedActivities: uploadedClubActivityItems || [], savedContent: uploadedContent }),
+    savedRevision: monthlyDraftRevision(savedSubmission, isSalaryScreenshotAction),
+    previousOtherRevision: monthlyDraftRevision(existingSubmission, !isSalaryScreenshotAction),
+    savedOtherRevision: monthlyDraftRevision(savedSubmission, !isSalaryScreenshotAction),
+    savedOfficialRow: savedRows.officialRow || officialRowForPayload,
+    savedPlayers: savedRows.playerRows,
+    ...(isSalaryScreenshotAction ? {} : { savedActivities: parseClubActivityItems({ link: savedSubmission.club_activity_link }), savedContent: parseMonthlyContent(savedSubmission.content_entries) }),
   };
   } catch (error) {
     return buildMonthlyDataActionError(error, actionType);
@@ -865,6 +888,8 @@ export default async function TeamRewardPage({
                 action={saveMonthlyData}
                 teamId={teamId}
                 selectedMonth={selectedMonth}
+                initialMonthlyRevision={monthlyDraftRevision(selectedSubmission)}
+                initialSalaryRevision={monthlyDraftRevision(selectedSubmission, true)}
                 initialOfficialRow={officialRow}
                 initialPlayers={playerRows}
                 clubActivityItems={clubActivityItems}
@@ -1010,14 +1035,16 @@ function mergeSalaryRowsPreservingMonthlyDraft({
     );
 
     return {
-      ...(existingRow || emptyMonthlyPlayerRow(index)),
-      id: salaryRow.id,
-      playerId: salaryRow.playerId,
-      playerHandle: salaryRow.playerHandle,
-      playerReading: salaryRow.playerReading,
-      playerPosition: salaryRow.playerPosition,
-      playerRole: salaryRow.playerRole,
-      playerName: salaryRow.playerName,
+      ...(existingRow || {
+        ...emptyMonthlyPlayerRow(index),
+        id: salaryRow.id,
+        playerId: salaryRow.playerId,
+        playerHandle: salaryRow.playerHandle,
+        playerReading: salaryRow.playerReading,
+        playerPosition: salaryRow.playerPosition,
+        playerRole: salaryRow.playerRole,
+        playerName: salaryRow.playerName,
+      }),
       salaryAmount: salaryRow.salaryAmount,
       salaryScreenshotName: salaryRow.salaryScreenshotName || "",
       salaryScreenshotUrl: salaryRow.salaryScreenshotUrl || "",
@@ -1063,24 +1090,14 @@ function carryMetricScreenshots({
 }): MonthlyPlayerRow {
   return {
     ...row,
-    xScreenshotName: row.xScreenshotName || existingRow?.xScreenshotName || "",
-    xScreenshotUrl: row.xScreenshotUrl || existingRow?.xScreenshotUrl || "",
-    xScreenshotStoragePath:
-      row.xScreenshotStoragePath || existingRow?.xScreenshotStoragePath || "",
-    xScreenshotMimeType:
-      row.xScreenshotMimeType || existingRow?.xScreenshotMimeType || "",
-    youtubeScreenshotName:
-      row.youtubeScreenshotName || existingRow?.youtubeScreenshotName || "",
-    youtubeScreenshotUrl:
-      row.youtubeScreenshotUrl || existingRow?.youtubeScreenshotUrl || "",
-    youtubeScreenshotStoragePath:
-      row.youtubeScreenshotStoragePath ||
-      existingRow?.youtubeScreenshotStoragePath ||
-      "",
-    youtubeScreenshotMimeType:
-      row.youtubeScreenshotMimeType ||
-      existingRow?.youtubeScreenshotMimeType ||
-      "",
+    xScreenshotName: existingRow?.xScreenshotName || "",
+    xScreenshotUrl: existingRow?.xScreenshotUrl || "",
+    xScreenshotStoragePath: existingRow?.xScreenshotStoragePath || "",
+    xScreenshotMimeType: existingRow?.xScreenshotMimeType || "",
+    youtubeScreenshotName: existingRow?.youtubeScreenshotName || "",
+    youtubeScreenshotUrl: existingRow?.youtubeScreenshotUrl || "",
+    youtubeScreenshotStoragePath: existingRow?.youtubeScreenshotStoragePath || "",
+    youtubeScreenshotMimeType: existingRow?.youtubeScreenshotMimeType || "",
   };
 }
 
@@ -1247,26 +1264,15 @@ async function uploadSalaryScreenshots({
 
   for (let index = 0; index < rows.length; index += 1) {
     const file = formData.get(`salary_screenshot_${index}`) as File | null;
+    const existingRow = findMatchingPlayerRow(rows[index], existingPlayerRows, index);
 
-    if (!file || file.size <= 0) {
+    if (!(file instanceof File) || file.size <= 0) {
       rows[index] = {
         ...rows[index],
-        salaryScreenshotName:
-          rows[index].salaryScreenshotName ||
-          existingPlayerRows[index]?.salaryScreenshotName ||
-          "",
-        salaryScreenshotUrl:
-          rows[index].salaryScreenshotUrl ||
-          existingPlayerRows[index]?.salaryScreenshotUrl ||
-          "",
-        salaryScreenshotStoragePath:
-          rows[index].salaryScreenshotStoragePath ||
-          existingPlayerRows[index]?.salaryScreenshotStoragePath ||
-          "",
-        salaryScreenshotMimeType:
-          rows[index].salaryScreenshotMimeType ||
-          existingPlayerRows[index]?.salaryScreenshotMimeType ||
-          "",
+        salaryScreenshotName: existingRow?.salaryScreenshotName || "",
+        salaryScreenshotUrl: existingRow?.salaryScreenshotUrl || "",
+        salaryScreenshotStoragePath: existingRow?.salaryScreenshotStoragePath || "",
+        salaryScreenshotMimeType: existingRow?.salaryScreenshotMimeType || "",
       };
       continue;
     }
@@ -1312,23 +1318,26 @@ async function uploadContentImages({ formData, entries, existing, accounts, team
 async function uploadClubActivityImages({
   formData,
   items,
+  existing,
   teamId,
   targetMonth,
   storageClient,
 }: {
   formData: FormData;
   items: ClubActivityItem[];
+  existing: ClubActivityItem[];
   teamId: string;
   targetMonth: string;
   storageClient: StorageClient;
 }) {
   const nextItems: ClubActivityItem[] = [];
 
-  for (let index = 0; index < items.length; index += 1) {
-    const item = items[index];
+  const retainedItems = retainClubActivityImages(items, existing);
+  for (let index = 0; index < retainedItems.length; index += 1) {
+    const item = retainedItems[index];
     const file = formData.get(`club_activity_image_${item.id}`) as File | null;
 
-    if (!file || file.size <= 0) {
+    if (!(file instanceof File) || file.size <= 0) {
       nextItems.push(item);
       continue;
     }
@@ -1339,6 +1348,8 @@ async function uploadClubActivityImages({
       targetMonth,
       storageClient,
       prefix: `club-activity-${index + 1}`,
+    }).catch((error: unknown) => {
+      throw new Error(`クラブ活動 ${index + 1} の画像「${file.name}」を保存できませんでした：${error instanceof Error ? error.message : "アップロードに失敗しました。"}`);
     });
 
     nextItems.push({

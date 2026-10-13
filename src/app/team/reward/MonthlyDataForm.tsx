@@ -3,6 +3,7 @@
 import {
   type FormEvent,
   useActionState,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -22,6 +23,7 @@ import {
   ClubActivityItem,
   emptyClubActivityItem,
   hasClubActivityContent,
+  retainClubActivityImages,
   validatePopularActivities,
 } from "@/lib/club-activities";
 
@@ -35,6 +37,9 @@ export type MonthlyDataActionState = {
   savedPlayers?: MonthlyPlayerRow[];
   savedActivities?: ClubActivityItem[];
   savedContent?: MonthlyContentEntry[];
+  savedRevision?: string;
+  previousOtherRevision?: string;
+  savedOtherRevision?: string;
 };
 
 type MonthlyDataFormProps = {
@@ -44,6 +49,8 @@ type MonthlyDataFormProps = {
   ) => Promise<MonthlyDataActionState>;
   teamId: string;
   selectedMonth: string;
+  initialMonthlyRevision: string;
+  initialSalaryRevision: string;
   initialOfficialRow: MonthlyPlayerRow;
   initialPlayers: MonthlyPlayerRow[];
   clubActivityItems: ClubActivityItem[];
@@ -123,6 +130,8 @@ type LocalMonthlyDraft = {
   activities?: ClubActivityItem[];
   contentEntries?: MonthlyContentEntry[];
   savedAt?: number;
+  monthlyRevision?: string;
+  salaryRevision?: string;
 };
 
 function toJapanesePlayerMeta(value?: string) {
@@ -137,6 +146,8 @@ export default function MonthlyDataForm({
   action,
   teamId,
   selectedMonth,
+  initialMonthlyRevision,
+  initialSalaryRevision,
   initialOfficialRow,
   initialPlayers,
   clubActivityItems,
@@ -167,7 +178,11 @@ export default function MonthlyDataForm({
   const [clientError, setClientError] = useState("");
   const [clientInfo, setClientInfo] = useState("");
   const [draftReady, setDraftReady] = useState(false);
+  const [canCacheDraft, setCanCacheDraft] = useState(true);
   const [restoredDraftAt, setRestoredDraftAt] = useState<number | null>(null);
+  const [conflictingDraft, setConflictingDraft] = useState<LocalMonthlyDraft | null>(null);
+  const [monthlyRevision, setMonthlyRevision] = useState(initialMonthlyRevision);
+  const [salaryRevision, setSalaryRevision] = useState(initialSalaryRevision);
   const isCompressingRef = useRef(false);
   const shouldSkipClientSubmitCheckRef = useRef(false);
 
@@ -192,18 +207,30 @@ export default function MonthlyDataForm({
       return;
     }
     const salaryAction = result.actionType?.startsWith("salary_screenshots");
-    if (result.savedPlayers) {
-      setPlayers((current) => current.map((player, index) => {
+    const rebaseOther = (current: string) => current === result.previousOtherRevision ? result.savedOtherRevision || current : current;
+    const nextMonthlyRevision = salaryAction ? rebaseOther(monthlyRevision) : result.savedRevision || monthlyRevision;
+    const nextSalaryRevision = salaryAction ? result.savedRevision || salaryRevision : rebaseOther(salaryRevision);
+    const nextPlayers = result.savedPlayers ? players.map((player, index) => {
         const saved = findSavedPlayerForDraft(player, result.savedPlayers!, index);
         if (!saved) return player;
         if (salaryAction) return { ...player, salaryAmount: saved.salaryAmount, salaryScreenshotName: saved.salaryScreenshotName, salaryScreenshotUrl: saved.salaryScreenshotUrl, salaryScreenshotStoragePath: saved.salaryScreenshotStoragePath, salaryScreenshotMimeType: saved.salaryScreenshotMimeType };
         return { ...saved, salaryAmount: player.salaryAmount, salaryScreenshotName: player.salaryScreenshotName, salaryScreenshotUrl: player.salaryScreenshotUrl, salaryScreenshotStoragePath: player.salaryScreenshotStoragePath, salaryScreenshotMimeType: player.salaryScreenshotMimeType };
-      }));
-    }
-    if (!salaryAction) {
-      if (result.savedOfficialRow) setOfficialRow(result.savedOfficialRow);
-      if (result.savedActivities) setActivities(result.savedActivities.length ? result.savedActivities : [emptyClubActivityItem()]);
-      if (result.savedContent) setContentEntries(result.savedContent);
+      }) : players;
+    const nextOfficial = !salaryAction && result.savedOfficialRow ? result.savedOfficialRow : officialRow;
+    const nextActivities = !salaryAction && result.savedActivities ? (result.savedActivities.length ? result.savedActivities : [emptyClubActivityItem()]) : activities;
+    const nextContent = !salaryAction && result.savedContent ? result.savedContent : contentEntries;
+    setMonthlyRevision(nextMonthlyRevision);
+    setSalaryRevision(nextSalaryRevision);
+    setPlayers(nextPlayers);
+    setOfficialRow(nextOfficial);
+    setActivities(nextActivities);
+    setContentEntries(nextContent);
+    // Persist the acknowledged snapshot before refresh, not after the autosave debounce.
+    try {
+      window.localStorage.setItem(draftStorageKey, JSON.stringify({ officialRow: nextOfficial, players: nextPlayers, activities: nextActivities, contentEntries: nextContent, monthlyRevision: nextMonthlyRevision, salaryRevision: nextSalaryRevision, savedAt: Date.now() } satisfies LocalMonthlyDraft));
+      setCanCacheDraft(true);
+    } catch {
+      setClientError("サーバーへの保存は完了しましたが、端末の一時保存を更新できませんでした。次回はサーバーの内容を選択してください。");
     }
     const savedForm = salaryAction ? salaryFormRef.current : monthlyFormRef.current;
     savedForm?.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach((input) => { input.value = ""; });
@@ -239,6 +266,41 @@ export default function MonthlyDataForm({
     }
   }, [clientError, actionState]);
 
+  const restoreDraft = useCallback((draft: LocalMonthlyDraft) => {
+    const restoredContent = !isMonthlyDataLocked && Array.isArray(draft.contentEntries) ? parseMonthlyContent(draft.contentEntries) : null;
+    if (draft.officialRow && !isMonthlyDataLocked) {
+      setOfficialRow(mergeLocalDraftRowWithSavedFiles(draft.officialRow, initialOfficialRow));
+    }
+    if (Array.isArray(draft.players)) {
+      setPlayers(initialPlayers.map((saved, index) => {
+        const draftRow = findSavedPlayerForDraft(saved, draft.players!, index);
+        if (!draftRow) return saved;
+        const merged = mergeLocalDraftRowWithSavedFiles(draftRow, saved);
+        const salary = isSalaryLocked ? saved : merged;
+        return {
+          ...(isMonthlyDataLocked ? saved : merged),
+          salaryAmount: salary.salaryAmount,
+          salaryScreenshotName: salary.salaryScreenshotName,
+          salaryScreenshotUrl: salary.salaryScreenshotUrl,
+          salaryScreenshotStoragePath: salary.salaryScreenshotStoragePath,
+          salaryScreenshotMimeType: salary.salaryScreenshotMimeType,
+        };
+      }));
+    }
+    if (!isMonthlyDataLocked && Array.isArray(draft.activities)) {
+      const restored = retainClubActivityImages(draft.activities, clubActivityItems);
+      setActivities(restored.length ? restored : [emptyClubActivityItem()]);
+    }
+    if (restoredContent) {
+      const savedById = new Map(initialContentEntries.map((entry) => [entry.id, entry]));
+      setContentEntries(restoredContent.map((entry) => {
+        const saved = savedById.get(entry.id);
+        return { ...entry, imageName: saved?.imageName || "", imageUrl: saved?.imageUrl || "", imageStoragePath: saved?.imageStoragePath || "", imageMimeType: saved?.imageMimeType || "" };
+      }));
+    }
+    setRestoredDraftAt(draft.savedAt || Date.now());
+  }, [initialOfficialRow, initialPlayers, initialContentEntries, clubActivityItems, isMonthlyDataLocked, isSalaryLocked]);
+
   useEffect(() => {
     if (typeof window === "undefined" || restoredKeyRef.current === draftStorageKey) {
       return;
@@ -246,63 +308,33 @@ export default function MonthlyDataForm({
 
     const timeoutId = window.setTimeout(() => {
       restoredKeyRef.current = draftStorageKey;
-      const rawDraft = window.localStorage.getItem(draftStorageKey);
-
-      if (rawDraft) {
-        try {
+      try {
+        const rawDraft = window.localStorage.getItem(draftStorageKey);
+        if (rawDraft) {
           const draft = JSON.parse(rawDraft) as LocalMonthlyDraft;
 
-          if (draft.officialRow && !isMonthlyDataLocked) {
-            setOfficialRow(
-              mergeLocalDraftRowWithSavedFiles(draft.officialRow, initialOfficialRow)
-            );
+          if ((!isMonthlyDataLocked && draft.monthlyRevision !== initialMonthlyRevision) ||
+              (!isSalaryLocked && draft.salaryRevision !== initialSalaryRevision)) {
+            setConflictingDraft(draft);
+            setDraftReady(true);
+            return;
           }
 
-          if (Array.isArray(draft.players)) {
-            const draftPlayers = draft.players;
-            setPlayers(
-              initialPlayers.map((saved, index) => {
-                const draftRow = findSavedPlayerForDraft(saved, draftPlayers, index);
-                if (!draftRow) return saved;
-                const merged = mergeLocalDraftRowWithSavedFiles(draftRow, saved);
-                const salary = isSalaryLocked ? saved : merged;
-                return {
-                  ...(isMonthlyDataLocked ? saved : merged),
-                  salaryAmount: salary.salaryAmount,
-                  salaryScreenshotName: salary.salaryScreenshotName,
-                  salaryScreenshotUrl: salary.salaryScreenshotUrl,
-                  salaryScreenshotStoragePath: salary.salaryScreenshotStoragePath,
-                  salaryScreenshotMimeType: salary.salaryScreenshotMimeType,
-                };
-              })
-            );
-          }
-
-          if (!isMonthlyDataLocked && Array.isArray(draft.activities) && draft.activities.length > 0) {
-            setActivities(draft.activities);
-          }
-          if (Array.isArray(draft.contentEntries) && !isMonthlyDataLocked) {
-            const savedById = new Map(initialContentEntries.map((entry) => [entry.id, entry]));
-            setContentEntries(parseMonthlyContent(draft.contentEntries).map((entry) => {
-              const saved = savedById.get(entry.id);
-              return saved?.imageUrl ? { ...entry, imageName: saved.imageName, imageUrl: saved.imageUrl, imageStoragePath: saved.imageStoragePath, imageMimeType: saved.imageMimeType } : entry;
-            }));
-          }
-
-          setRestoredDraftAt(draft.savedAt || Date.now());
-        } catch {
-          window.localStorage.removeItem(draftStorageKey);
+          restoreDraft(draft);
         }
+      } catch {
+        setCanCacheDraft(false);
+        setClientError("端末の一時保存を読み込めませんでした。サーバーの保存内容を表示しています。未送信の内容がある場合は管理者にご連絡ください。");
+      } finally {
+        setDraftReady(true);
       }
-
-      setDraftReady(true);
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
-  }, [draftStorageKey, initialOfficialRow, initialPlayers, initialContentEntries, isMonthlyDataLocked, isSalaryLocked]);
+  }, [draftStorageKey, initialMonthlyRevision, initialSalaryRevision, isMonthlyDataLocked, isSalaryLocked, restoreDraft]);
 
   useEffect(() => {
-    if (!draftReady || typeof window === "undefined") {
+    if (!draftReady || !canCacheDraft || conflictingDraft || typeof window === "undefined") {
       return;
     }
 
@@ -313,6 +345,8 @@ export default function MonthlyDataForm({
         activities,
         contentEntries,
         savedAt: Date.now(),
+        monthlyRevision,
+        salaryRevision,
       };
 
       try {
@@ -325,7 +359,7 @@ export default function MonthlyDataForm({
     }, 350);
 
     return () => window.clearTimeout(timeoutId);
-  }, [activities, contentEntries, draftReady, draftStorageKey, officialRow, players]);
+  }, [activities, contentEntries, draftReady, canCacheDraft, draftStorageKey, officialRow, players, conflictingDraft, monthlyRevision, salaryRevision]);
 
   function updatePlayer(index: number, key: PlayerField, value: string) {
     setPlayers((current) =>
@@ -367,20 +401,42 @@ export default function MonthlyDataForm({
   }
 
   function discardLocalDraft() {
+    if (isPending || isCompressingRef.current) return;
     if (typeof window !== "undefined") {
-      window.localStorage.removeItem(draftStorageKey);
+      try { window.localStorage.removeItem(draftStorageKey); } catch { setCanCacheDraft(false); }
     }
 
     setRestoredDraftAt(null);
+    setConflictingDraft(null);
+    setMonthlyRevision(initialMonthlyRevision);
+    setSalaryRevision(initialSalaryRevision);
     setOfficialRow(initialOfficialRow);
     setPlayers(initialPlayers);
     setContentEntries(initialContentEntries);
+    for (const form of [monthlyFormRef.current, salaryFormRef.current]) {
+      form?.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach((input) => { input.value = ""; });
+    }
     setActivities(
       clubActivityItems.length > 0 ? clubActivityItems : [emptyClubActivityItem()]
     );
   }
 
+  function restoreConflictingDraft() {
+    if (!conflictingDraft || !window.confirm("端末の入力を復元します。保存前にサーバー上の内容との差分をご確認ください。未送信の画像ファイルは再選択が必要です。")) return;
+    try { restoreDraft(conflictingDraft); } catch {
+      setClientError("端末の下書きを復元できませんでした。サーバーの内容は変更していません。管理者にご連絡ください。");
+      return;
+    }
+    setMonthlyRevision(initialMonthlyRevision);
+    setSalaryRevision(initialSalaryRevision);
+    setConflictingDraft(null);
+  }
+
   function handleFormSubmit(event: FormEvent<HTMLFormElement>) {
+    if (!draftReady || conflictingDraft) {
+      event.preventDefault();
+      return;
+    }
     if (shouldSkipClientSubmitCheckRef.current) {
       shouldSkipClientSubmitCheckRef.current = false;
       return;
@@ -480,7 +536,7 @@ export default function MonthlyDataForm({
       "画像を送信用に圧縮しています。完了後、そのまま保存を続けます。"
     );
 
-    void compressFormImages(fileEntries)
+    void compressFormImages(fileEntries, form)
       .then(() => {
         const compressedEntries = getFormFileEntries(form);
         const compressedTotalSize = sumFileEntrySizes(compressedEntries);
@@ -508,9 +564,9 @@ export default function MonthlyDataForm({
       });
   }
 
-  const isSubmitDisabled = isMonthlyDataLocked || players.length === 0 || isPending;
+  const isSubmitDisabled = isMonthlyDataLocked || players.length === 0 || isPending || !draftReady || Boolean(conflictingDraft);
   const canSubmitSalary =
-    canSaveSalaryScreenshots && !isSalaryLocked && players.length > 0 && !isPending;
+    canSaveSalaryScreenshots && !isSalaryLocked && players.length > 0 && !isPending && draftReady && !conflictingDraft;
 
   return (
     <div className="space-y-6">
@@ -531,15 +587,26 @@ export default function MonthlyDataForm({
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <p className="font-semibold">
-              未送信の入力内容をこの端末から復元しました。画像ファイルはブラウザの仕様上、再選択してください。
+              この端末の入力内容を復元しました。まだサーバーに保存していない画像のみ、再選択してください。
             </p>
             <button
               type="button"
               onClick={discardLocalDraft}
+              disabled={isPending}
               className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100"
             >
               復元内容を破棄
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {conflictingDraft ? (
+        <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p>サーバーの保存内容と異なる端末の下書きがあります。現在はサーバーの内容を表示しています。端末の入力は自動で上書きしていません。</p>
+          <div className="mt-3 flex flex-wrap gap-3">
+            <button type="button" onClick={discardLocalDraft} className="rounded-md border border-amber-300 bg-white px-3 py-2 font-semibold">サーバーの内容を使用</button>
+            <button type="button" onClick={restoreConflictingDraft} className="rounded-md border border-amber-300 bg-white px-3 py-2 font-semibold">端末の入力を復元</button>
           </div>
         </div>
       ) : null}
@@ -576,6 +643,7 @@ export default function MonthlyDataForm({
       </section>
 
       <form ref={salaryFormRef} action={formAction} onReset={(event) => event.preventDefault()} onSubmitCapture={handleFormSubmit} className="space-y-6">
+        <input type="hidden" name="base_revision" value={salaryRevision} />
         <input type="hidden" name="team_id" value={teamId} />
         <input
           type="hidden"
@@ -601,6 +669,7 @@ export default function MonthlyDataForm({
       </form>
 
       <form ref={monthlyFormRef} action={formAction} noValidate onReset={(event) => event.preventDefault()} onSubmitCapture={handleFormSubmit} className="space-y-6">
+        <input type="hidden" name="base_revision" value={monthlyRevision} />
         <input type="hidden" name="content_entries" value={JSON.stringify(contentEntries)} />
         <input type="hidden" name="content_page_acknowledged" defaultValue="no" />
         <input type="hidden" name="team_id" value={teamId} />
@@ -1254,34 +1323,18 @@ function mergeLocalDraftRowWithSavedFiles(
 
   return {
     ...draftRow,
-    salaryScreenshotName:
-      draftRow.salaryScreenshotName || savedRow.salaryScreenshotName || "",
-    salaryScreenshotUrl:
-      draftRow.salaryScreenshotUrl || savedRow.salaryScreenshotUrl || "",
-    salaryScreenshotStoragePath:
-      draftRow.salaryScreenshotStoragePath ||
-      savedRow.salaryScreenshotStoragePath ||
-      "",
-    salaryScreenshotMimeType:
-      draftRow.salaryScreenshotMimeType || savedRow.salaryScreenshotMimeType || "",
-    xScreenshotName: draftRow.xScreenshotName || savedRow.xScreenshotName || "",
-    xScreenshotUrl: draftRow.xScreenshotUrl || savedRow.xScreenshotUrl || "",
-    xScreenshotStoragePath:
-      draftRow.xScreenshotStoragePath || savedRow.xScreenshotStoragePath || "",
-    xScreenshotMimeType:
-      draftRow.xScreenshotMimeType || savedRow.xScreenshotMimeType || "",
-    youtubeScreenshotName:
-      draftRow.youtubeScreenshotName || savedRow.youtubeScreenshotName || "",
-    youtubeScreenshotUrl:
-      draftRow.youtubeScreenshotUrl || savedRow.youtubeScreenshotUrl || "",
-    youtubeScreenshotStoragePath:
-      draftRow.youtubeScreenshotStoragePath ||
-      savedRow.youtubeScreenshotStoragePath ||
-      "",
-    youtubeScreenshotMimeType:
-      draftRow.youtubeScreenshotMimeType ||
-      savedRow.youtubeScreenshotMimeType ||
-      "",
+    salaryScreenshotName: savedRow.salaryScreenshotName || "",
+    salaryScreenshotUrl: savedRow.salaryScreenshotUrl || "",
+    salaryScreenshotStoragePath: savedRow.salaryScreenshotStoragePath || "",
+    salaryScreenshotMimeType: savedRow.salaryScreenshotMimeType || "",
+    xScreenshotName: savedRow.xScreenshotName || "",
+    xScreenshotUrl: savedRow.xScreenshotUrl || "",
+    xScreenshotStoragePath: savedRow.xScreenshotStoragePath || "",
+    xScreenshotMimeType: savedRow.xScreenshotMimeType || "",
+    youtubeScreenshotName: savedRow.youtubeScreenshotName || "",
+    youtubeScreenshotUrl: savedRow.youtubeScreenshotUrl || "",
+    youtubeScreenshotStoragePath: savedRow.youtubeScreenshotStoragePath || "",
+    youtubeScreenshotMimeType: savedRow.youtubeScreenshotMimeType || "",
   };
 }
 
@@ -1313,15 +1366,21 @@ function sumFileEntrySizes(entries: Array<{ file: File }>) {
 }
 
 async function compressFormImages(
-  entries: Array<{ input: HTMLInputElement; file: File }>
+  entries: Array<{ input: HTMLInputElement; file: File }>,
+  form: HTMLFormElement
 ) {
   const targetBytes = getImageCompressionTargetBytes(entries.length);
-
+  const compressedFiles: File[] = [];
   for (const entry of entries) {
-    const compressedFile = await compressImageFile(entry.file, targetBytes);
+    compressedFiles.push(await compressImageFile(entry.file, targetBytes));
+  }
+  const current = getFormFileEntries(form);
+  if (current.length !== entries.length || entries.some((entry, index) => current[index]?.input !== entry.input || current[index]?.file !== entry.file)) {
+    throw new Error("画像の準備中に添付内容が変更されました。現在選択中の画像を確認し、もう一度保存してください。");
+  }
+  for (const [index, entry] of entries.entries()) {
     const dataTransfer = new DataTransfer();
-
-    dataTransfer.items.add(compressedFile);
+    dataTransfer.items.add(compressedFiles[index]);
     entry.input.files = dataTransfer.files;
   }
 }

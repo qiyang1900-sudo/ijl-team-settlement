@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import ts from "typescript";
+import * as crypto from "node:crypto";
 
 const root = path.resolve(import.meta.dirname, "..");
 function compile(file, imports = {}, extra = "") {
@@ -38,6 +39,10 @@ function compile(file, imports = {}, extra = "") {
 const api = compile("src/lib/monthly-content.ts");
 const monthly = compile("src/lib/monthly-data.ts");
 const activities = compile("src/lib/club-activities.ts");
+const revisions = compile("src/lib/monthly-draft-revision.ts", {
+  "node:crypto": crypto,
+  "./monthly-data": monthly,
+});
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const work = (changes = {}) => ({
   ...api.emptyContentEntry("work-1", "designated"),
@@ -196,9 +201,10 @@ test("ordinary club activities need no extra fields; opted-in claims preserve ze
   assert.equal(restored[0].popular, true);
 });
 
-function actionHarness(existing, { conflict = false } = {}) {
+function actionHarness(existing, { conflict = false, uploadError = null, writeError = null, savedPatch = {} } = {}) {
   let payload;
   let writes = 0;
+  let uploads = 0;
   const client = {
     from() {
       let writing = false;
@@ -225,7 +231,7 @@ function actionHarness(existing, { conflict = false } = {}) {
         async maybeSingle() {
           if (writing) {
             writes++;
-            return { data: conflict ? null : { id: "saved" }, error: null };
+            return { data: conflict || writeError ? null : { ...existing, ...payload, id: "saved", ...savedPatch }, error: writeError };
           }
           return { data: existing, error: null };
         },
@@ -236,7 +242,8 @@ function actionHarness(existing, { conflict = false } = {}) {
       from() {
         return {
           async upload() {
-            return { error: null };
+            uploads++;
+            return { error: uploadError };
           },
           getPublicUrl(path) {
             return { data: { publicUrl: `https://example.invalid/${path}` } };
@@ -253,6 +260,7 @@ function actionHarness(existing, { conflict = false } = {}) {
       "@/lib/monthly-content": api,
       "@/lib/monthly-data": monthly,
       "@/lib/club-activities": activities,
+      "@/lib/monthly-draft-revision": revisions,
     },
     "\nexport { saveMonthlyData };\n",
   );
@@ -261,6 +269,7 @@ function actionHarness(existing, { conflict = false } = {}) {
     data.set("team_id", "team-1");
     data.set("target_month", "2026-06");
     data.set("action_type", action);
+    data.set("base_revision", revisions.monthlyDraftRevision(existing, action.startsWith("salary_screenshots")));
     data.set(
       "official_row",
       JSON.stringify([
@@ -277,6 +286,7 @@ function actionHarness(existing, { conflict = false } = {}) {
     form,
     payload: () => payload,
     writes: () => writes,
+    uploads: () => uploads,
   };
 }
 test("monthly draft saves both pages and returns the saved content without changing salary status", async () => {
@@ -393,4 +403,132 @@ test("draft images are uploaded and subsequent saves retain server-owned attachm
   );
   assert.equal(second.status, "success");
   assert.equal(second.savedContent[0].imageUrl, first.savedContent[0].imageUrl);
+});
+
+test("club activity links and images survive repeated drafts and a reload, including replacements", async () => {
+  const activity = { ...activities.emptyClubActivityItem(), link: "https://example.test/event" };
+  const h = actionHarness(null);
+  const form = h.form();
+  form.set("club_activity_items", JSON.stringify([activity]));
+  form.set(`club_activity_image_${activity.id}`, new File(["image"], "first.png", { type: "image/png" }));
+  const first = await h.save({}, form);
+  assert.equal(first.status, "success");
+  assert.equal(first.savedActivities[0].link, activity.link);
+  assert.match(first.savedActivities[0].imageUrl, /first.png$/);
+  assert.equal(h.uploads(), 1);
+
+  const next = actionHarness({ ...h.payload(), id: "saved" });
+  const nextForm = next.form();
+  nextForm.set("club_activity_items", JSON.stringify([{ ...activity, link: "https://example.test/updated", imageUrl: "https://untrusted.invalid/spoof", imageName: "not-uploaded.png" }]));
+  const second = await next.save({}, nextForm);
+  assert.equal(second.status, "success");
+  assert.equal(second.savedActivities[0].link, "https://example.test/updated");
+  assert.equal(second.savedActivities[0].imageUrl, first.savedActivities[0].imageUrl);
+  assert.equal(second.savedActivities[0].imageName, "first.png");
+  assert.equal(next.uploads(), 0);
+  assert.equal(activities.parseClubActivityItems({ link: next.payload().club_activity_link })[0].imageUrl, first.savedActivities[0].imageUrl);
+
+  const replacement = actionHarness({ ...next.payload(), id: "saved" });
+  const replacementForm = replacement.form();
+  replacementForm.set("club_activity_items", JSON.stringify(second.savedActivities));
+  replacementForm.set(`club_activity_image_${activity.id}`, new File(["image2"], "second.png", { type: "image/png" }));
+  const third = await replacement.save({}, replacementForm);
+  assert.equal(third.status, "success");
+  assert.match(third.savedActivities[0].imageUrl, /second.png$/);
+  assert.equal(third.savedActivities[0].link, "https://example.test/updated");
+});
+
+test("stale or legacy forms cannot clear activity images, links or numeric data", async () => {
+  const old = { status: "returned", player_rows: [] };
+  const current = { ...old, id: "row", club_activity_link: JSON.stringify([{ ...activities.emptyClubActivityItem(), link: "https://example.test/new", imageUrl: "https://example.test/proof" }]) };
+  const h = actionHarness(current);
+  for (const version of [revisions.monthlyDraftRevision(old), ""]) {
+    const form = h.form();
+    form.set("base_revision", version);
+    form.set("club_activity_items", JSON.stringify([activities.emptyClubActivityItem()]));
+    form.set("club_activity_image_activity-1", new File(["test"], "proof.png", { type: "image/png" }));
+    const result = await h.save({}, form);
+    assert.equal(result.status, "error");
+    assert.equal(h.writes(), 0);
+    assert.equal(h.uploads(), 0);
+  }
+});
+
+test("club images follow stable activity IDs after reorder and explicit row deletion", async () => {
+  const a = { ...activities.emptyClubActivityItem(), link: "https://example.test/a", imageUrl: "https://example.test/a.png", imageName: "a.png" };
+  const b = { ...activities.emptyClubActivityItem(1), link: "https://example.test/b", imageUrl: "https://example.test/b.png", imageName: "b.png" };
+  const h = actionHarness({ id: "row", club_activity_link: JSON.stringify([a, b]) });
+  const form = h.form();
+  form.set("club_activity_items", JSON.stringify([{ ...b, imageUrl: "" }, { ...a, imageUrl: "" }]));
+  const result = await h.save({}, form);
+  assert.equal(result.status, "success");
+  assert.deepEqual(plain(result.savedActivities.map((item) => item.imageUrl)), [b.imageUrl, a.imageUrl]);
+  const next = actionHarness({ ...h.payload(), id: "row" });
+  const removed = next.form();
+  removed.set("club_activity_items", "[]");
+  assert.equal((await next.save({}, removed)).status, "success");
+  assert.equal(next.payload().club_activity_link, null);
+  assert.equal(next.payload().club_activity_image_url, null);
+});
+
+test("upload, write and verification failures are errors, never successful drafts", async () => {
+  const h = actionHarness(null, { uploadError: { message: "Storage unavailable" } });
+  const form = h.form();
+  form.set("club_activity_items", JSON.stringify([activities.emptyClubActivityItem()]));
+  form.set("club_activity_image_activity-1", new File(["test"], "proof.png", { type: "image/png" }));
+  const upload = await h.save({}, form);
+  assert.equal(upload.status, "error");
+  assert.match(upload.message, /Storage unavailable/);
+  assert.equal(h.writes(), 0);
+  for (const options of [{ writeError: { message: "Database unavailable" } }, { savedPatch: { club_activity_link: "https://unexpected.test" } }]) {
+    const failure = actionHarness(null, options);
+    const result = await failure.save({}, failure.form());
+    assert.equal(result.status, "error");
+    assert.equal(result.savedActivities, undefined);
+  }
+});
+
+test("monthly and salary revisions are independent of unrelated saves and updated_at", () => {
+  const original = { status: "draft", salary_status: "draft", player_rows: [{ ...monthly.emptyMonthlyPlayerRow(0), playerId: "p1", salaryAmount: "100", xTweetCount: "20" }] };
+  const salaryChange = { ...original, salary_status: "approved", updated_at: "new", player_rows: [{ ...original.player_rows[0], salaryAmount: "200" }] };
+  assert.equal(revisions.monthlyDraftRevision(original), revisions.monthlyDraftRevision(salaryChange));
+  const monthlyChange = { ...original, status: "approved", club_activity_link: "https://example.test", player_rows: [{ ...original.player_rows[0], xTweetCount: "30" }] };
+  assert.equal(revisions.monthlyDraftRevision(original, true), revisions.monthlyDraftRevision(monthlyChange, true));
+  assert.notEqual(revisions.monthlyDraftRevision(original), revisions.monthlyDraftRevision(monthlyChange));
+});
+
+test("returned reasons remain visible after a draft save", async () => {
+  const h = actionHarness({ id: "row", status: "returned", return_reason: "Please check the screenshot" });
+  const result = await h.save({}, h.form());
+  assert.equal(result.status, "success");
+  assert.equal(h.payload().return_reason, "Please check the screenshot");
+});
+
+test("a popular activity filename or zero-byte file alone is not saved evidence", async () => {
+  for (const zeroByte of [false, true]) {
+    const h = actionHarness(null);
+    const form = h.form("submit");
+    form.set("club_activity_items", JSON.stringify([{ ...activities.emptyClubActivityItem(), popular: true, activityDate: "2026-06-20", audienceCount: "4000", imageName: "unuploaded.png" }]));
+    if (zeroByte) form.set("club_activity_image_activity-1", new File([], "unuploaded.png", { type: "image/png" }));
+    const result = await h.save({}, form);
+    assert.equal(result.status, "error");
+    assert.match(result.message, /証明画像/);
+    assert.equal(h.writes(), 0);
+  }
+});
+
+test("restored attachment metadata cannot roll back newer X, YouTube or salary images", async () => {
+  const savedPlayer = { ...monthly.emptyMonthlyPlayerRow(0), playerId: "p1", playerName: "RenamedPlayer", xScreenshotUrl: "https://example.test/new-x", youtubeScreenshotUrl: "https://example.test/new-yt", salaryScreenshotUrl: "https://example.test/new-salary" };
+  const stalePlayer = { ...savedPlayer, playerName: "OldName", xScreenshotUrl: "https://example.test/old-x", youtubeScreenshotUrl: "https://example.test/old-yt", salaryScreenshotUrl: "https://example.test/old-salary" };
+  for (const action of ["draft", "salary_screenshots_draft"]) {
+    const h = actionHarness({ id: "row", player_rows: [savedPlayer] });
+    const form = h.form(action);
+    form.set("player_rows", JSON.stringify([stalePlayer]));
+    const result = await h.save({}, form);
+    assert.equal(result.status, "success");
+    assert.equal(result.savedPlayers[0].xScreenshotUrl, savedPlayer.xScreenshotUrl);
+    assert.equal(result.savedPlayers[0].youtubeScreenshotUrl, savedPlayer.youtubeScreenshotUrl);
+    assert.equal(result.savedPlayers[0].salaryScreenshotUrl, savedPlayer.salaryScreenshotUrl);
+    if (action.startsWith("salary")) assert.equal(result.savedPlayers[0].playerName, "RenamedPlayer");
+  }
 });

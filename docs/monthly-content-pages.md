@@ -19,3 +19,21 @@ Apply `supabase/monthly-content-entries.sql` before deploying. This additive mig
 ## Verification
 
 Run `node --test tests/*.test.mjs`, TypeScript and targeted ESLint checks. Browser checks use a temporary local-only form fixture without any production writes or notifications.
+
+## Draft Persistence
+
+Monthly and salary forms carry independent content revisions. An old tab cannot
+overwrite newer server data; the existing write-time `updated_at` guard also
+protects against changes during image uploads. No database migration is needed.
+
+Browser drafts without matching revisions (including pre-update drafts) are
+never restored automatically. The page displays server data and asks the team
+to choose whether to use it or explicitly restore local inputs. Do not clear
+browser storage to troubleshoot unsent work. Files not uploaded yet still need
+to be selected again after a reload; already saved club images are retained by
+activity ID until replaced, or until the activity is explicitly removed.
+
+A successful save uses the database's returned snapshot and updates local
+storage immediately, before refreshing. Failed saves keep the form and selected
+files. Draft saves preserve the administrator's return reason. Monthly and
+salary saves continue to preserve each other's data and approval states.
