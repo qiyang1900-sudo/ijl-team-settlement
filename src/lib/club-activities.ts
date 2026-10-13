@@ -48,9 +48,7 @@ export function parseClubActivityItems({
         .map((row, index) => normalizeClubActivityItem(row, index))
         .filter((row) => keepEmpty || hasClubActivityContent(row));
 
-      if (normalized.length > 0) {
-        return normalized;
-      }
+      return normalized;
     } catch {
       // Fall back to the legacy single-link format below.
     }
@@ -87,6 +85,20 @@ export function hasClubActivityContent(item: ClubActivityItem) {
 
 export function getPrimaryClubActivityItem(items: ClubActivityItem[]) {
   return items.find(hasClubActivityContent) || null;
+}
+
+export function retainClubActivityImages(items: ClubActivityItem[], existing: ClubActivityItem[]) {
+  const savedById = new Map(existing.map((item) => [item.id, item]));
+  return items.map((item) => {
+    const saved = savedById.get(item.id);
+    return {
+      ...item,
+      imageUrl: saved?.imageUrl || "",
+      imageName: saved?.imageName || "",
+      imageMimeType: saved?.imageMimeType || "",
+      imageStoragePath: saved?.imageStoragePath || "",
+    };
+  });
 }
 
 function normalizeClubActivityItem(value: unknown, index: number): ClubActivityItem {
