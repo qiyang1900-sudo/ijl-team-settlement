@@ -11,7 +11,7 @@ const metrics = {
 export type TiktokImportIssue = { month: string; sheet: string; row: number; team: string; account: string; reason: string };
 export type TiktokImport = { rows: TiktokMonthlyRow[]; issues: TiktokImportIssue[]; months: string[]; emptyMonths: string[] };
 
-export function tiktokMonthFromSheet(title: string): string | null {
+export function tiktokMonthFromSheet(title: string, previousMonth?: string | null): string | null {
   const name = title.normalize("NFKC").trim();
   const explicit = name.match(/^(20\d{2}|\d{2})年(\d{1,2})月$/);
   if (explicit) {
@@ -19,11 +19,21 @@ export function tiktokMonthFromSheet(title: string): string | null {
     const month = Number(explicit[2]);
     return month >= 1 && month <= 12 ? `${year}-${String(month).padStart(2, "0")}` : null;
   }
-  // These yearless tabs belong to the supplied 2025/26 workbook, not the current year.
   const legacy = name.match(/^(\d{1,2})月$/);
   if (!legacy) return null;
   const month = Number(legacy[1]);
-  return month >= 1 && month <= 12 ? `${month >= 9 ? 2025 : 2026}-${String(month).padStart(2, "0")}` : null;
+  if (month < 1 || month > 12) return null;
+  // Follow consecutive month tabs across years; never infer the year from today's date.
+  if (previousMonth && /^20\d{2}-(0[1-9]|1[0-2])$/.test(previousMonth)) {
+    const [previousYear, previousNumber] = previousMonth.split("-").map(Number);
+    // A repeated month remains a duplicate, not an automatic jump to the next year.
+    if (month === previousNumber) return previousMonth;
+    if (month === previousNumber % 12 + 1) {
+      return `${previousYear + (month === 1 ? 1 : 0)}-${String(month).padStart(2, "0")}`;
+    }
+  }
+  // Disconnected yearless tabs retain the original supplied 2025/26 workbook mapping.
+  return `${month >= 9 ? 2025 : 2026}-${String(month).padStart(2, "0")}`;
 }
 
 function cellValue(value: unknown): string | number {
@@ -78,12 +88,15 @@ export async function parseTiktokWorkbook(buffer: Buffer, maxMonth: string): Pro
   const issues: TiktokImportIssue[] = [];
   const months: string[] = [];
   const emptyMonths: string[] = [];
-  const monthSet = new Set<string>();
+  const sheetByMonth = new Map<string, string>();
+  let previousMonth: string | null = null;
   for (const sheet of workbook.worksheets) {
-    const month = tiktokMonthFromSheet(sheet.name);
-    if (!month || month > maxMonth) continue;
-    if (monthSet.has(month)) throw new Error(`${month} 有重复月份工作表，本次未更新数据。`);
-    monthSet.add(month);
+    const month = tiktokMonthFromSheet(sheet.name, previousMonth);
+    if (!month) continue;
+    previousMonth = month;
+    if (month > maxMonth) continue;
+    if (sheetByMonth.has(month)) throw new Error(`${month} 有重复月份工作表「${sheetByMonth.get(month)}」和「${sheet.name}」，本次未更新数据。请为这两页标明正确年份。`);
+    sheetByMonth.set(month, sheet.name);
     if (!sheet.actualRowCount) { emptyMonths.push(month); continue; }
     if (sheet.rowCount > 2000) throw new Error(`${sheet.name} 行数异常，本次未更新数据。`);
     const headers = new Map<string, number>();

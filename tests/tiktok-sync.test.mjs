@@ -48,6 +48,46 @@ async function fixture(change = () => {}, title = "6月") {
 test("sheet dates do not drift with the current year and support explicit future years", () => {
   for (const [title, expected] of [["9月", "2025-09"], ["１月", "2026-01"], ["26年9月", "2026-09"], ["2027年1月", "2027-01"], ["月份数据", null], ["26年13月", null]]) assert.equal(api.tiktokMonthFromSheet(title), expected);
 });
+test("yearless months follow consecutive tabs past September and across calendar years", () => {
+  let previous = null;
+  const titles = ["25年9月", "10月", "11月", "12月", "１月", "２月", "3月", "4月", "5月", "6月", "7月", "8月", "9月"];
+  const months = titles.map((title) => (previous = api.tiktokMonthFromSheet(title, previous)));
+  assert.equal(months[0], "2025-09");
+  assert.equal(months[4], "2026-01");
+  assert.equal(months.at(-1), "2026-09");
+  assert.equal(api.tiktokMonthFromSheet("10月", "2026-09"), "2026-10");
+  assert.equal(api.tiktokMonthFromSheet("1月", "2026-12"), "2027-01");
+  assert.equal(api.tiktokMonthFromSheet("25年9月", "2026-08"), "2025-09");
+  assert.equal(api.tiktokMonthFromSheet("9月", "2026-09"), "2026-09");
+});
+test("hidden historical September and current yearless September import into distinct months", async () => {
+  const bytes = await fixture((sheet, workbook) => {
+    sheet.name = "25年9月";
+    sheet.state = "hidden";
+    workbook.removeWorksheet(workbook.getWorksheet("26年9月").id);
+    for (const title of ["10月", "11月", "12月", "１月", "２月", "3月", "4月", "5月", "6月", "7月", "8月", "9月"]) {
+      const next = workbook.addWorksheet(title);
+      sheet.eachRow((row) => next.addRow(row.values));
+      if (title === "9月") next.getCell("H2").value = 999;
+    }
+  });
+  const result = await api.parseTiktokWorkbook(bytes, "2026-10");
+  assert.equal(result.months.length, 13);
+  assert.equal(result.rows.length, 104);
+  assert.equal(result.rows.find((r) => r.month === "2025-09" && r.teamShortName === "AWG").videoViews, 100);
+  assert.equal(result.rows.find((r) => r.month === "2026-09" && r.teamShortName === "AWG").videoViews, 999);
+});
+test("actual duplicate month tabs still fail with both sheet names, including empty duplicates", async () => {
+  const bytes = await fixture((sheet, workbook) => {
+    sheet.name = "25年9月";
+    workbook.addWorksheet("9月");
+    workbook.removeWorksheet(workbook.getWorksheet("26年9月").id);
+  });
+  await assert.rejects(api.parseTiktokWorkbook(bytes, "2026-10"), /2025-09.*「25年9月」.*「9月」/);
+  await assert.rejects(api.parseTiktokWorkbook(await fixture((_sheet, workbook) => {
+    workbook.addWorksheet("9月");
+  }), "2026-10"), /2026-09.*「26年9月」.*「9月」/);
+});
 test("counts preserve true zero, commas and full-width numbers, never coerce missing to zero", () => {
   for (const value of [null, "", "-", "#N/A", "6,,936", -1, 0.5, "1e5"]) assert.equal(api.parseTiktokCount(value), null);
   assert.equal(api.parseTiktokCount("１,２３４"), 1234);
@@ -168,11 +208,12 @@ if (process.env.TIKTOK_SOURCE_FILE) {
     const merged = api.mergeTiktokImport(tt.tiktokMonthlyRows, result);
     const totals = summaries.buildLeaguePlatformSummaries([], merged.rows, "2026-09").map((row) => ({ month: row.month, ...row.tiktok }));
     console.log(JSON.stringify({ imported: result.rows.length, skipped: result.issues.length, added: merged.added, updated: merged.updated, unchanged: merged.unchanged, emptyMonths: result.emptyMonths, totals }, null, 2));
-    assert.deepEqual(Array.from(result.months).slice(-3), ["2026-06", "2026-07", "2026-08"]);
+    assert.deepEqual(Array.from(result.months).slice(-3), ["2026-07", "2026-08", "2026-09"]);
+    assert.ok(result.months.includes("2025-09"));
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(process.env.TIKTOK_SOURCE_FILE);
-    for (const name of ["6月", "7月", "8月"]) {
-      const month = api.tiktokMonthFromSheet(name);
+    for (const name of ["6月", "7月", "8月", "9月"]) {
+      const month = `2026-${String(Number(name.replace("月", ""))).padStart(2, "0")}`;
       const direct = { followerCount: 0, streamCount: 0, postCount: 0, streamViews: 0, videoViews: 0 };
       workbook.getWorksheet(name).eachRow((row, index) => {
         if (index === 1) return;
