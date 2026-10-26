@@ -12,9 +12,6 @@ import {
 } from "@/lib/status-labels";
 import { isProjectReminderTarget, isSubmissionReminderTarget } from "@/lib/submission-reminder-policy";
 import {
-  buildDefaultMonthlyDeadlineAt,
-  buildDefaultSalaryScreenshotDeadlineAt,
-  buildMonthlyReminderSettings,
   formatMonthLabel,
   getMonthlyAdminStatusLabel,
   getMonthlyStatusTone,
@@ -32,6 +29,13 @@ import ImagePreview from "../reward/ImagePreview";
 import AutoDiscordReminderNudge from "./AutoDiscordReminderNudge";
 import ReminderButton from "./ReminderButton";
 import MonthlyContentReview from "../components/MonthlyContentReview";
+import { readAllRows } from "@/lib/read-all-rows";
+import {
+  buildCompleteMonthlyReviewRows as buildMonthlySubmissionReviewRows,
+  buildMonthlyReviewSettings as buildReviewMonthlySettings,
+  groupMonthlyReviewRecords as groupMonthlyReviewRows,
+  normalizeReviewMonth as normalizeReviewMonthParam,
+} from "@/lib/monthly-review-list";
 
 export const dynamic = "force-dynamic";
 
@@ -251,7 +255,7 @@ export default async function AdminReviewsPage({
         `
         )
         .order("created_at", { ascending: false }),
-      supabase
+      readAllRows((from, to) => supabase
         .from("monthly_data_submissions")
         .select(
           `
@@ -285,14 +289,14 @@ export default async function AdminReviewsPage({
             short_name,
             is_active
           )
-        `
-        ),
-      supabase.from("monthly_data_settings").select("*"),
+        `, { count: "exact" }
+        ).order("id").range(from, to)),
+      readAllRows((from, to) => supabase.from("monthly_data_settings").select("*", { count: "exact" }).order("target_month").range(from, to)),
       supabase
         .from("teams")
         .select("id, name, short_name, is_active")
         .eq("is_active", true),
-      supabase.from("monthly_player_assignments").select("target_month"),
+      readAllRows((from, to) => supabase.from("monthly_player_assignments").select("target_month", { count: "exact" }).order("id").range(from, to)),
     ]);
 
   const error =
@@ -308,13 +312,12 @@ export default async function AdminReviewsPage({
   const monthlySettings = buildReviewMonthlySettings({
     settings: (settingsResult.data || []) as MonthlySettingRow[],
     selectedMonth,
-    extraMonths: assignmentMonths,
+    extraMonths: [...assignmentMonths, ...(monthlyResult.data || []).map((row) => row.target_month)],
   });
   const monthlyRows = buildMonthlySubmissionReviewRows({
     submissions: (monthlyResult.data || []) as unknown as MonthlySubmissionReviewRow[],
     settings: monthlySettings,
     teams: (teamsResult.data || []) as TeamRow[],
-    selectedMonth,
   });
   const monthOptions = buildReviewMonthOptions({
     projectRows: allRows,
@@ -1296,11 +1299,6 @@ function ReasonPreview({ reason }: { reason: string }) {
   );
 }
 
-function normalizeReviewMonthParam(value: unknown) {
-  const month = String(Array.isArray(value) ? value[0] || "" : value || "").trim();
-
-  return /^\d{4}-\d{2}$/.test(month) ? month : "";
-}
 
 function buildReviewMonthOptions({
   projectRows,
@@ -1399,36 +1397,6 @@ function groupProjectReviewRows(
   };
 }
 
-function groupMonthlyReviewRows(
-  rows: MonthlySubmissionReviewRow[],
-  reviewKind: ReviewKind
-): ReviewGroups<MonthlySubmissionReviewRow> {
-  const eligibleRows = rows.filter((row) =>
-    isMonthlyReminderEligibleMonth(row.target_month)
-  );
-
-  return {
-    notSubmitted: eligibleRows.filter(
-      (row) =>
-        ["not_submitted", "draft"].includes(
-          getMonthlyReviewStatus(row, reviewKind)
-        )
-    ),
-    draft: [],
-    submitted: eligibleRows.filter(
-      (row) => getMonthlyReviewStatus(row, reviewKind) === "submitted"
-    ),
-    reviewing: eligibleRows.filter(
-      (row) => getMonthlyReviewStatus(row, reviewKind) === "reviewing"
-    ),
-    returned: eligibleRows.filter(
-      (row) => getMonthlyReviewStatus(row, reviewKind) === "returned"
-    ),
-    approved: eligibleRows.filter(
-      (row) => getMonthlyReviewStatus(row, reviewKind) === "approved"
-    ),
-  };
-}
 
 function getMonthlyReviewStatus(
   row: MonthlySubmissionReviewRow,
@@ -1447,127 +1415,6 @@ function getSalarySummaryForRow(row: MonthlySubmissionReviewRow) {
 
 function isSalaryReviewReminderTarget(row: MonthlySubmissionReviewRow) {
   return isSubmissionReminderTarget(row.salary_status);
-}
-
-function buildMonthlySubmissionReviewRows({
-  submissions,
-  settings,
-  teams,
-  selectedMonth,
-}: {
-  submissions: MonthlySubmissionReviewRow[];
-  settings: MonthlySettingRow[];
-  teams: TeamRow[];
-  selectedMonth: string;
-}) {
-  const settingByMonth = new Map(
-    settings.map((setting) => [setting.target_month, setting])
-  );
-  const submissionByTeamMonth = new Map(
-    submissions.map((row) => [`${row.team_id}:${row.target_month}`, row])
-  );
-  const activeTeams = teams.filter((team) => team.is_active !== false);
-  const syntheticRows = settings.filter(
-    (setting) =>
-      setting.target_month === selectedMonth ||
-      isMonthlyDataReminderWindowOpen(setting) ||
-      isSalaryScreenshotReminderWindowOpen(setting)
-  ).flatMap((setting) =>
-    activeTeams
-      .filter((team) => !submissionByTeamMonth.has(`${team.id}:${setting.target_month}`))
-      .map((team) => ({
-        id: `monthly-missing-${setting.target_month}-${team.id}`,
-        team_id: team.id,
-        target_month: setting.target_month,
-        status: "not_submitted",
-        salary_status: "not_submitted",
-        player_rows: [],
-        club_activity_link: null,
-        club_activity_image_url: null,
-        club_activity_image_name: null,
-        club_activity_image_mime_type: null,
-        club_activity_image_storage_path: null,
-        return_reason: null,
-        salary_return_reason: null,
-        submitted_at: null,
-        salary_submitted_at: null,
-        reviewing_at: null,
-        returned_at: null,
-        approved_at: null,
-        salary_reviewing_at: null,
-        salary_returned_at: null,
-        salary_approved_at: null,
-        updated_at: setting.deadline_at || setting.salary_screenshot_deadline_at || null,
-        teams: team,
-        deadline_at: setting.deadline_at,
-        salary_screenshot_deadline_at:
-          setting.salary_screenshot_deadline_at || null,
-        isSynthetic: true,
-      }))
-  );
-  const rowsWithDeadlines = submissions.map((row) => {
-    const setting = settingByMonth.get(row.target_month);
-
-    return {
-      ...row,
-      deadline_at: setting?.deadline_at || null,
-      salary_screenshot_deadline_at:
-        setting?.salary_screenshot_deadline_at || null,
-    };
-  });
-
-  return [...rowsWithDeadlines, ...syntheticRows].sort((a, b) => {
-    const monthCompare = String(b.target_month).localeCompare(String(a.target_month));
-
-    if (monthCompare !== 0) {
-      return monthCompare;
-    }
-
-    return String(a.teams?.short_name || a.teams?.name || "").localeCompare(
-      String(b.teams?.short_name || b.teams?.name || "")
-    );
-  });
-}
-
-function buildReviewMonthlySettings({
-  settings,
-  selectedMonth,
-  extraMonths = [],
-}: {
-  settings: MonthlySettingRow[];
-  selectedMonth: string;
-  extraMonths?: string[];
-}) {
-  const rows = buildMonthlyReminderSettings(settings);
-
-  for (const month of extraMonths) {
-    if (
-      isMonthlyReminderEligibleMonth(month) &&
-      !rows.some((setting) => setting.target_month === month)
-    ) {
-      rows.push(buildDefaultReviewMonthlySetting(month));
-    }
-  }
-
-  if (
-    selectedMonth &&
-    isMonthlyReminderEligibleMonth(selectedMonth) &&
-    !rows.some((setting) => setting.target_month === selectedMonth)
-  ) {
-    rows.push(buildDefaultReviewMonthlySetting(selectedMonth));
-  }
-
-  return rows.sort((left, right) =>
-    left.target_month.localeCompare(right.target_month)
-  );
-}
-
-function buildDefaultReviewMonthlySetting(month: string) {
-  return {
-    target_month: month,
-    deadline_at: buildDefaultMonthlyDeadlineAt(month),
-    salary_screenshot_deadline_at: buildDefaultSalaryScreenshotDeadlineAt(month),
-  };
 }
 
 function getReviewMonthsFromAssignmentRows(rows: MonthlyAssignmentMonthRow[]) {
