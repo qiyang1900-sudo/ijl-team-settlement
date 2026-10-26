@@ -5,6 +5,10 @@ import path from "node:path";
 import vm from "node:vm";
 import ts from "typescript";
 import crypto from "node:crypto";
+import * as React from "react";
+import * as jsxRuntime from "react/jsx-runtime";
+import { renderToStaticMarkup } from "react-dom/server";
+import * as icons from "lucide-react";
 
 const root = path.resolve(import.meta.dirname, "..");
 export function compile(file, imports = {}) {
@@ -14,6 +18,7 @@ export function compile(file, imports = {}) {
       compilerOptions: {
         module: ts.ModuleKind.CommonJS,
         target: ts.ScriptTarget.ES2022,
+        jsx: ts.JsxEmit.ReactJSX,
       },
     }).outputText,
     {
@@ -104,6 +109,75 @@ function fixture(count = 1, month = "2026-07") {
 }
 const compute = (fixture) =>
   api.buildIncentiveMonth(fixture.context, fixture.reviews);
+
+function renderScoreBoard(f, { dirty = false } = {}) {
+  let stateIndex = 0;
+  const Board = compile("src/app/admin/team-scores/IncentiveScoreBoard.tsx", {
+    react: {
+      ...React,
+      useState(initial) {
+        const index = stateIndex++;
+        return React.useState(dirty && index === 0 ? new Set(["t0"]) : initial);
+      },
+    },
+    "react/jsx-runtime": jsxRuntime,
+    "next/navigation": { useRouter: () => ({ refresh() {} }) },
+    "lucide-react": icons,
+    "@/lib/incentive-score": api,
+  }).default;
+  return renderToStaticMarkup(React.createElement(Board, {
+    result: compute(f),
+    reviews: f.reviews,
+    hashes: Object.fromEntries(f.context.teams.map((team) => [team.id, "source"])),
+    sourceHash: "month-source",
+    snapshot: null,
+    evidence: {},
+    legacy: [],
+  }));
+}
+
+test("scoreboard with no approved monthly data waits instead of claiming it is settleable", () => {
+  const f = fixture(8, "2026-10");
+  f.context.submissions = [];
+  f.reviews = [];
+  const html = renderScoreBoard(f);
+  assert.match(html, /月度计算.*?等待月数据通过/);
+  assert.doesNotMatch(html, /可结算|本次分配/);
+  assert.match(html, /等待月数据通过后计算奖金/);
+  assert.match(html, /本月暂无审核通过的月数据，暂不能结算/);
+  assert.match(html, /<input[^>]*type="checkbox"[^>]*disabled=""/);
+  assert.match(html, /<button[^>]*disabled=""[^>]*>.*?已审核结束并保存本月结果/);
+});
+
+test("scoreboard reports missing data and unfinished or stale reviews before settlement", () => {
+  const incomplete = fixture();
+  incomplete.reviews[0].inputs.overrides.shortLikes = null;
+  assert.match(renderScoreBoard(incomplete), /月度计算.*?待补充数据/);
+  for (const update of [
+    (review) => { review.status = "draft"; },
+    (review) => { review.source_hash = "outdated"; },
+  ]) {
+    const f = fixture();
+    update(f.reviews[0]);
+    const html = renderScoreBoard(f);
+    assert.match(html, /月度计算.*?待复核/);
+    assert.doesNotMatch(html, /可结算/);
+    assert.match(html, /<input[^>]*type="checkbox"[^>]*disabled=""/);
+  }
+});
+
+test("scoreboard only becomes settleable with complete current reviews and no unsaved edits", () => {
+  const f = fixture();
+  const ready = renderScoreBoard(f);
+  assert.match(ready, /月度计算.*?可结算/);
+  assert.doesNotMatch(ready, /<input[^>]*type="checkbox"[^>]*disabled=""/);
+  // Final save still requires the administrator's explicit confirmation.
+  assert.match(ready, /<button[^>]*disabled=""[^>]*>.*?已审核结束并保存本月结果/);
+  const dirty = renderScoreBoard(f, { dirty: true });
+  assert.match(dirty, /月度计算.*?有未保存修改/);
+  assert.doesNotMatch(dirty, /可结算/);
+  assert.match(dirty, /<input[^>]*type="checkbox"[^>]*disabled=""/);
+});
 
 test("A uses new thresholds, per-section floors and default X tag points", () => {
   const full = goodValues();
