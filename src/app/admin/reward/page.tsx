@@ -11,7 +11,6 @@ import ReminderButton from "../reviews/ReminderButton";
 import {
   MonthlyDataStatus,
   MonthlyPlayerRow,
-  buildMonthlyReminderSettings,
   formatMonthLabel,
   formatMonthlyNumber,
   getMonthlyAdminStatusLabel,
@@ -31,6 +30,9 @@ import {
   formatAlertPercent,
 } from "@/lib/monthly-review-alerts";
 import type { MonthlyReviewAlert } from "@/lib/monthly-review-alerts";
+import { buildCompleteMonthlyReviewRows as buildMonthlyReviewRows, buildMonthlyReviewSettings, groupMonthlyReviewRecords } from "@/lib/monthly-review-list";
+import { readAllRows } from "@/lib/read-all-rows";
+import { isSubmissionReminderTarget } from "@/lib/submission-reminder-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -203,7 +205,7 @@ export default async function RewardPage() {
 
   const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
   const [submissionResult, settingsResult, teamsResult] = await Promise.all([
-    supabase
+    readAllRows((from, to) => supabase
       .from("monthly_data_submissions")
       .select(
         `
@@ -214,10 +216,10 @@ export default async function RewardPage() {
           short_name,
           is_active
         )
-      `
+      `, { count: "exact" }
       )
-      .order("updated_at", { ascending: false }),
-    supabase.from("monthly_data_settings").select("*"),
+      .order("id").range(from, to)),
+    readAllRows((from, to) => supabase.from("monthly_data_settings").select("*", { count: "exact" }).order("target_month").range(from, to)),
     supabase
       .from("teams")
       .select("id, name, short_name, is_active")
@@ -226,9 +228,10 @@ export default async function RewardPage() {
   const error = submissionResult.error || settingsResult.error || teamsResult.error;
   const rows = buildMonthlyReviewRows({
     submissions: (submissionResult.data || []) as MonthlySubmissionRow[],
-    settings: buildMonthlyReminderSettings(
-      (settingsResult.data || []) as MonthlySettingRow[]
-    ),
+    settings: buildMonthlyReviewSettings({
+      settings: (settingsResult.data || []) as MonthlySettingRow[],
+      extraMonths: (submissionResult.data || []).map((row) => row.target_month),
+    }),
     teams: (teamsResult.data || []) as TeamRow[],
   });
   const grouped = groupRows(rows);
@@ -413,134 +416,13 @@ export default async function RewardPage() {
   );
 }
 
-function buildMonthlyReviewRows({
-  submissions,
-  settings,
-  teams,
-}: {
-  submissions: MonthlySubmissionRow[];
-  settings: MonthlySettingRow[];
-  teams: TeamRow[];
-}) {
-  const settingByMonth = new Map(
-    settings.map((setting) => [setting.target_month, setting])
-  );
-  const submissionByTeamMonth = new Map(
-    submissions.map((row) => [`${row.team_id}:${row.target_month}`, row])
-  );
-  const activeTeams = teams.filter((team) => team.is_active !== false);
-  const syntheticRows = settings.filter(
-    (setting) =>
-      isMonthlyDataReminderWindowOpen(setting) ||
-      isSalaryScreenshotReminderWindowOpen(setting)
-  ).flatMap((setting) =>
-    activeTeams
-      .filter((team) => !submissionByTeamMonth.has(`${team.id}:${setting.target_month}`))
-      .map((team) => ({
-        id: `missing-${setting.target_month}-${team.id}`,
-        team_id: team.id,
-        target_month: setting.target_month,
-        status: "not_submitted",
-        salary_status: "not_submitted",
-        player_rows: [],
-        club_activity_link: null,
-        club_activity_image_url: null,
-        club_activity_image_name: null,
-        club_activity_image_mime_type: null,
-        club_activity_image_storage_path: null,
-        return_reason: null,
-        salary_return_reason: null,
-        submitted_at: null,
-        reviewing_at: null,
-        returned_at: null,
-        approved_at: null,
-        salary_submitted_at: null,
-        salary_reviewing_at: null,
-        salary_returned_at: null,
-        salary_approved_at: null,
-        updated_at: setting.deadline_at || setting.salary_screenshot_deadline_at || null,
-        teams: team,
-        deadline_at: setting.deadline_at,
-        salary_screenshot_deadline_at: setting.salary_screenshot_deadline_at || null,
-        isSynthetic: true,
-      }))
-  );
-  const rowsWithDeadlines = submissions.map((row) => {
-    const setting = settingByMonth.get(row.target_month);
-
-    return {
-      ...row,
-      deadline_at: setting?.deadline_at || null,
-      salary_screenshot_deadline_at:
-        setting?.salary_screenshot_deadline_at || null,
-    };
-  });
-
-  return [...rowsWithDeadlines, ...syntheticRows].sort((a, b) => {
-    const monthCompare = String(b.target_month).localeCompare(String(a.target_month));
-
-    if (monthCompare !== 0) {
-      return monthCompare;
-    }
-
-    return String(a.teams?.short_name || a.teams?.name || "").localeCompare(
-      String(b.teams?.short_name || b.teams?.name || "")
-    );
-  });
-}
 
 function groupRows(rows: MonthlySubmissionRow[]) {
-  const eligibleRows = rows.filter((row) =>
-    isMonthlyReminderEligibleMonth(row.target_month)
-  );
-
-  return {
-    notSubmitted: eligibleRows.filter(
-      (row) =>
-        ["not_submitted", "draft"].includes(normalizeMonthlyStatus(row.status))
-    ),
-    draft: [],
-    submitted: eligibleRows.filter(
-      (row) => normalizeMonthlyStatus(row.status) === "submitted"
-    ),
-    reviewing: eligibleRows.filter(
-      (row) => normalizeMonthlyStatus(row.status) === "reviewing"
-    ),
-    returned: eligibleRows.filter(
-      (row) => normalizeMonthlyStatus(row.status) === "returned"
-    ),
-    approved: eligibleRows.filter(
-      (row) => normalizeMonthlyStatus(row.status) === "approved"
-    ),
-  };
+  return groupMonthlyReviewRecords(rows, "monthly");
 }
 
 function groupSalaryRows(rows: MonthlySubmissionRow[]) {
-  const eligibleRows = rows.filter((row) =>
-    isMonthlyReminderEligibleMonth(row.target_month)
-  );
-
-  return {
-    notSubmitted: eligibleRows.filter(
-      (row) =>
-        ["not_submitted", "draft"].includes(
-          normalizeMonthlyStatus(row.salary_status)
-        )
-    ),
-    draft: [],
-    submitted: eligibleRows.filter(
-      (row) => normalizeMonthlyStatus(row.salary_status) === "submitted"
-    ),
-    reviewing: eligibleRows.filter(
-      (row) => normalizeMonthlyStatus(row.salary_status) === "reviewing"
-    ),
-    returned: eligibleRows.filter(
-      (row) => normalizeMonthlyStatus(row.salary_status) === "returned"
-    ),
-    approved: eligibleRows.filter(
-      (row) => normalizeMonthlyStatus(row.salary_status) === "approved"
-    ),
-  };
+  return groupMonthlyReviewRecords(rows, "salary");
 }
 
 function getSalarySummaryForRow(row: MonthlySubmissionRow) {
@@ -549,19 +431,8 @@ function getSalarySummaryForRow(row: MonthlySubmissionRow) {
   return getSalaryScreenshotSummary(playerRows);
 }
 
-function isSalaryScreenshotMissing(row: MonthlySubmissionRow) {
-  return !getSalarySummaryForRow(row).isComplete;
-}
-
 function isSalaryReminderTarget(row: MonthlySubmissionRow) {
-  const status = normalizeMonthlyStatus(row.salary_status);
-
-  return (
-    status === "not_submitted" ||
-    status === "draft" ||
-    status === "returned" ||
-    isSalaryScreenshotMissing(row)
-  );
+  return isSubmissionReminderTarget(row.salary_status);
 }
 
 function isMonthlyReminderTarget(status: string | null | undefined) {
