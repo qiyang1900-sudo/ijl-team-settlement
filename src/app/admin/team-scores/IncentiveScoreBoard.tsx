@@ -92,6 +92,15 @@ export default function IncentiveScoreBoard({
     reviewed.length === approved.length &&
     !result.incomplete &&
     dirty.size === 0;
+  const settlementStatus = !approved.length
+    ? "等待月数据通过"
+    : dirty.size > 0
+      ? "有未保存修改"
+      : result.incomplete
+        ? "待补充数据"
+        : ready
+          ? "可结算"
+          : "待复核";
   const sorted = [...approved].sort(
     (a, b) => (b.total ?? -1) - (a.total ?? -1),
   );
@@ -132,9 +141,7 @@ export default function IncentiveScoreBoard({
           <h2 className="text-lg font-bold">
             {result.month} 月度计算{" "}
             <span className="ml-2 text-sm font-normal text-amber-300">
-              {result.incomplete || reviewed.length !== approved.length
-                ? "待复核"
-                : "可结算"}
+              {settlementStatus}
             </span>
           </h2>
           <p className="text-sm text-slate-300">
@@ -251,9 +258,11 @@ export default function IncentiveScoreBoard({
         <h2 className="text-lg font-bold">月度结算</h2>
         {result.prizeEnabled && (
           <p className="mt-3 text-sm text-slate-300">
-            {result.incomplete
-              ? "奖金待计算"
-              : `本次分配 ${yen(result.allocated)} · 不分配／舍去尾数 ${yen(result.unallocated)}`}{" "}
+            {!approved.length
+              ? "等待月数据通过后计算奖金"
+              : result.incomplete
+                ? "奖金待计算"
+                : `本次分配 ${yen(result.allocated)} · 不分配／舍去尾数 ${yen(result.unallocated)}`}{" "}
             · 月度上限 ¥2,000,000
           </p>
         )}
@@ -285,11 +294,13 @@ export default function IncentiveScoreBoard({
             {busy ? "保存中…" : "已审核结束并保存本月结果"}
           </button>
           <span className="text-sm text-slate-400">
-            {dirty.size
-              ? `${dirty.size} 队有未保存修改`
-              : !ready
-                ? "请先补齐数据并完成各队复核"
-                : "保存后保留独立结算记录"}
+            {!approved.length
+              ? "本月暂无审核通过的月数据，暂不能结算"
+              : dirty.size
+                ? `${dirty.size} 队有未保存修改`
+                : !ready
+                  ? "请先补齐数据并完成各队复核"
+                  : "保存后保留独立结算记录"}
           </span>
         </div>
         {message && (
