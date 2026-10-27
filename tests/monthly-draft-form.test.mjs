@@ -120,6 +120,34 @@ test("legacy and outdated browser drafts cannot automatically replace saved club
   }
 });
 
+test("Shorts repost column starts in October, is required for every account and preserves zero in drafts", () => {
+  for (const month of ["2026-09", "2026-10", "2027-01"]) {
+    const h = harness({ selectedMonth: month });
+    const section = h.nodes().find((node) => node.type?.name === "MetricSection" && node.props.kind === "youtube");
+    const field = section.props.fields.find((field) => field.key === "youtubeShortRepostCount");
+    assert.equal(Boolean(field), month >= "2026-10");
+    if (!field) continue;
+    assert.equal(field.required, true);
+    const inputs = nodes(section.type(section.props)).filter((node) => node.type === "input" && node.props["aria-label"]?.includes("共有数"));
+    assert.equal(inputs.length, 2);
+    for (const input of inputs) {
+      assert.equal(input.props.required, true);
+      assert.equal(input.props.min, "0");
+      input.props.onChange({ target: { value: "0" } });
+    }
+    h.render();
+    h.flush(350);
+    assert.equal(JSON.parse(h.stored()).officialRow.youtubeShortRepostCount, "0");
+    assert.equal(JSON.parse(h.stored()).players[0].youtubeShortRepostCount, "0");
+    const restored = harness({ selectedMonth: month, draft: JSON.parse(h.stored()) });
+    const yt = restored.nodes().find((node) => node.type?.name === "MetricSection" && node.props.kind === "youtube");
+    assert.equal(yt.props.officialRow.youtubeShortRepostCount, "0");
+    assert.equal(yt.props.players[0].youtubeShortRepostCount, "0");
+    const draftButton = h.nodes().find((node) => node.type === "button" && node.props.value === "draft");
+    assert.equal(draftButton.props.formNoValidate, true);
+  }
+});
+
 test("current local edits restore their links but keep server-owned images", () => {
   const h = harness({ draft: { monthlyRevision: "month-v2", salaryRevision: "salary-v1", activities: [{ ...activity, link: "https://example.test/unsent-edit", imageUrl: "" }] } });
   const restored = h.nodes().find((node) => node.type?.name === "ClubActivitySection").props.activities[0];

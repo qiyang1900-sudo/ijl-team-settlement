@@ -110,6 +110,49 @@ function fixture(count = 1, month = "2026-07") {
 const compute = (fixture) =>
   api.buildIncentiveMonth(fixture.context, fixture.reviews);
 
+test("Shorts repost ranking combines official, player and coach YT with TT, excluding unknowns and real zero", () => {
+  const f = fixture(6, "2026-10");
+  f.context.submissions.forEach((submission, index) => {
+    submission.player_rows[0].youtubeShortRepostCount = String(index * 10);
+    submission.player_rows[1].youtubeShortRepostCount = "0";
+    submission.player_rows.push({ ...submission.player_rows[1], id: `coach-${index}`, playerId: `coach-${index}`, playerRole: "コーチ", youtubeShortRepostCount: String(index) });
+    f.context.tiktokRows.push({ month: "2026-10", teamShortName: `T${index}`, isOfficial: true, repostCount: index });
+    delete f.reviews[index].inputs.overrides.shortReposts;
+  });
+  const result = compute(f);
+  for (let i = 0; i < 6; i++) {
+    const proposed = api.proposeIncentiveValues(f.context.teams[i], f.context);
+    assert.equal(proposed.values.shortReposts, i * 12);
+    const team = result.teams.find((team) => team.teamId === `t${i}`);
+    assert.equal(team.b.shorts, i === 0 ? 6 : 10);
+  }
+  f.context.tiktokRows[1].repostCount = undefined;
+  let proposed = api.proposeIncentiveValues(f.context.teams[1], f.context);
+  assert.equal(proposed.values.shortReposts, null);
+  assert.ok(proposed.details.some((line) => line.includes("YT Shorts 11；TT 待补充")));
+  f.context.tiktokRows[1].repostCount = 1;
+  f.context.submissions[1].player_rows[0].youtubeShortRepostCount = "";
+  assert.equal(api.proposeIncentiveValues(f.context.teams[1], f.context).values.shortReposts, null);
+  f.context.submissions[1].player_rows[0].youtubeShortRepostCount = "10";
+  f.context.tiktokIssues = [{ month: "2026-10", team: "T1" }];
+  assert.equal(api.proposeIncentiveValues(f.context.teams[1], f.context).values.shortReposts, null);
+  f.context.submissions[1].status = "submitted";
+  proposed = api.proposeIncentiveValues(f.context.teams[1], f.context);
+  assert.equal(proposed.hasApprovedData, false);
+  assert.equal(proposed.values.shortReposts, null);
+});
+
+test("new repost data participates in source revisions without adding a value to historical rows", () => {
+  const f = fixture(1, "2026-09");
+  const before = storage.incentiveHash(storage.sourceForIncentiveTeam(f.context, "t0"));
+  const source = storage.sourceForIncentiveTeam(f.context, "t0");
+  assert.equal(Object.hasOwn(source.submissions[0].player_rows[0], "youtubeShortRepostCount"), false);
+  f.context.submissions[0].player_rows = monthly.parseMonthlyPlayerRows(f.context.submissions[0].player_rows);
+  assert.equal(storage.incentiveHash(storage.sourceForIncentiveTeam(f.context, "t0")), before);
+  f.context.submissions[0].player_rows[0].youtubeShortRepostCount = "0";
+  assert.notEqual(storage.incentiveHash(storage.sourceForIncentiveTeam(f.context, "t0")), before);
+});
+
 function renderScoreBoard(f, { dirty = false } = {}) {
   let stateIndex = 0;
   const Board = compile("src/app/admin/team-scores/IncentiveScoreBoard.tsx", {

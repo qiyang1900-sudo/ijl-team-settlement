@@ -1010,6 +1010,7 @@ function PlayerDataTable({ players }: { players: MonthlyPlayerRow[] }) {
             <th className="px-3 py-2">Shorts投稿</th>
             <th className="px-3 py-2">Shorts播放</th>
             <th className="px-3 py-2">点赞</th>
+            <th className="px-3 py-2">Shorts月转发</th>
             <th className="px-3 py-2">直播回数</th>
             <th className="px-3 py-2">直播观看</th>
             <th className="px-3 py-2">合计Imp</th>
@@ -1056,6 +1057,7 @@ function PlayerDataTable({ players }: { players: MonthlyPlayerRow[] }) {
               <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeShortPostCount)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeShortViews)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeLikeCount)}</td>
+              <td className="px-3 py-2">{player.youtubeShortRepostCount == null || player.youtubeShortRepostCount === "" ? "-" : formatMonthlyNumber(player.youtubeShortRepostCount)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeStreamCount)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeStreamViews)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeTotalImpressions)}</td>

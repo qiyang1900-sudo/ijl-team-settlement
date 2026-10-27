@@ -17,7 +17,10 @@ import {
   MonthlyPlayerRow,
   formatMonthlyNumber,
   hasMonthlyMetricScreenshot,
+  isMonthlyShortRepostRequiredMonth,
   sumMonthlyField,
+  sumMonthlyShortReposts,
+  validateMonthlyShortReposts,
 } from "@/lib/monthly-data";
 import {
   ClubActivityItem,
@@ -84,6 +87,7 @@ const youtubeFields: Array<{
   key: PlayerField;
   label: string;
   shortLabel: string;
+  required?: boolean;
 }> = [
   { key: "youtubeVideoPostCount", label: "投稿本数（動画）", shortLabel: "動画本数" },
   { key: "youtubeVideoViews", label: "視聴回数（動画）", shortLabel: "動画再生" },
@@ -98,6 +102,7 @@ const youtubeFields: Array<{
     shortLabel: "Short再生",
   },
   { key: "youtubeLikeCount", label: "いいね数", shortLabel: "いいね" },
+  { key: "youtubeShortRepostCount", label: "共有数（YT Shorts・月間）", shortLabel: "Short共有数", required: true },
   { key: "youtubeStreamCount", label: "配信回数", shortLabel: "配信回数" },
   { key: "youtubeStreamViews", label: "視聴回数（配信）", shortLabel: "配信再生" },
   {
@@ -453,6 +458,14 @@ export default function MonthlyDataForm({
     if (isPending || isCompressingRef.current) { event.preventDefault(); return; }
     const actionType = submitter?.value || "draft";
     if (actionType === "submit") {
+      const repostErrors = validateMonthlyShortReposts([officialRow, ...players], selectedMonth);
+      if (repostErrors.length) {
+        event.preventDefault();
+        setPage(1);
+        setClientInfo("");
+        setClientError(repostErrors.join("\n"));
+        return;
+      }
       if (!confirmedEmptyRef.current && shouldConfirmEmptyContent(actionType, contentEntries)) {
         event.preventDefault();
         submitterRef.current = submitter;
@@ -707,7 +720,7 @@ export default function MonthlyDataForm({
         <MetricSection
           title="③ YouTube"
           kind="youtube"
-          fields={youtubeFields}
+          fields={youtubeFields.filter((field) => field.key !== "youtubeShortRepostCount" || isMonthlyShortRepostRequiredMonth(selectedMonth))}
           officialRow={officialRow}
           players={players}
           updateOfficial={updateOfficial}
@@ -904,7 +917,7 @@ function MetricSection({
 }: {
   title: string;
   kind: MetricSectionKind;
-  fields: Array<{ key: PlayerField; label: string; shortLabel: string }>;
+  fields: Array<{ key: PlayerField; label: string; shortLabel: string; required?: boolean }>;
   officialRow: MonthlyPlayerRow;
   players: MonthlyPlayerRow[];
   updateOfficial: (key: PlayerField, value: string) => void;
@@ -945,6 +958,7 @@ function MetricSection({
                   className="w-28 min-w-28 px-2 py-2"
                 >
                   {field.shortLabel}
+                  {field.required ? <span className="ml-1 text-rose-500">必須</span> : null}
                 </th>
               ))}
               <th className="w-64 min-w-64 px-2 py-2">
@@ -970,7 +984,8 @@ function MetricSection({
                   <input
                     type="number"
                     min="0"
-                    value={String(officialRow[field.key] || "")}
+                    required={field.required}
+                    value={String(officialRow[field.key] ?? "")}
                     onChange={(event) =>
                       updateOfficial(field.key, event.target.value)
                     }
@@ -1018,7 +1033,8 @@ function MetricSection({
                     <input
                       type="number"
                       min="0"
-                      value={String(player[field.key] || "")}
+                      required={field.required}
+                      value={String(player[field.key] ?? "")}
                       onChange={(event) =>
                         updatePlayer(index, field.key, event.target.value)
                       }
@@ -1058,7 +1074,9 @@ function MetricSection({
               </th>
               {fields.map((field) => (
                 <td key={field.key} className="w-28 min-w-28 px-2 py-2">
-                  {formatMonthlyNumber(sumMonthlyField(totalRows, field.key))}
+                  {field.key === "youtubeShortRepostCount"
+                    ? sumMonthlyShortReposts(totalRows) === null ? "未入力あり" : formatMonthlyNumber(sumMonthlyShortReposts(totalRows))
+                    : formatMonthlyNumber(sumMonthlyField(totalRows, field.key))}
                 </td>
               ))}
               <td className="w-64 min-w-64 px-2 py-2 text-xs text-slate-500">
