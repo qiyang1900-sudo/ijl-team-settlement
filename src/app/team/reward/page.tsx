@@ -737,7 +737,7 @@ export default async function TeamRewardPage({
             <p className="mt-2 text-xs">{tableError}</p>
           </section>
         ) : (
-          <div className="mt-6 grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
+          <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
             <aside className="space-y-3">
               <MonthPicker teamId={teamId} selectedMonth={selectedMonth} />
 
@@ -775,7 +775,7 @@ export default async function TeamRewardPage({
               </section>
             </aside>
 
-            <div>
+            <div className="min-w-0">
               {playerTableError ? (
                 <section className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
                   選手管理テーブルがまだ準備されていないため、既存提出データのみ表示しています。
