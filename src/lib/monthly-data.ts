@@ -37,6 +37,8 @@ export type MonthlyPlayerRow = {
   youtubeShortPostCount: string;
   youtubeShortViews: string;
   youtubeLikeCount: string;
+  // Optional in stored rows so historical submissions and review revisions stay unchanged.
+  youtubeShortRepostCount?: string;
   youtubeStreamCount: string;
   youtubeStreamViews: string;
   youtubeTotalImpressions: string;
@@ -60,6 +62,31 @@ export type MonthlyReminderSetting = {
 export const monthlyReminderStartMonth = "2026-06";
 export const monthlyReminderLeadDays = 7;
 export const monthlyDataScreenshotRequiredStartMonth = "2026-07";
+export const monthlyShortRepostRequiredStartMonth = "2026-10";
+
+export function isMonthlyShortRepostRequiredMonth(month: string) {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(month) && month >= monthlyShortRepostRequiredStartMonth;
+}
+
+export function monthlyShortRepostValue(value: unknown): number | null {
+  const text = String(value ?? "").normalize("NFKC").trim().replace(/,/g, "");
+  const number = Number(text);
+  return /^\d+$/.test(text) && Number.isSafeInteger(number) ? number : null;
+}
+
+export function validateMonthlyShortReposts(rows: MonthlyPlayerRow[], month: string): string[] {
+  if (!isMonthlyShortRepostRequiredMonth(month)) return [];
+  return rows.flatMap((row, index) => monthlyShortRepostValue(row.youtubeShortRepostCount) === null
+    ? [`${row.playerName || `アカウント ${index + 1}`}：YT Shortsの月間共有数を0以上の整数で入力してください（実績がない場合は0）。`]
+    : []);
+}
+
+export function sumMonthlyShortReposts(rows: MonthlyPlayerRow[]): number | null {
+  const values = rows.map((row) => monthlyShortRepostValue(row.youtubeShortRepostCount));
+  if (!values.length || values.some((value) => value === null)) return null;
+  const total = values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+  return Number.isSafeInteger(total) ? total : null;
+}
 
 export const officialMonthlyRowHandle = "__official_account__";
 export const officialMonthlyRowRole = "official_account";
@@ -98,6 +125,7 @@ const monthlyMetricKeys: Array<keyof MonthlyPlayerRow> = [
   "youtubeShortPostCount",
   "youtubeShortViews",
   "youtubeLikeCount",
+  "youtubeShortRepostCount",
   "youtubeStreamCount",
   "youtubeStreamViews",
   "youtubeTotalImpressions",
@@ -587,6 +615,7 @@ function combineOfficialRows(rows: MonthlyPlayerRow[]) {
 
   for (const key of monthlyMetricKeys) {
     const sourceValues = rows.map((row) => row[key]);
+    if (key === "youtubeShortRepostCount" && sourceValues.every((value) => value === undefined)) continue;
     const values = sourceValues.map((value) => numericMonthlyValue(value));
     const maxValue = Math.max(0, ...values);
     combined[key] =

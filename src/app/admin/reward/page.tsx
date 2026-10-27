@@ -832,6 +832,7 @@ function PlayerDataTable({ players }: { players: MonthlyPlayerRow[] }) {
             <th className="px-3 py-2">YTショート</th>
             <th className="px-3 py-2">YTショート視聴</th>
             <th className="px-3 py-2">YTいいね</th>
+            <th className="px-3 py-2">Shorts月转发</th>
             <th className="px-3 py-2">YT配信</th>
             <th className="px-3 py-2">YT配信視聴</th>
             <th className="px-3 py-2">合計インプレッション</th>
@@ -877,6 +878,7 @@ function PlayerDataTable({ players }: { players: MonthlyPlayerRow[] }) {
               <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeShortPostCount)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeShortViews)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeLikeCount)}</td>
+              <td className="px-3 py-2">{player.youtubeShortRepostCount == null || player.youtubeShortRepostCount === "" ? "-" : formatMonthlyNumber(player.youtubeShortRepostCount)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeStreamCount)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeStreamViews)}</td>
               <td className="px-3 py-2">{formatMonthlyNumber(player.youtubeTotalImpressions)}</td>

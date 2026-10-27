@@ -416,6 +416,8 @@ export function proposeIncentiveValues(
   }
   const ytShortPosts = metric(all, "youtubeShortPostCount");
   const combinedShortPosts = checkedSum([ytShortPosts, ttMetric("postCount")]);
+  const ytShortReposts = metric(all, "youtubeShortRepostCount");
+  const ttShortReposts = ttMetric("repostCount");
   const values: IncentiveValues = {
     officialVideos: metric(official, "youtubeVideoPostCount"),
     designatedLong: knownClaims ? long : null,
@@ -440,7 +442,7 @@ export function proposeIncentiveValues(
       metric(members, "youtubeLikeCount"),
       ttMetric("likeCount", true),
     ]),
-    shortReposts: null,
+    shortReposts: checkedSum([ytShortReposts, ttShortReposts]),
     xGrowth: accountGrowth(all, previous, "xFollowerCount", 300, details),
     ttGrowth: hasTTIssue ? null : tiktokGrowth(tt, oldTT, details),
     ytGrowth: accountGrowth(
@@ -464,6 +466,8 @@ export function proposeIncentiveValues(
     details.push(
       "Shorts＋TT 的完整合计尚未齐全，但仅现有 YT Shorts 已满足 5 条基准。",
     );
+  if (context.month >= contentCollectionStartMonth && submission)
+    details.push(`月转发数：YT Shorts ${ytShortReposts ?? "未填完整"}；TT ${ttShortReposts ?? "待补充"}；合计 ${values.shortReposts ?? "待补齐后计算"}。`);
   return {
     hasApprovedData: Boolean(submission),
     values,

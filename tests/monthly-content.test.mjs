@@ -55,6 +55,29 @@ const work = (changes = {}) => ({
   ...changes,
 });
 
+test("Shorts monthly reposts are required from October only and zero is valid", () => {
+  const rows = [monthly.createOfficialMonthlyRow("AWG"), { ...monthly.emptyMonthlyPlayerRow(), playerName: "Coach", playerRole: "コーチ" }];
+  assert.equal(monthly.validateMonthlyShortReposts(rows, "2026-09").length, 0);
+  assert.equal(monthly.validateMonthlyShortReposts(rows, "2025-10").length, 0);
+  assert.equal(monthly.validateMonthlyShortReposts(rows, "2026-10").length, 2);
+  assert.match(monthly.validateMonthlyShortReposts(rows, "2027-01")[1], /Coach/);
+  for (const value of ["0", 0, "123", "１，２３４"])
+    assert.equal(monthly.validateMonthlyShortReposts(rows.map((row) => ({ ...row, youtubeShortRepostCount: value })), "2026-10").length, 0);
+  for (const value of [undefined, null, "", " ", "#N/A", "1.5", "-1", "3e2", "2次", "9007199254740992"])
+    assert.equal(monthly.validateMonthlyShortReposts([{ ...rows[0], youtubeShortRepostCount: value }], "2026-10").length, 1);
+  assert.equal(monthly.sumMonthlyShortReposts(rows), null);
+  assert.equal(monthly.sumMonthlyShortReposts(rows.map((row) => ({ ...row, youtubeShortRepostCount: "0" }))), 0);
+});
+
+test("historical monthly rows do not acquire a fabricated repost value", () => {
+  const historical = monthly.createOfficialMonthlyRow("AWG");
+  const parsed = monthly.parseMonthlyPlayerRows([historical]);
+  assert.equal(Object.hasOwn(parsed[0], "youtubeShortRepostCount"), false);
+  assert.equal(Object.hasOwn(monthly.splitMonthlyRows(parsed).officialRow, "youtubeShortRepostCount"), false);
+  const zero = monthly.splitMonthlyRows([{ ...historical, youtubeShortRepostCount: "0" }]).officialRow;
+  assert.equal(zero.youtubeShortRepostCount, "0");
+});
+
 test("only monthly submission with an empty second page asks for confirmation", () => {
   for (const action of [
     "draft",
@@ -303,10 +326,45 @@ test("monthly draft saves both pages and returns the saved content without chang
   assert.equal(h.payload().player_rows[0].xTweetCount, "123");
   assert.equal(result.savedContent[0].title, "Test video");
 });
+
+test("October submit validates official/player/coach reposts before uploads or writes; drafts and salary stay independent", async () => {
+  const official = { ...monthly.createOfficialMonthlyRow("AWG"), xScreenshotUrl: "https://example.test/x", youtubeScreenshotUrl: "https://example.test/yt" };
+  const player = { ...monthly.emptyMonthlyPlayerRow(), playerName: "Coach", playerRole: "コーチ", xScreenshotUrl: "https://example.test/x2", youtubeScreenshotUrl: "https://example.test/yt2" };
+  for (const action of ["submit", "draft", "salary_screenshots_draft", "salary_screenshots_submit"]) {
+    const h = actionHarness(null);
+    const form = h.form(action, []);
+    form.set("target_month", "2026-10");
+    form.set("content_page_acknowledged", "yes");
+    form.set("official_row", JSON.stringify([official]));
+    form.set("player_rows", JSON.stringify([player]));
+    const result = await h.save({}, form);
+    assert.equal(result.status, action === "submit" ? "error" : "success");
+    if (action === "submit") {
+      assert.match(result.message, /AWG公式.*YT Shorts/);
+      assert.match(result.message, /Coach.*YT Shorts/);
+      assert.equal(h.writes(), 0);
+      assert.equal(h.uploads(), 0);
+    }
+  }
+  for (const month of ["2026-09", "2026-10"]) {
+    const h = actionHarness({ id: "existing", status: "draft", player_rows: [official, player] });
+    const form = h.form("submit", []);
+    form.set("target_month", month);
+    form.set("content_page_acknowledged", "yes");
+    const value = month === "2026-10" ? { youtubeShortRepostCount: "0" } : {};
+    form.set("official_row", JSON.stringify([{ ...official, ...value }]));
+    form.set("player_rows", JSON.stringify([{ ...player, ...value }]));
+    const result = await h.save({}, form);
+    assert.equal(result.status, "success", result.message);
+    assert.equal(result.savedOfficialRow.youtubeShortRepostCount, value.youtubeShortRepostCount);
+    assert.equal(result.savedPlayers[0].youtubeShortRepostCount, value.youtubeShortRepostCount);
+  }
+});
 test("salary draft never overwrites monthly content or official account metrics", async () => {
   const official = {
     ...monthly.createOfficialMonthlyRow("AWG"),
     xTweetCount: "456",
+    youtubeShortRepostCount: "0",
   };
   const player = {
     ...monthly.emptyMonthlyPlayerRow(0),
@@ -314,6 +372,7 @@ test("salary draft never overwrites monthly content or official account metrics"
     playerName: "Player",
     xTweetCount: "789",
     youtubeVideoViews: "5678",
+    youtubeShortRepostCount: "123",
   };
   const h = actionHarness({
     id: "row",
@@ -350,6 +409,8 @@ test("salary draft never overwrites monthly content or official account metrics"
   assert.equal(Object.hasOwn(h.payload(), "content_entries"), false);
   assert.equal(h.payload().player_rows[1].xTweetCount, "789");
   assert.equal(h.payload().player_rows[1].youtubeVideoViews, "5678");
+  assert.equal(h.payload().player_rows[0].youtubeShortRepostCount, "0");
+  assert.equal(h.payload().player_rows[1].youtubeShortRepostCount, "123");
   assert.equal(h.payload().player_rows[1].salaryAmount, "50000");
   assert.equal(h.payload().club_activity_link, null);
 });

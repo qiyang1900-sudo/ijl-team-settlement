@@ -25,6 +25,7 @@ import {
   normalizeMonthlyStatus,
   parseMonthlyPlayerRows,
   splitMonthlyRows,
+  validateMonthlyShortReposts,
 } from "@/lib/monthly-data";
 import {
   getPlayerDisplayName,
@@ -217,7 +218,7 @@ async function saveMonthlyData(
   const contentEntries = isSalaryScreenshotAction ? [] : parseMonthlyContent(formData.has("content_entries") ? formData.get("content_entries") : existingSubmission?.content_entries);
   const acknowledgedEmptyContent = formData.get("content_page_acknowledged") === "yes";
   if (isMonthlySubmitAction) {
-    const errors = [...validateMonthlyContent(contentEntries, targetMonth, ["official", ...playerRows.map((row) => row.playerId || row.id)]), ...validatePopularActivities(clubActivityItems, targetMonth)];
+    const errors = [...validateMonthlyShortReposts([officialRow, ...playerRows], targetMonth), ...validateMonthlyContent(contentEntries, targetMonth, ["official", ...playerRows.map((row) => row.playerId || row.id)]), ...validatePopularActivities(clubActivityItems, targetMonth)];
     if (errors.length) throw new Error(errors.join("\n"));
     contentSubmissionPatch(actionType, contentEntries, acknowledgedEmptyContent);
   }
