@@ -215,8 +215,8 @@ export default function MonthlyDataForm({
     const rebaseOther = (current: string) => current === result.previousOtherRevision ? result.savedOtherRevision || current : current;
     const nextMonthlyRevision = salaryAction ? rebaseOther(monthlyRevision) : result.savedRevision || monthlyRevision;
     const nextSalaryRevision = salaryAction ? result.savedRevision || salaryRevision : rebaseOther(salaryRevision);
-    const nextPlayers = result.savedPlayers ? players.map((player, index) => {
-        const saved = findSavedPlayerForDraft(player, result.savedPlayers!, index);
+    const nextPlayers = result.savedPlayers ? players.map((player) => {
+        const saved = findSavedPlayerForDraft(player, result.savedPlayers!);
         if (!saved) return player;
         if (salaryAction) return { ...player, salaryAmount: saved.salaryAmount, salaryScreenshotName: saved.salaryScreenshotName, salaryScreenshotUrl: saved.salaryScreenshotUrl, salaryScreenshotStoragePath: saved.salaryScreenshotStoragePath, salaryScreenshotMimeType: saved.salaryScreenshotMimeType };
         return { ...saved, salaryAmount: player.salaryAmount, salaryScreenshotName: player.salaryScreenshotName, salaryScreenshotUrl: player.salaryScreenshotUrl, salaryScreenshotStoragePath: player.salaryScreenshotStoragePath, salaryScreenshotMimeType: player.salaryScreenshotMimeType };
@@ -277,8 +277,8 @@ export default function MonthlyDataForm({
       setOfficialRow(mergeLocalDraftRowWithSavedFiles(draft.officialRow, initialOfficialRow));
     }
     if (Array.isArray(draft.players)) {
-      setPlayers(initialPlayers.map((saved, index) => {
-        const draftRow = findSavedPlayerForDraft(saved, draft.players!, index);
+      setPlayers(initialPlayers.map((saved) => {
+        const draftRow = findSavedPlayerForDraft(saved, draft.players!);
         if (!draftRow) return saved;
         const merged = mergeLocalDraftRowWithSavedFiles(draftRow, saved);
         const salary = isSalaryLocked ? saved : merged;
@@ -1308,27 +1308,20 @@ function SalarySection({
 
 function findSavedPlayerForDraft(
   draftRow: MonthlyPlayerRow,
-  savedRows: MonthlyPlayerRow[],
-  fallbackIndex: number
+  savedRows: MonthlyPlayerRow[]
 ) {
-  return (
-    savedRows.find(
-      (row) =>
-        draftRow.playerId && row.playerId && draftRow.playerId === row.playerId
-    ) ||
-    savedRows.find(
-      (row) =>
-        draftRow.playerHandle &&
-        row.playerHandle &&
-        draftRow.playerHandle === row.playerHandle
-    ) ||
-    savedRows.find(
-      (row) =>
-        draftRow.playerName && row.playerName && draftRow.playerName === row.playerName
-    ) ||
-    savedRows[fallbackIndex] ||
-    null
+  const byId = draftRow.playerId
+    ? savedRows.find((row) => row.playerId === draftRow.playerId)
+    : null;
+  if (byId) return byId;
+
+  // Older drafts may lack IDs, but a row position or conflicting ID is never a match.
+  const legacyMatches = savedRows.filter((row) =>
+    !(draftRow.playerId && row.playerId) &&
+    ((draftRow.playerHandle && draftRow.playerHandle === row.playerHandle) ||
+      (draftRow.playerName && draftRow.playerName === row.playerName))
   );
+  return legacyMatches.length === 1 ? legacyMatches[0] : null;
 }
 
 function mergeLocalDraftRowWithSavedFiles(
@@ -1341,6 +1334,13 @@ function mergeLocalDraftRowWithSavedFiles(
 
   return {
     ...draftRow,
+    id: savedRow.id,
+    playerId: savedRow.playerId,
+    playerHandle: savedRow.playerHandle,
+    playerName: savedRow.playerName,
+    playerReading: savedRow.playerReading,
+    playerPosition: savedRow.playerPosition,
+    playerRole: savedRow.playerRole,
     salaryScreenshotName: savedRow.salaryScreenshotName || "",
     salaryScreenshotUrl: savedRow.salaryScreenshotUrl || "",
     salaryScreenshotStoragePath: savedRow.salaryScreenshotStoragePath || "",

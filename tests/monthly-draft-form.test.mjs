@@ -233,6 +233,54 @@ test("explicit restoration keeps the latest server metric and salary attachments
   assert.equal(restored.salaryScreenshotUrl, saved.salaryScreenshotUrl);
 });
 
+test("roster replacements never inherit another member's browser draft by row position", () => {
+  const member = (id, name, metrics = {}) => ({ ...monthly.emptyMonthlyPlayerRow(id), playerId: id, playerHandle: name, playerName: `ZETA_${name}`, ...metrics });
+  const kznk = member("kznk", "Kznk");
+  const pine = member("pine", "Pine");
+  const silk = member("silk", "Silk");
+  const h = harness({
+    initialPlayers: [kznk, pine, silk],
+    draft: { monthlyRevision: "month-v2", salaryRevision: "salary-v1", players: [
+      member("rose", "Rose", { xTweetCount: "12", salaryAmount: "100" }),
+      member("miraik", "MiraiK", { xTweetCount: "23", salaryAmount: "200" }),
+      member("kznk", "Kznk", { xTweetCount: "0", youtubeVideoViews: "456" }),
+    ] },
+  });
+  const restored = JSON.parse(h.nodes().find((node) => node.props?.name === "player_rows").props.value);
+  assert.deepEqual(restored.map((row) => row.playerName), ["ZETA_Kznk", "ZETA_Pine", "ZETA_Silk"]);
+  assert.equal(restored[0].xTweetCount, "0");
+  assert.equal(restored[0].youtubeVideoViews, "456");
+  assert.deepEqual(restored[1], pine);
+  assert.deepEqual(restored[2], silk);
+  h.flush(350);
+  assert.deepEqual(JSON.parse(h.stored()).players, restored);
+});
+
+test("restored metrics use stable IDs and the current roster's display metadata", () => {
+  const current = { ...player, playerHandle: "Updated", playerName: "ZETA_Updated", playerReading: "Updated reading", playerPosition: "Coach", playerRole: "Coach" };
+  const h = harness({ initialPlayers: [current], draft: {
+    monthlyRevision: "month-v2", salaryRevision: "salary-v1",
+    players: [{ ...player, id: "old-row", playerHandle: "Old", xTweetCount: "17", salaryAmount: "0" }],
+  } });
+  const restored = JSON.parse(h.nodes().find((node) => node.props?.name === "player_rows").props.value)[0];
+  for (const key of ["id", "playerId", "playerHandle", "playerName", "playerReading", "playerPosition", "playerRole"]) assert.equal(restored[key], current[key]);
+  assert.equal(restored.xTweetCount, "17");
+  assert.equal(restored.salaryAmount, "0");
+});
+
+test("conflicting player IDs cannot match by name; unique legacy names still restore", () => {
+  for (const draftId of ["other-player", ""]) {
+    const current = { ...player, playerHandle: "Player" };
+    const h = harness({ initialPlayers: [current], draft: {
+      monthlyRevision: "month-v2", salaryRevision: "salary-v1",
+      players: [{ ...current, playerId: draftId, xTweetCount: "99" }],
+    } });
+    const restored = JSON.parse(h.nodes().find((node) => node.props?.name === "player_rows").props.value)[0];
+    assert.equal(restored.playerId, current.playerId);
+    assert.equal(restored.xTweetCount, draftId ? current.xTweetCount : "99");
+  }
+});
+
 test("discard is blocked during a save so its response cannot resurrect discarded edits", () => {
   const draft = { monthlyRevision: "month-v2", salaryRevision: "salary-v1", activities: [{ ...activity, link: "https://example.test/unsent" }] };
   const h = harness({ draft, pending: true });
