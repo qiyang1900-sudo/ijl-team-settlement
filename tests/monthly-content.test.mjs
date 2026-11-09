@@ -44,6 +44,30 @@ const revisions = compile("src/lib/monthly-draft-revision.ts", {
   "./monthly-data": monthly,
 });
 const plain = (value) => JSON.parse(JSON.stringify(value));
+
+test("monthly roster names use the month-specific team after a player transfer", () => {
+  const display = compile("src/lib/player-display.ts");
+  const { createPlayerRowFromRecord, mergePlayerRows } = compile(
+    "src/app/team/reward/page.tsx",
+    { "@/lib/monthly-data": monthly, "@/lib/player-display": display },
+    "\nexport { createPlayerRowFromRecord, mergePlayerRows };\n",
+  );
+  const transferred = {
+    id: "fuku-id", handle: "fuku", reading: "Fuku", position_label: "Player",
+    roster_role: "Survivor", current_team_short_name: "FL", teams: { id: "fl-id", short_name: "FL" },
+  };
+  const historical = { ...monthly.emptyMonthlyPlayerRow(), playerId: "fuku-id", playerName: "RC_fuku", xTweetCount: "0", youtubeVideoViews: "1234", salaryScreenshotUrl: "https://example.test/saved" };
+  const rcRow = createPlayerRowFromRecord(transferred, 0, { id: "rc-id", short_name: "RC" });
+  const restored = mergePlayerRows([rcRow], [historical])[0];
+  assert.equal(restored.playerName, "RC_fuku");
+  assert.equal(restored.playerId, historical.playerId);
+  assert.equal(restored.xTweetCount, "0");
+  assert.equal(restored.youtubeVideoViews, "1234");
+  assert.equal(restored.salaryScreenshotUrl, historical.salaryScreenshotUrl);
+  assert.equal(createPlayerRowFromRecord(transferred, 0, { id: "fl-id", short_name: "FL" }).playerName, "FL_fuku");
+  assert.equal(createPlayerRowFromRecord(transferred, 0, null).playerName, "FL_fuku");
+});
+
 const work = (changes = {}) => ({
   ...api.emptyContentEntry("work-1", "designated"),
   title: "Test video",

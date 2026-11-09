@@ -651,7 +651,7 @@ export default async function TeamRewardPage({
   const { officialRow: savedOfficialRow, playerRows: savedPlayerRows } =
     splitMonthlyRows(parseMonthlyPlayerRows(selectedSubmission?.player_rows));
   const assignedPlayerRows = assignedPlayers.map((player, index) =>
-    createPlayerRowFromRecord(player, index)
+    createPlayerRowFromRecord(player, index, team)
   );
   const officialRow =
     savedOfficialRow || createOfficialMonthlyRow(team?.short_name || "");
@@ -912,17 +912,20 @@ export default async function TeamRewardPage({
 
 function createPlayerRowFromRecord(
   player: PlayerRecord,
-  index: number
+  index: number,
+  rosterTeam: TeamRecord | null
 ): MonthlyPlayerRow {
+  // A transfer changes the current team, not the team represented by this month's roster.
+  const displayPlayer = { ...player, teams: rosterTeam || player.teams };
   return {
     ...emptyMonthlyPlayerRow(index),
     id: `player-${player.id}`,
     playerId: player.id,
     playerHandle: player.handle || "",
-    playerReading: getPlayerReading(player),
-    playerPosition: getPlayerPositionLabel(player),
-    playerRole: getPlayerRosterRole(player),
-    playerName: getPlayerDisplayName(player),
+    playerReading: getPlayerReading(displayPlayer),
+    playerPosition: getPlayerPositionLabel(displayPlayer),
+    playerRole: getPlayerRosterRole(displayPlayer),
+    playerName: getPlayerDisplayName(displayPlayer),
   };
 }
 
