@@ -16,6 +16,7 @@ export default function AdminPage() {
         </p>
 
         <div id="tiktok-sync"><TiktokSyncButton /></div>
+        <Link href="/admin/backups" className="mt-5 inline-block text-sm font-medium text-sky-700">月数据备份 / Google 授权</Link>
         <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           <Link
             href="/admin/projects"

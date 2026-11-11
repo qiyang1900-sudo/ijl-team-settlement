@@ -237,6 +237,7 @@ async function saveMonthlyData(
     splitMonthlyRows(
       parseMonthlyPlayerRows(existingSubmission?.player_rows)
     );
+  validateMonthlyPlayerIdentities(playerRows, existingPlayerRows);
   const officialRowForPayload = isSalaryScreenshotAction
     ? existingOfficialRow || createOfficialMonthlyRow("")
     : await uploadMetricScreenshotsForRow({
@@ -979,11 +980,10 @@ function mergeMonthlyRowsPreservingSalary({
   monthlyRows: MonthlyPlayerRow[];
   existingPlayerRows: MonthlyPlayerRow[];
 }) {
-  return monthlyRows.map((monthlyRow, index) => {
+  return monthlyRows.map((monthlyRow) => {
     const existingRow = findMatchingPlayerRow(
       monthlyRow,
-      existingPlayerRows,
-      index
+      existingPlayerRows
     );
 
     return {
@@ -1034,8 +1034,7 @@ function mergeSalaryRowsPreservingMonthlyDraft({
   return salaryRows.map((salaryRow, index) => {
     const existingRow = findMatchingPlayerRow(
       salaryRow,
-      existingPlayerRows,
-      index
+      existingPlayerRows
     );
 
     return {
@@ -1060,29 +1059,31 @@ function mergeSalaryRowsPreservingMonthlyDraft({
 
 function findMatchingPlayerRow(
   row: MonthlyPlayerRow,
-  rows: MonthlyPlayerRow[],
-  fallbackIndex: number
+  rows: MonthlyPlayerRow[]
 ) {
-  return (
-    rows.find(
-      (candidate) =>
-        row.playerId && candidate.playerId && row.playerId === candidate.playerId
-    ) ||
-    rows.find(
-      (candidate) =>
-        row.playerName &&
-        candidate.playerName &&
-        row.playerName === candidate.playerName
-    ) ||
-    rows.find(
-      (candidate) =>
-        row.playerHandle &&
-        candidate.playerHandle &&
-        row.playerHandle === candidate.playerHandle
-    ) ||
-    rows[fallbackIndex] ||
-    null
-  );
+  const matches = rows.filter((candidate) => {
+    if (row.playerId && candidate.playerId) return row.playerId === candidate.playerId;
+    return Boolean(
+      (row.playerHandle && candidate.playerHandle === row.playerHandle) ||
+      (row.playerName && candidate.playerName === row.playerName)
+    );
+  });
+  if (matches.length > 1) throw new Error("選手の対応が重複しています。管理者に名簿の確認を依頼してください。保存内容は変更していません。");
+  return matches[0] || null;
+}
+
+function validateMonthlyPlayerIdentities(incoming: MonthlyPlayerRow[], existing: MonthlyPlayerRow[]) {
+  const used = new Set<MonthlyPlayerRow>();
+  for (const row of incoming) {
+    if (!row.playerId && !row.playerHandle && !row.playerName) throw new Error("選手を特定できない行があります。保存内容は変更していません。");
+    if (incoming.filter((other) => other === row || findMatchingPlayerRow(row, [other])).length > 1) {
+      throw new Error("選手が重複しています。管理者に名簿の確認を依頼してください。保存内容は変更していません。");
+    }
+    const matched = findMatchingPlayerRow(row, existing);
+    if (matched) used.add(matched);
+  }
+  const missing = existing.filter((row) => !used.has(row));
+  if (missing.length) throw new Error(`保存済みの選手が送信内容に含まれていません：${missing.map((row) => row.playerName || row.playerHandle || row.playerId).join("、")}。入力を控えてページを開き直してください。保存済みデータは削除していません。`);
 }
 
 function carryMetricScreenshots({
@@ -1124,7 +1125,7 @@ async function uploadMetricScreenshotsForPlayers({
 
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index];
-    const existingRow = findMatchingPlayerRow(row, existingPlayerRows, index);
+    const existingRow = findMatchingPlayerRow(row, existingPlayerRows);
     const uploadedRow = await uploadMetricScreenshotsForRow({
       formData,
       row: carryMetricScreenshots({ row, existingRow }),
@@ -1268,7 +1269,7 @@ async function uploadSalaryScreenshots({
 
   for (let index = 0; index < rows.length; index += 1) {
     const file = formData.get(`salary_screenshot_${index}`) as File | null;
-    const existingRow = findMatchingPlayerRow(rows[index], existingPlayerRows, index);
+    const existingRow = findMatchingPlayerRow(rows[index], existingPlayerRows);
 
     if (!(file instanceof File) || file.size <= 0) {
       rows[index] = {

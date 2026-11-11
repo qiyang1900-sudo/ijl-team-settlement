@@ -1,9 +1,9 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createHash } from "node:crypto";
 import {
   MonthlyPlayerRow,
   createOfficialMonthlyRow,
   emptyMonthlyPlayerRow,
-  isOfficialMonthlyRow,
   parseMonthlyPlayerRows,
 } from "@/lib/monthly-data";
 import {
@@ -11,7 +11,7 @@ import {
   MonthlyImportMode,
   RawMonthlyImportRow,
   buildTeamAliases,
-  isBlankImportValue,
+  mergeImportedMonthlyRows,
   monthlyImportFieldSets,
   normalizePlayerLookupKey,
   normalizeTeamLookupKey,
@@ -44,6 +44,7 @@ type ExistingSubmissionRecord = {
   target_month: string;
   status: string | null;
   player_rows: unknown;
+  updated_at: string | null;
 };
 
 type ImportPayload = {
@@ -52,6 +53,7 @@ type ImportPayload = {
   dataType?: MonthlyImportDataType;
   mode?: MonthlyImportMode;
   dryRun?: boolean;
+  previewToken?: string;
 };
 
 type EnrichedImportRow = {
@@ -151,6 +153,9 @@ export async function POST(request: Request) {
         preview: previewBeforeWrite,
       });
     }
+    if (!payload.previewToken || payload.previewToken !== previewBeforeWrite.previewToken) {
+      return Response.json({ error: "预览后数据或导入内容已变化，请重新预览并确认。本次未导入。", preview: previewBeforeWrite }, { status: 409 });
+    }
 
     const rowsWithMissingTeams = enrichedRows.filter((row) => !row.team);
 
@@ -183,7 +188,7 @@ export async function POST(request: Request) {
             is_active: true,
             updated_at: now,
           })),
-          { onConflict: "handle" }
+          { onConflict: "handle", ignoreDuplicates: true }
         )
         .select(
           "id, handle, reading, position_label, roster_role, current_team_id, current_team_short_name, sort_order"
@@ -197,8 +202,13 @@ export async function POST(request: Request) {
       }
 
       createdPlayers = created?.length || 0;
-      safePlayers = mergePlayers(safePlayers, (created || []) as PlayerRecord[]);
+      const refreshed = await supabase.from("league_players")
+        .select("id, handle, reading, position_label, roster_role, current_team_id, current_team_short_name, sort_order")
+        .in("handle", missingPlayers.map(row => row.playerHandle));
+      if (refreshed.error) throw new Error("新增选手后重新读取失败，本次未导入月数据。");
+      safePlayers = mergePlayers(safePlayers, (refreshed.data || []) as PlayerRecord[]);
       enrichedRows = enrichRows(parsed.rows, safeTeams, safePlayers);
+      if (getMissingPlayers(enrichedRows).length) throw new Error("仍有账号无法关联到选手，本次未导入月数据。");
     }
 
     const importResult = await importMonthlyRows({
@@ -207,6 +217,7 @@ export async function POST(request: Request) {
       targetMonth,
       dataType,
       mode,
+      expectedSourceHash: previewBeforeWrite.sourceHash,
     });
     const previewAfterWrite = await buildPreview({
       supabase,
@@ -415,6 +426,8 @@ async function buildPreview({
   });
 
   return {
+    sourceHash: submissionRowsHash(existingRows),
+    previewToken: createHash("sha256").update(JSON.stringify({ targetMonth, dataType, parsedRows, source: submissionRowsHash(existingRows) })).digest("hex"),
     targetMonth,
     dataType,
     mode,
@@ -452,7 +465,7 @@ async function loadExistingSubmissions(
 
   const { data, error } = await supabase
     .from("monthly_data_submissions")
-    .select("id, team_id, target_month, status, player_rows")
+    .select("*")
     .eq("target_month", targetMonth)
     .in("team_id", teamIds);
 
@@ -469,12 +482,14 @@ async function importMonthlyRows({
   targetMonth,
   dataType,
   mode,
+  expectedSourceHash,
 }: {
   supabase: ReturnType<typeof createSupabaseServerClient>;
   enrichedRows: EnrichedImportRow[];
   targetMonth: string;
   dataType: MonthlyImportDataType;
   mode: MonthlyImportMode;
+  expectedSourceHash: string;
 }) {
   const grouped = groupRowsByTeam(enrichedRows.filter((row) => row.team));
   const existingRows = await loadExistingSubmissions(
@@ -483,6 +498,7 @@ async function importMonthlyRows({
     Array.from(grouped.keys())
   );
   const existingByTeamId = new Map(existingRows.map((row) => [row.team_id, row]));
+  if (submissionRowsHash(existingRows) !== expectedSourceHash) throw new Error("数据已被其他页面修改，导入已取消，请重新预览。");
   const now = new Date().toISOString();
   const rows = Array.from(grouped.entries()).map(([teamId, teamRows]) => {
     const existing = existingByTeamId.get(teamId);
@@ -519,16 +535,10 @@ async function importMonthlyRows({
     updated_at: row.updated_at,
   }));
 
-  for (let index = 0; index < dbRows.length; index += 30) {
-    const chunk = dbRows.slice(index, index + 30);
-    const { error } = await supabase
-      .from("monthly_data_submissions")
-      .upsert(chunk, { onConflict: "team_id,target_month" });
-
-    if (error) {
-      throw new Error(error.message);
-    }
-  }
+  const { error } = await supabase.rpc("import_monthly_submissions_atomic", {
+    p_rows: dbRows.map((row) => ({ before: existingByTeamId.get(row.team_id) || null, patch: row })),
+  });
+  if (error) throw new Error(`整批导入未完成：${error.message}`);
 
   return {
     inserted: rows.filter((row) => row.action === "inserted").length,
@@ -551,6 +561,10 @@ function groupRowsByTeam(rows: EnrichedImportRow[]) {
   }
 
   return grouped;
+}
+
+function submissionRowsHash(rows: ExistingSubmissionRecord[]) {
+  return createHash("sha256").update(JSON.stringify([...rows].sort((a, b) => a.id.localeCompare(b.id)))).digest("hex");
 }
 
 function buildMonthlyRow(
@@ -589,62 +603,6 @@ function buildMonthlyRow(
   return monthlyRow;
 }
 
-function mergeMonthlyRows({
-  existingRows,
-  incomingRows,
-  dataType,
-  mode,
-}: {
-  existingRows: MonthlyPlayerRow[];
-  incomingRows: MonthlyPlayerRow[];
-  dataType: MonthlyImportDataType;
-  mode: MonthlyImportMode;
-}) {
-  const fields = monthlyImportFieldSets[dataType].map((field) => field.key);
-  const mergedRows = [...existingRows];
-
-  for (const incomingRow of incomingRows) {
-    const existingIndex = mergedRows.findIndex((row) =>
-      isSameMonthlyRow(row, incomingRow)
-    );
-
-    if (existingIndex < 0) {
-      mergedRows.push(incomingRow);
-      continue;
-    }
-
-    const nextRow = { ...mergedRows[existingIndex] };
-
-    for (const field of fields) {
-      const incomingValue = incomingRow[field] || "";
-
-      if (mode === "overwrite") {
-        nextRow[field] = incomingValue;
-        continue;
-      }
-
-      if (isBlankImportValue(nextRow[field]) && !isBlankImportValue(incomingValue)) {
-        nextRow[field] = incomingValue;
-      }
-    }
-
-    mergedRows[existingIndex] = nextRow;
-  }
-
-  return mergedRows;
-}
-
-function isSameMonthlyRow(left: MonthlyPlayerRow, right: MonthlyPlayerRow) {
-  if (isOfficialMonthlyRow(left) && isOfficialMonthlyRow(right)) {
-    return true;
-  }
-
-  if (left.playerId && right.playerId && left.playerId === right.playerId) {
-    return true;
-  }
-
-  const leftHandle = normalizePlayerLookupKey(left.playerHandle || left.playerName);
-  const rightHandle = normalizePlayerLookupKey(right.playerHandle || right.playerName);
-
-  return Boolean(leftHandle && rightHandle && leftHandle === rightHandle);
+function mergeMonthlyRows(input: Parameters<typeof mergeImportedMonthlyRows>[0]) {
+  return mergeImportedMonthlyRows(input);
 }

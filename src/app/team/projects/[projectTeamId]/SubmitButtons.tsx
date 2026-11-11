@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { useFormStatus } from "react-dom";
 
-export default function SubmitButtons() {
-  const { pending } = useFormStatus();
+export default function SubmitButtons({ saving = false }: { saving?: boolean }) {
+  const { pending: formPending } = useFormStatus();
+  const pending = saving || formPending;
   const [clickedAction, setClickedAction] = useState<"draft" | "submit" | null>(
     null
   );

@@ -1,15 +1,9 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { redirect } from "next/navigation";
 import { getInvoiceUploadUrl } from "@/lib/invoice-upload-links";
 import { getStatusTone, getTeamStatusLabel } from "@/lib/status-labels";
-import { createSettlementDetailNote, normalizeTaxRate } from "@/lib/tax-rate";
+import { loadProjectSubmissionState, projectSubmissionRevision, saveProjectSubmission, type ProjectSaveResult } from "@/lib/project-submission-save";
 import { requireTeamAccess } from "@/lib/team-auth";
-import {
-  createReportScreenshotNote,
-  getReportScreenshotOrder,
-  getReportScreenshotRowNumber,
-  REPORT_SCREENSHOT_FILE_CATEGORY,
-} from "@/lib/report-screenshots";
+import { REPORT_SCREENSHOT_FILE_CATEGORY } from "@/lib/report-screenshots";
 import SubmissionForm from "./SubmissionForm";
 
 type TeamRecord = {
@@ -25,384 +19,19 @@ type ProjectRecord = {
   deadline_at?: string | null;
   edit_deadline_at?: string | null;
 };
-type SubmissionFileRecord = {
-  id: string;
-  note: string | null;
-  storage_path: string | null;
-};
 
-function createStoragePath(projectTeamId: string, fileName: string) {
-  const safeFileName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, "_");
-  return `${projectTeamId}/${Date.now()}-${safeFileName}`;
-}
-
-function isNonEmptyString(value: string | null): value is string {
-  return Boolean(value);
-}
-
-async function saveSubmission(formData: FormData) {
+async function saveSubmission(formData: FormData): Promise<ProjectSaveResult> {
   "use server";
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Supabase環境変数が設定されていません。");
-  }
-
-  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
-
-  const adminSupabase =
-    serviceRoleKey && supabaseUrl
-      ? createSupabaseServerClient(supabaseUrl, undefined, serviceRoleKey)
-      : supabase;
-
-  const projectTeamId = String(formData.get("project_team_id") || "");
   const teamId = String(formData.get("team_id") || "");
-  const currentStatus = String(formData.get("current_status") || "");
-  const actionType = String(formData.get("action_type") || "draft");
-  const rawSummaryCount = Number(formData.get("summary_count") || 1);
-  const rawDetailCount = Number(formData.get("detail_count") || 1);
-  const taxRate = normalizeTaxRate(formData.get("tax_rate"));
-  const reportTotalAmount = parseOptionalAmount(
-    formData.get("report_total_amount")
-  );
-  const invoiceUploaded = formData.get("invoice_uploaded") === "on";
-  const summaryCount = Number.isFinite(rawSummaryCount)
-    ? Math.min(Math.max(rawSummaryCount, 1), 3)
-    : 1;
-  const detailCount = Number.isFinite(rawDetailCount)
-    ? Math.min(Math.max(rawDetailCount, 1), 7)
-    : 1;
-
-  const companyName = String(formData.get("company_name") || "");
-  const bankName = String(formData.get("bank_name") || "");
-  const bankAccountNumber = String(formData.get("bank_account_number") || "");
-  const swiftCode = String(formData.get("swift_code") || "");
-  const saveProfile = formData.get("save_profile") === "on";
-
-  if (!projectTeamId || !teamId) {
-    throw new Error("提出対象の戦隊が確認できません。");
+  const projectTeamId = String(formData.get("project_team_id") || "");
+  try {
+    if (!teamId || !projectTeamId) throw new Error("提出対象が確認できません。");
+    await requireTeamAccess(teamId);
+    const supabase = createSupabaseServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL || "", process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+    return await saveProjectSubmission({ supabase, storageClient: supabase, formData, teamId, projectTeamId });
+  } catch (error) {
+    return { status: "error", message: `保存できませんでした：${error instanceof Error ? error.message : "接続を確認してください。"} 入力内容はこの画面に保持されています。` };
   }
-
-  await requireTeamAccess(teamId);
-
-  const { data: projectTeamAccess } = await supabase
-    .from("project_teams")
-    .select("team_id")
-    .eq("id", projectTeamId)
-    .maybeSingle();
-
-  if (projectTeamAccess?.team_id !== teamId) {
-    throw new Error("この提出対象へのアクセス権限がありません。");
-  }
-
-  await supabase.from("submission_company_info").upsert(
-    {
-      project_team_id: projectTeamId,
-      company_name: companyName,
-      bank_name: bankName,
-      bank_account_number: bankAccountNumber,
-      swift_code: swiftCode,
-      used_saved_profile: saveProfile,
-      updated_at: new Date().toISOString(),
-    },
-    {
-      onConflict: "project_team_id",
-    }
-  );
-
-  if (saveProfile && teamId) {
-    await supabase.from("team_profiles").upsert(
-      {
-        team_id: teamId,
-        company_name: companyName,
-        bank_name: bankName,
-        bank_account_number: bankAccountNumber,
-        swift_code: swiftCode,
-        updated_at: new Date().toISOString(),
-      },
-      {
-        onConflict: "team_id",
-      }
-    );
-  }
-
-  await supabase
-    .from("settlement_summary_rows")
-    .delete()
-    .eq("project_team_id", projectTeamId);
-
-  const summaryRowsToInsert = Array.from({ length: summaryCount }).map(
-    (_, index) => ({
-      project_team_id: projectTeamId,
-      row_number: index + 1,
-      payment_content: String(formData.get(`payment_content_${index}`) || ""),
-      delivery_due_date:
-        String(formData.get(`delivery_due_date_${index}`) || "") || null,
-      contract_payment_standard: "時間通り",
-      completion_standard: "時間通り",
-      project_team_confirmation: "確認",
-      note: "",
-    })
-  );
-
-  await supabase.from("settlement_summary_rows").insert(summaryRowsToInsert);
-
-  await supabase
-    .from("settlement_detail_rows")
-    .delete()
-    .eq("project_team_id", projectTeamId);
-
-  await supabase
-    .from("report_rows")
-    .delete()
-    .eq("project_team_id", projectTeamId);
-
-  const { data: oldScreenshotFiles } = await supabase
-    .from("submission_files")
-    .select("*")
-    .eq("project_team_id", projectTeamId)
-    .eq("file_category", REPORT_SCREENSHOT_FILE_CATEGORY);
-  const safeOldScreenshotFiles =
-    (oldScreenshotFiles || []) as SubmissionFileRecord[];
-
-  const screenshotsToRemove =
-    safeOldScreenshotFiles.filter((file) => {
-      const rowNumber = getReportScreenshotRowNumber(file.note);
-      return rowNumber !== null && rowNumber > detailCount;
-    }) || [];
-
-  if (screenshotsToRemove.length > 0) {
-    const storagePaths = screenshotsToRemove
-      .map((file) => file.storage_path)
-      .filter(isNonEmptyString);
-
-    if (storagePaths.length > 0) {
-      await adminSupabase.storage.from("screenshots").remove(storagePaths);
-    }
-
-    await supabase
-      .from("submission_files")
-      .delete()
-      .in(
-        "id",
-        screenshotsToRemove.map((file) => file.id)
-      );
-  }
-
-  for (let index = 0; index < detailCount; index++) {
-    const rowNumber = index + 1;
-
-    const serviceItem = String(formData.get(`service_item_${index}`) || "");
-    const quantity = Number(formData.get(`quantity_${index}`) || 1);
-    const unitPrice = Number(formData.get(`unit_price_${index}`) || 0);
-    const subtotal = quantity * unitPrice;
-
-    const categoryType = String(formData.get(`category_type_${index}`) || "");
-    const linkUrl = String(formData.get(`link_url_${index}`) || "");
-    const implementationDate = String(
-      formData.get(`implementation_date_${index}`) || ""
-    );
-
-    await supabase.from("settlement_detail_rows").insert({
-      project_team_id: projectTeamId,
-      row_number: rowNumber,
-      service_item: serviceItem,
-      quantity,
-      unit_price: unitPrice,
-      amount_match: true,
-      note:
-        index === 0
-          ? createSettlementDetailNote({ taxRate, reportTotalAmount })
-          : "",
-    });
-
-    await supabase.from("report_rows").insert({
-      project_team_id: projectTeamId,
-      row_number: rowNumber,
-      item_content: serviceItem,
-      category_type: categoryType,
-      amount: subtotal,
-      link_url: linkUrl || null,
-      implementation_date: implementationDate || null,
-      publish_channel: "",
-      note: "",
-    });
-
-    const oldFilesForThisRow =
-      safeOldScreenshotFiles.filter((file) => {
-        return getReportScreenshotRowNumber(file.note) === rowNumber;
-      }) || [];
-
-    const deleteScreenshot =
-      String(formData.get(`delete_screenshot_${index}`) || "") === "true";
-
-    if (deleteScreenshot && oldFilesForThisRow.length > 0) {
-      const oldStoragePaths = oldFilesForThisRow
-        .map((file) => file.storage_path)
-        .filter(isNonEmptyString);
-
-      if (oldStoragePaths.length > 0) {
-        await adminSupabase.storage
-          .from("screenshots")
-          .remove(oldStoragePaths);
-      }
-
-      await supabase
-        .from("submission_files")
-        .delete()
-        .in(
-          "id",
-          oldFilesForThisRow.map((file) => file.id)
-        );
-    }
-
-    const reportScreenshots = formData
-      .getAll(`report_screenshot_${index}`)
-      .filter((value): value is File => value instanceof File && value.size > 0);
-
-    for (const reportScreenshot of reportScreenshots) {
-      if (!reportScreenshot.type.startsWith("image/")) {
-        throw new Error("スクリーンショットは画像のみアップロードできます。");
-      }
-
-      if (reportScreenshot.size > 300 * 1024) {
-        throw new Error(
-          "スクリーンショットは1枚300KB以内にしてください。大きい場合はリンク欄にGoogle Driveリンクをご記入ください。"
-        );
-      }
-    }
-
-    if (reportScreenshots.length > 0) {
-      const nextScreenshotOrder = deleteScreenshot
-        ? 1
-        : getNextReportScreenshotOrder(oldFilesForThisRow);
-
-      for (const [
-        screenshotIndex,
-        reportScreenshot,
-      ] of reportScreenshots.entries()) {
-        const storagePath = createStoragePath(
-          projectTeamId,
-          `report-${rowNumber}-${screenshotIndex + 1}-${
-            reportScreenshot.name || "screenshot"
-          }`
-        );
-
-        const { error: uploadError } = await adminSupabase.storage
-          .from("screenshots")
-          .upload(storagePath, reportScreenshot, {
-            contentType: reportScreenshot.type || "application/octet-stream",
-            upsert: false,
-          });
-
-        if (uploadError) {
-          throw new Error(uploadError.message);
-        }
-
-        const { data: publicUrlData } = adminSupabase.storage
-          .from("screenshots")
-          .getPublicUrl(storagePath);
-
-        await supabase.from("submission_files").insert({
-          project_team_id: projectTeamId,
-          file_category: REPORT_SCREENSHOT_FILE_CATEGORY,
-          submit_method: "upload",
-          file_name: reportScreenshot.name,
-          file_url: publicUrlData.publicUrl,
-          storage_path: storagePath,
-          mime_type: reportScreenshot.type,
-          note: createReportScreenshotNote(
-            rowNumber,
-            nextScreenshotOrder + screenshotIndex
-          ),
-        });
-      }
-    }
-  }
-
-  await supabase
-    .from("submission_files")
-    .delete()
-    .eq("project_team_id", projectTeamId)
-    .eq("file_category", "invoice_confirmation");
-
-  if (invoiceUploaded) {
-    const { data: invoiceTeam } = await supabase
-      .from("teams")
-      .select("name, short_name")
-      .eq("id", teamId)
-      .maybeSingle();
-    const invoiceTeamRecord = invoiceTeam as TeamRecord | null;
-    const invoiceUploadUrl = getInvoiceUploadUrl(
-      invoiceTeamRecord?.short_name || invoiceTeamRecord?.name
-    );
-
-    if (invoiceUploadUrl) {
-      await supabase.from("submission_files").insert({
-        project_team_id: projectTeamId,
-        file_category: "invoice_confirmation",
-        submit_method: "external_drive",
-        file_name: "請求書アップロード済み",
-        file_url: invoiceUploadUrl,
-        storage_path: null,
-        mime_type: null,
-        note: "請求書アップロード確認",
-      });
-    }
-  }
-
-  let nextStatus = "draft";
-  let submittedAt = null;
-
-  if (actionType === "submit") {
-    nextStatus = currentStatus === "returned" ? "resubmitted" : "submitted";
-    submittedAt = new Date().toISOString();
-  }
-
-  await supabase
-    .from("project_teams")
-    .update({
-      status: nextStatus,
-      submitted_at: submittedAt,
-      ...(actionType === "submit"
-        ? {
-            returned_at: null,
-            return_reason: null,
-          }
-        : {}),
-    })
-    .eq("id", projectTeamId);
-
-  redirect(
-    `/team/projects/${projectTeamId}?result=${actionType}&teamId=${teamId}`
-  );
-}
-
-function parseOptionalAmount(value: FormDataEntryValue | null) {
-  const rawValue = String(value || "").replace(/,/g, "").trim();
-
-  if (!rawValue) {
-    return null;
-  }
-
-  const amount = Number(rawValue);
-
-  if (!Number.isFinite(amount)) {
-    throw new Error("合計金額は数字で入力してください。");
-  }
-
-  return Math.round(amount);
-}
-
-function getNextReportScreenshotOrder(files: SubmissionFileRecord[]) {
-  const maxOrder = files.reduce((currentMax, file) => {
-    return Math.max(currentMax, getReportScreenshotOrder(file.note));
-  }, 0);
-
-  return maxOrder + 1;
 }
 
 export default async function TeamSubmissionPage({
@@ -482,49 +111,16 @@ export default async function TeamSubmissionPage({
 
   await requireTeamAccess(projectTeam.team_id);
 
-  const { data: profile } = await supabase
-    .from("team_profiles")
-    .select("*")
-    .eq("team_id", projectTeam.team_id)
-    .maybeSingle();
-
-  const { data: companyInfo } = await supabase
-    .from("submission_company_info")
-    .select("*")
-    .eq("project_team_id", projectTeamId)
-    .maybeSingle();
-
-  const { data: summaryRows } = await supabase
-    .from("settlement_summary_rows")
-    .select("*")
-    .eq("project_team_id", projectTeamId)
-    .order("row_number", { ascending: true });
-
-  const { data: detailRows } = await supabase
-    .from("settlement_detail_rows")
-    .select("*")
-    .eq("project_team_id", projectTeamId)
-    .order("row_number", { ascending: true });
-
-  const { data: reportRows } = await supabase
-    .from("report_rows")
-    .select("*")
-    .eq("project_team_id", projectTeamId)
-    .order("row_number", { ascending: true });
-
-  const { data: screenshotFiles } = await supabase
-    .from("submission_files")
-    .select("*")
-    .eq("project_team_id", projectTeamId)
-    .eq("file_category", REPORT_SCREENSHOT_FILE_CATEGORY)
-    .order("created_at", { ascending: false });
-
-  const { data: invoiceFiles } = await supabase
-    .from("submission_files")
-    .select("*")
-    .eq("project_team_id", projectTeamId)
-    .eq("file_category", "invoice_confirmation")
-    .order("created_at", { ascending: false });
+  const savedState = await loadProjectSubmissionState(supabase, projectTeamId);
+  Object.assign(projectTeam, savedState.project);
+  const { data: profile, error: profileError } = await supabase.from("team_profiles").select("*").eq("team_id", projectTeam.team_id).maybeSingle();
+  if (profileError) throw new Error("口座情報を読み込めません。保存内容は変更していません。");
+  const companyInfo = savedState.company;
+  const summaryRows = savedState.summary;
+  const detailRows = savedState.details;
+  const reportRows = savedState.reports;
+  const screenshotFiles = savedState.files.filter((file) => file.file_category === REPORT_SCREENSHOT_FILE_CATEGORY);
+  const invoiceFiles = savedState.files.filter((file) => file.file_category === "invoice_confirmation");
 
   const invoiceUploadUrl = getInvoiceUploadUrl(
     team?.short_name || team?.name || ""
@@ -628,6 +224,7 @@ export default async function TeamSubmissionPage({
           projectTeamId={projectTeamId}
           teamId={projectTeam.team_id}
           currentStatus={projectTeam.status}
+          baseRevision={projectSubmissionRevision(savedState)}
           companyInfo={companyInfo}
           profile={profile}
           summaryRows={summaryRows || []}

@@ -1,11 +1,37 @@
 import {
   normalizeNumericText,
   numericMonthlyValue,
+  isOfficialMonthlyRow,
   type MonthlyPlayerRow,
 } from "./monthly-data";
 
 export type MonthlyImportDataType = "x" | "youtube";
 export type MonthlyImportMode = "fill" | "overwrite";
+
+export function mergeImportedMonthlyRows({ existingRows, incomingRows, dataType, mode }: {
+  existingRows: MonthlyPlayerRow[]; incomingRows: MonthlyPlayerRow[];
+  dataType: MonthlyImportDataType; mode: MonthlyImportMode;
+}) {
+  const merged = existingRows.map((row) => ({ ...row }));
+  const imported = new Set<MonthlyPlayerRow>();
+  for (const incoming of incomingRows) {
+    const matches = merged.filter((row) => {
+      if (isOfficialMonthlyRow(row) || isOfficialMonthlyRow(incoming)) return isOfficialMonthlyRow(row) && isOfficialMonthlyRow(incoming);
+      if (row.playerId && incoming.playerId) return row.playerId === incoming.playerId;
+      const key = normalizePlayerLookupKey(row.playerHandle || row.playerName);
+      return Boolean(key && key === normalizePlayerLookupKey(incoming.playerHandle || incoming.playerName));
+    });
+    if (matches.length > 1) throw new Error(`账号匹配重复：${incoming.playerName}，本次未导入。`);
+    if (!matches.length) { const added = { ...incoming }; merged.push(added); imported.add(added); continue; }
+    const row = matches[0];
+    if (imported.has(row)) throw new Error(`导入内容中账号重复：${incoming.playerName}，本次未导入。`);
+    imported.add(row);
+    for (const { key } of monthlyImportFieldSets[dataType]) {
+      if (!isBlankImportValue(incoming[key]) && (mode === "overwrite" || isBlankImportValue(row[key]))) row[key] = incoming[key] || "";
+    }
+  }
+  return merged;
+}
 
 export type MonthlyImportMetricField = {
   key: keyof MonthlyPlayerRow;
