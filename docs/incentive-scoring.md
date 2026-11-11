@@ -15,8 +15,12 @@ from the original records without resubmitting monthly data.
   20), capped at 30. The official videos may overlap designated videos.
   Shorts + TT total below 5 deducts 10. Official X posts below 15 deducts 10;
   the default tag portion retains 5. Streams are assumed archived.
-  If either known platform's short-post count already reaches 5, the condition
-  is achieved even when the other platform's count is missing.
+  Known YT posts plus valid TT account posts can prove the five-post minimum
+  even when the complete TT total is unavailable. Flagged accounts' preserved
+  rows remain excluded, and the partial count is not used for B rankings.
+  Explicit YouTube `/shorts/` URLs are classified as Shorts when reading claims;
+  ambiguous watch/youtu.be links retain their selected format. Reading does not
+  rewrite submissions or backfill missing historical designated works.
 - A >= 45 is required for B, C, D and final ranking. Only approved monthly
   submissions participate. Current retirement status never filters their rows;
   coaches participate and explicit manager rows do not.
