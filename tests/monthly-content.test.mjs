@@ -79,6 +79,25 @@ const work = (changes = {}) => ({
   ...changes,
 });
 
+test("explicit YouTube Shorts URLs normalize historical classification without changing source entries", () => {
+  for (const host of ["youtube.com", "www.youtube.com", "m.youtube.com"]) {
+    const original = work({ platform: "youtube", url: `https://${host}/shorts/abc123?si=share` });
+    const before = plain(original);
+    const parsed = api.parseMonthlyContent([original])[0];
+    assert.equal(parsed.platform, "youtube_short");
+    assert.deepEqual(plain(parsed), { ...before, platform: "youtube_short" });
+    assert.deepEqual(plain(original), before);
+    assert.equal(api.parseMonthlyContent(JSON.stringify([parsed]))[0].platform, "youtube_short");
+  }
+  for (const url of ["https://youtu.be/abc123", "https://youtube.com/watch?v=abc123"]) {
+    for (const platform of ["youtube", "youtube_short"])
+      assert.equal(api.parseMonthlyContent([work({ platform, url })])[0].platform, platform);
+  }
+  for (const url of ["https://youtube.com.evil.test/shorts/abc123", "https://youtube.com/watch?v=abc123&next=/shorts/abc123", "invalid", "ftp://youtube.com/shorts/abc123"])
+    assert.equal(api.parseMonthlyContent([work({ url })])[0].platform, "youtube");
+  assert.equal(api.parseMonthlyContent([work({ platform: "x", url: "https://youtube.com/shorts/abc123" })])[0].platform, "x");
+});
+
 test("Shorts monthly reposts are required from October only and zero is valid", () => {
   const rows = [monthly.createOfficialMonthlyRow("AWG"), { ...monthly.emptyMonthlyPlayerRow(), playerName: "Coach", playerRole: "コーチ" }];
   assert.equal(monthly.validateMonthlyShortReposts(rows, "2026-09").length, 0);

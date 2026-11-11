@@ -86,6 +86,27 @@ export function shouldConfirmEmptyContent(
   return action === "submit" && !entries.some(hasContentEntry);
 }
 
+function contentPlatformForUrl(
+  platform: ContentPlatform,
+  value: string,
+): ContentPlatform {
+  if (platform !== "youtube" && platform !== "youtube_short") return platform;
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    // Only a Shorts URL is unambiguous; watch and youtu.be links can be either format.
+    if (
+      ["https:", "http:"].includes(url.protocol) &&
+      ["youtube.com", "m.youtube.com"].includes(host) &&
+      /^\/shorts\/[^/]+\/?$/.test(url.pathname)
+    )
+      return "youtube_short";
+  } catch {
+    // Invalid URLs are handled by submission validation.
+  }
+  return platform;
+}
+
 export function parseMonthlyContent(value: unknown): MonthlyContentEntry[] {
   if (value == null || value === "") return [];
   const source: unknown = typeof value === "string" ? JSON.parse(value) : value;
@@ -114,9 +135,12 @@ export function parseMonthlyContent(value: unknown): MonthlyContentEntry[] {
     );
     return {
       ...entry,
-      platform: Object.hasOwn(contentPlatformLabels, String(raw.platform))
-        ? (raw.platform as ContentPlatform)
-        : "youtube",
+      platform: contentPlatformForUrl(
+        Object.hasOwn(contentPlatformLabels, String(raw.platform))
+          ? (raw.platform as ContentPlatform)
+          : "youtube",
+        text("url"),
+      ),
       accountId: text("accountId", 100),
       accountName: text("accountName", 200),
       title: text("title", 300),

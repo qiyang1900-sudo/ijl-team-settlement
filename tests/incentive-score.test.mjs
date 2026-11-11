@@ -337,6 +337,96 @@ test("known TT posts meet A's Shorts threshold despite missing YT posts without 
   assert.equal(compute(knownYT).teams[0].a.shorts, 15);
 });
 
+test("AWG-like September claims count four explicit Shorts separately from two long videos", () => {
+  const f = automaticFixture(1, "2026-09");
+  const submission = f.context.submissions[0];
+  submission.content_entries = submission.content_entries.slice(0, 6).map((work, index) => ({
+    ...work,
+    platform: "youtube",
+    url: index < 2 ? `https://youtu.be/long-${index}` : `https://youtube.com/shorts/short-${index}?si=share`,
+  }));
+  const before = plain(f.context);
+  const team = compute(f).teams[0];
+  assert.equal(team.proposed.designatedLong, 2);
+  assert.equal(team.proposed.designatedLongEvent, 2);
+  assert.equal(team.proposed.designatedShort, 4);
+  assert.equal(team.proposed.designatedShortEvent, 4);
+  assert.equal(team.a.youtube, 10);
+  assert.equal(team.a.score, 40);
+  assert.equal(team.eligible, false);
+  assert.equal(team.b.extra, 0);
+  assert.deepEqual(plain(f.context), before);
+});
+
+test("misclassified Shorts cannot earn D's lower ordinary-video view threshold", () => {
+  const f = fixture(1, "2026-09");
+  delete f.reviews[0].inputs.overrides.bonusVideos;
+  const work = {
+    ...content.emptyContentEntry("short-bonus", "popular"),
+    accountId: "pt0", platform: "youtube", url: "https://youtube.com/shorts/bonus",
+    publishedOn: "2026-09-01", views: "200001", claims: ["bonus_video"],
+  };
+  f.context.submissions[0].content_entries = [work];
+  assert.equal(compute(f).teams[0].prize.popular, 0);
+  work.views = "1000001";
+  assert.equal(compute(f).teams[0].prize.popular, 240000);
+});
+
+test("AXIZ-like TT anomalies retain other valid accounts for A's minimum but not B's complete totals", () => {
+  for (const validPosts of [1, 2, 8]) {
+    const f = automaticFixture(1, "2026-09");
+    f.context.submissions[0].player_rows[0].youtubeShortPostCount = "3";
+    f.context.submissions[0].content_entries = f.context.submissions[0].content_entries.slice(0, 2);
+    f.context.tiktokRows = [
+      { month: "2026-09", teamShortName: "T0", accountName: "T0_Valid", link: "https://tiktok.com/@valid", postCount: validPosts, videoViews: 100, isOfficial: false },
+      { month: "2026-09", teamShortName: "T0", accountName: "T0_Kakiri", link: "https://tiktok.com/@flagged", postCount: 1000, videoViews: 999999, isOfficial: false },
+    ];
+    f.context.tiktokIssues = [{ month: "2026-09", team: "T0", account: " t0_kakiri " }];
+    const before = plain(f.context);
+    const team = compute(f).teams[0];
+    assert.equal(team.proposed.shortPosts, validPosts >= 2 ? validPosts + 3 : null);
+    assert.equal(team.a.shorts, validPosts >= 2 ? 15 : 5);
+    assert.equal(team.a.score, validPosts >= 2 ? 40 : 30);
+    assert.equal(team.proposed.shortViews, null);
+    assert.equal(team.proposed.ttGrowth, null);
+    if (validPosts >= 2) assert.ok(team.details.some((text) => text.includes(`至少 ${validPosts + 3} 条`)));
+    assert.deepEqual(plain(f.context), before);
+  }
+});
+
+test("TT post proof excludes stale link-named accounts and ignores issues from other months or teams", () => {
+  const f = automaticFixture();
+  f.context.submissions[0].player_rows[0].youtubeShortPostCount = "0";
+  f.context.tiktokRows = [
+    { month: "2026-10", teamShortName: "T0", accountName: "Invalid", link: "https://tiktok.com/@bad", postCount: 100, isOfficial: false },
+    { month: "2026-10", teamShortName: "T0", accountName: "Valid", link: "https://tiktok.com/@ok", postCount: 5, isOfficial: true },
+  ];
+  f.context.tiktokIssues = [
+    { month: "2026-10", team: "T0", account: "https://tiktok.com/@bad" },
+    { month: "2026-09", team: "T0", account: "Valid" },
+    { month: "2026-10", team: "T1", account: "Valid" },
+  ];
+  assert.equal(compute(f).teams[0].proposed.shortPosts, 5);
+  f.context.tiktokRows[1].postCount = null;
+  assert.equal(compute(f).teams[0].proposed.shortPosts, null);
+  f.context.tiktokRows[1].postCount = 0;
+  assert.equal(compute(f).teams[0].proposed.shortPosts, null);
+});
+
+test("September uncollected designated claims remain absent with the same deductions", () => {
+  const f = automaticFixture(1, "2026-09");
+  f.context.submissions[0].content_entries = [];
+  const before = plain(f.context);
+  const team = compute(f).teams[0];
+  assert.equal(team.proposed.designatedLong, null);
+  assert.equal(team.proposed.designatedShort, null);
+  assert.equal(team.a.youtube, 10);
+  assert.equal(team.a.score, 40);
+  assertNotice(team, "designatedLong", "not_collected");
+  assertNotice(team, "designatedShort", "not_collected");
+  assert.deepEqual(plain(f.context), before);
+});
+
 test("missing required A data does not block earned B/C scores or another team's settlement", () => {
   const f = automaticFixture(2);
   f.context.submissions[0].player_rows[0].youtubeStreamCount = "";
@@ -385,8 +475,8 @@ test("unknown optional metrics contribute no points without blocking automatic r
 });
 
 test("new rules start May; prizes and D start July", () => {
-  assert.equal(api.incentiveRuleVersion, "2026-05-v2");
-  assert.equal(compute(fixture()).ruleVersion, "2026-05-v2");
+  assert.equal(api.incentiveRuleVersion, "2026-05-v3");
+  assert.equal(compute(fixture()).ruleVersion, "2026-05-v3");
   assert.throws(() => compute(fixture(1, "2026-04")), /旧评分/);
   for (const month of ["2026-05", "2026-06"]) {
     const f = fixture(1, month);
@@ -1326,7 +1416,7 @@ test("API finalizes missing-data automatic results without reviews, preserving n
   assert.equal(h.writes.length, 2);
   for (const write of h.writes) {
     assert.equal(write.table, "monthly_incentive_results");
-    assert.equal(write.row.rule_version, "2026-05-v2");
+    assert.equal(write.row.rule_version, "2026-05-v3");
     assert.equal(write.options.onConflict, "target_month,source_hash");
     assert.equal(write.options.ignoreDuplicates, true);
     assert.deepEqual(plain(write.row.reviews), []);
