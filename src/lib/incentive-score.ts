@@ -9,7 +9,7 @@ import type { TeamScoreTeam, TeamScoreSubmission } from "./team-score";
 import type { TiktokMonthlyRow } from "./tiktok-monthly-data";
 import type { LegacyDesignatedSource } from "./legacy-designated";
 
-export const incentiveRuleVersion = "2026-07-v4";
+export const incentiveRuleVersion = "2026-07-v5";
 export const incentiveStartMonth = "2026-07";
 export const incentivePrizeStartMonth = "2026-07";
 export const contentCollectionStartMonth = "2026-10";
@@ -206,6 +206,11 @@ function metric(rows: MonthlyPlayerRow[], field: keyof MonthlyPlayerRow) {
   return checkedSum(rows.map((row) => incentiveNumber(row[field])));
 }
 
+function knownMetric(rows: MonthlyPlayerRow[], field: keyof MonthlyPlayerRow) {
+  return checkedSum(rows.map((row) => incentiveNumber(row[field]))
+    .filter((value): value is number => value !== null));
+}
+
 function teamKey(value: unknown) {
   return String(value || "")
     .normalize("NFKC")
@@ -359,6 +364,21 @@ export function proposeIncentiveValues(
         );
   const details: string[] = [];
   const notices: IncentiveNotice[] = [];
+  // A is a minimum-count test. Keep B's metric() strict so incomplete totals
+  // cannot be mistaken for complete league-ranking data.
+  const minimumMetric = (
+    rows: MonthlyPlayerRow[],
+    field: keyof MonthlyPlayerRow,
+    target: number,
+    label: string,
+  ) => {
+    const total = metric(rows, field);
+    if (total !== null) return total;
+    const known = knownMetric(rows, field);
+    if (known === null || known < target) return null;
+    details.push(`${label}：部分账号未填，已确认至少 ${known}，达到 ${target} 的基准；仅用于 A 达标判断，未填值不补零，不作为完整排名合计。`);
+    return known;
+  };
   if (hasTTIssue)
     details.push("TT 同步存在异常行，受影响的 TT 合计需核定，未按 0 处理。");
   const content = parseMonthlyContent(submission?.content_entries);
@@ -562,16 +582,17 @@ export function proposeIncentiveValues(
       .map((row) => incentiveNumber(row.postCount))
       .filter((value): value is number => value !== null),
   );
-  const knownShortPosts = checkedSum([ytShortPosts ?? 0, knownTTPosts ?? 0]);
+  const knownYTPosts = knownMetric(all, "youtubeShortPostCount");
+  const knownShortPosts = checkedSum([knownYTPosts ?? 0, knownTTPosts ?? 0]);
   const ytShortReposts = metric(all, "youtubeShortRepostCount");
   const ttShortReposts = ttMetric("repostCount");
   const values: IncentiveValues = {
-    officialVideos: metric(official, "youtubeVideoPostCount"),
+    officialVideos: minimumMetric(official, "youtubeVideoPostCount", 2, "官方普通视频"),
     designatedLong: knownDesignated ? long : null,
     designatedLongEvent: knownDesignated ? longEvent : null,
     designatedShort: knownDesignated ? short : null,
     designatedShortEvent: knownDesignated ? shortEvent : null,
-    streams: metric(all, "youtubeStreamCount"),
+    streams: minimumMetric(all, "youtubeStreamCount", 20, "全队 YouTube 直播次数"),
     shortPosts:
       combinedShortPosts ??
       (knownShortPosts !== null && knownShortPosts >= 5 ? knownShortPosts : null),
@@ -619,7 +640,7 @@ export function proposeIncentiveValues(
   };
   if (combinedShortPosts === null && values.shortPosts !== null)
     details.push(
-      `Shorts＋TT 的完整合计尚未齐全；已确认 YT Shorts ${ytShortPosts ?? "未填完整"} 条、TT ${knownTTPosts ?? "未确认"} 条，已确认合计至少 ${values.shortPosts} 条，满足 5 条基准。异常账号及缺失值未计入，不作为完整排名数据。`,
+      `Shorts＋TT 的完整合计尚未齐全；已确认 YT Shorts ${knownYTPosts ?? "未填完整"} 条、TT ${knownTTPosts ?? "未确认"} 条，已确认合计至少 ${values.shortPosts} 条，满足 5 条基准。异常账号及缺失值未计入，不作为完整排名数据。`,
     );
   if (context.month >= contentCollectionStartMonth && submission)
     details.push(
