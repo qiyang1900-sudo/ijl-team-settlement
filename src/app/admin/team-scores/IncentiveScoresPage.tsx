@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { MonthOption } from "@/lib/month-options";
 import { loadIncentiveWorkspace } from "@/lib/incentive-store";
 import { parseClubActivityItems } from "@/lib/club-activities";
+import { legacyDesignatedSourceUrl } from "@/lib/legacy-designated";
 import MonthlyContentReview from "../components/MonthlyContentReview";
 import IncentiveScoreBoard from "./IncentiveScoreBoard";
 
@@ -63,9 +64,9 @@ export default async function IncentiveScoresPage({
           </form>
         </header>
         <p className="mb-5 text-sm text-slate-400">
-          计分自 2026 年 5 月起；前五名与 D 奖金自 7 月起。
+          计分及奖金自 2026 年 7 月起，之前的历史数据保留。
           {month < "2026-10"
-            ? "本月指定视频及人气实绩可依据原 Google 表格补录复核。"
+            ? "7～9 月指定视频依据旧 Google 表格与网站记录去重合并，缺月份的记录暂不新增计入。"
             : "指定视频及人气实绩读取月数据第二页。"}
         </p>
         {!workspace ? (
@@ -100,6 +101,31 @@ export default async function IncentiveScoresPage({
                 return [
                   team.id,
                   <div key={team.id} className="space-y-5">
+                    {workspace?.context.designatedSources?.filter((source) => source.team === team.short_name).map((source) => (
+                      <details key={source.sheetId} className="border-t border-slate-700 pt-3 text-sm">
+                        <summary className="cursor-pointer text-sky-300">
+                          旧表指定视频 · {source.sheetName}
+                        </summary>
+                        <a href={legacyDesignatedSourceUrl(source)} target="_blank" rel="noreferrer" className="my-3 inline-block text-sky-300 underline">
+                          查看来源表格
+                        </a>
+                        {source.entries.length ? (
+                          <div className="overflow-x-auto">
+                            <table className="w-full min-w-[480px] text-left text-xs">
+                              <thead className="text-slate-400"><tr><th className="py-2">行</th><th>视频内容</th><th>月份／日期</th><th>分类</th></tr></thead>
+                              <tbody>{source.entries.map((entry) => (
+                                <tr key={entry.row} className="border-t border-slate-800">
+                                  <td className="py-2 pr-3">{entry.row}</td>
+                                  <td className="max-w-sm py-2 pr-4"><a href={entry.url} target="_blank" rel="noreferrer" className="break-words text-sky-300 underline">{entry.title}</a></td>
+                                  <td className="whitespace-nowrap pr-4">{entry.month ? entry.publishedOn : "月份待确认，未计入"}</td>
+                                  <td>{entry.platform === "youtube_short" ? "Shorts" : entry.platform === "youtube_live" ? "长视频（已确认直播计入）" : "长视频"}</td>
+                                </tr>
+                              ))}</tbody>
+                            </table>
+                          </div>
+                        ) : <p className="text-slate-400">此页没有可确定为本月的指定视频，网站已有记录保留。</p>}
+                      </details>
+                    ))}
                     <MonthlyContentReview
                       value={submission?.content_entries}
                       skipped={submission?.content_skipped}

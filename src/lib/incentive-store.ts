@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { loadTiktokDataset } from "./tiktok-dataset";
 import { parseMonthlyPlayerRows } from "./monthly-data";
+import { legacyDesignatedForMonth, type LegacyDesignatedSource } from "./legacy-designated";
 import {
   buildIncentiveMonth,
   incentiveRuleVersion,
@@ -105,6 +106,9 @@ export function sourceForIncentiveTeam(
     submissions,
     tiktok,
     issues: context.tiktokIssues,
+    designatedSources: context.designatedSources?.filter(
+      (source) => source.team.toUpperCase() === team?.short_name?.toUpperCase(),
+    ) ?? [],
   };
 }
 
@@ -119,6 +123,7 @@ export async function loadIncentiveWorkspace(
     snapshotResult,
     legacyResult,
     tiktok,
+    designatedResult,
   ] = await Promise.all([
     supabase
       .from("teams")
@@ -149,6 +154,10 @@ export async function loadIncentiveWorkspace(
       .eq("target_month", month)
       .eq("status", "finalized"),
     loadTiktokDataset(supabase),
+    /^2026-0[789]$/.test(month)
+      ? supabase.from("team_incentive_designated_sources")
+          .select("team_id,target_month,sources").eq("target_month", month)
+      : Promise.resolve({ data: [], error: null }),
   ]);
   const { data: teamRows, error: teamsError } = teamResult;
   const { data: submissionRows, error: submissionsError } = submissionResult;
@@ -163,6 +172,8 @@ export async function loadIncentiveWorkspace(
   if (snapshotsError)
     throw new Error(`月结算记录读取失败：${snapshotsError.message}`);
   if (legacyError) throw new Error(`旧制留档读取失败：${legacyError.message}`);
+  if (designatedResult.error)
+    throw new Error(`历史指定视频来源读取失败：${designatedResult.error.message}。未按零分继续计算。`);
   const submissions = (submissionRows || []) as IncentiveSubmission[];
   const teams = (teamRows || []).filter(
     (team) =>
@@ -171,10 +182,28 @@ export async function loadIncentiveWorkspace(
         (row) => row.team_id === team.id && row.target_month === month,
       ),
   );
+  if (/^2026-0[789]$/.test(month)) {
+    const missingSources = teams.filter((team) =>
+      submissions.some((row) => row.team_id === team.id && row.target_month === month) &&
+      !designatedResult.data?.some((row) => row.team_id === team.id && row.target_month === month),
+    );
+    if (missingSources.length)
+      throw new Error(`历史指定视频来源记录缺失：${missingSources.map((team) => team.short_name).join("、")}。未按零分继续计算。`);
+  }
   const context: IncentiveContext = {
     month,
     teams,
     submissions,
+    designatedSources: legacyDesignatedForMonth(
+      month,
+      (designatedResult.data || []).flatMap((row) => {
+        const team = teams.find((team) => team.id === row.team_id);
+        if (!team || row.target_month !== month) return [];
+        return (row.sources as LegacyDesignatedSource[]).filter(
+          (source) => source.team === team.short_name,
+        );
+      }),
+    ),
     tiktokRows: tiktok.rows.filter((row) =>
       [month, previousIncentiveMonth(month)].includes(row.month),
     ),

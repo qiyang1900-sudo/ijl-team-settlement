@@ -32,6 +32,7 @@ export function compile(file, imports = {}) {
       process: {
         env: {
           NEXT_PUBLIC_SUPABASE_URL: "https://example.invalid",
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-public-key",
           SUPABASE_SERVICE_ROLE_KEY: "test-only",
         },
       },
@@ -43,6 +44,34 @@ export function compile(file, imports = {}) {
 const monthly = compile("src/lib/monthly-data.ts");
 const content = compile("src/lib/monthly-content.ts");
 const activities = compile("src/lib/club-activities.ts");
+const legacy = compile("src/lib/legacy-designated.ts");
+// Synthetic evidence keeps private spreadsheet identifiers out of the repo.
+const archive = { sources: Object.entries({
+  AWG: [[2,4], [0,0], [2,4]], AXIZ: [[1,0], [2,0], [0,0]],
+  DFM: [[4,8], [5,6], [5,5]], FL: [[0,0], [0,1], [0,0]],
+  QTD: [[0,0], [0,0], [0,0]], RC: [[0,0], [0,0], [1,2]],
+  SZ: [[2,6], [1,4], [3,2]], ZETA: [[4,7], [12,9], [2,4]],
+}).map(([team, counts]) => ({
+  team, spreadsheetId: `fixture-${team}`, sheetId: 1, sheetName: "Designated",
+  entries: counts.flatMap(([long, short], index) => Array.from({ length: long + short }, (_, i) => ({
+    row: index * 30 + i + 3, title: i < long ? "Long" : "ショート",
+    url: i < long ? `https://youtu.be/${team}-${index}-${i}` : `https://youtube.com/shorts/${team}-${index}-${i}`,
+    publishedOn: index === 2 && team === "ZETA" ? "9/xx" : `2026/0${index+7}/20`,
+    month: `2026-0${index+7}`,
+    platform: i < long ? (team === "SZ" && index === 2 ? "youtube_live" : "youtube") : "youtube_short",
+    countAsLong: team === "SZ" && index === 2 && i < long,
+  }))),
+})) };
+archive.sources.find((source) => source.team === "ZETA").entries.push({
+  ...archive.sources.find((source) => source.team === "ZETA").entries[4],
+  row: 99, url: "https://youtube.com/shorts/ZETA-0-4?si=duplicate",
+});
+for (const team of ["RC", "QTD"])
+  archive.sources.find((source) => source.team === team).entries.push({
+    row: 100, title: "No month", url: `https://youtu.be/${team}-unknown`,
+    month: null, publishedOn: "", platform: "youtube",
+  });
+const legacyForMonth = (month) => legacy.legacyDesignatedForMonth(month, archive.sources);
 const api = compile("src/lib/incentive-score.ts", {
   "./monthly-data": monthly,
   "./monthly-content": content,
@@ -52,6 +81,7 @@ const storage = compile("src/lib/incentive-store.ts", {
   "node:crypto": crypto,
   "./monthly-data": monthly,
   "./incentive-score": api,
+  "./legacy-designated": legacy,
 });
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const fields = Object.keys(api.incentiveFields);
@@ -277,7 +307,7 @@ test("A uses new thresholds, per-section floors and default X tag points", () =>
   );
   assert.equal(
     api.calculateBase({ ...full, designatedLongEvent: 1 }).youtube,
-    20,
+    30,
   );
   assert.equal(
     api.calculateBase({ ...full, designatedShort: 0, designatedShortEvent: 0 })
@@ -287,7 +317,7 @@ test("A uses new thresholds, per-section floors and default X tag points", () =>
 });
 
 test("each missing required A condition deducts only its group and leaves raw nulls intact", () => {
-  for (const field of fields.filter((key) => api.incentiveFields[key].group === "A")) {
+  for (const field of fields.filter((key) => api.incentiveFields[key].group === "A" && !("informational" in api.incentiveFields[key]))) {
     const values = { ...goodValues(), [field]: null };
     const before = structuredClone(values);
     const a = api.calculateBase(values);
@@ -474,20 +504,173 @@ test("unknown optional metrics contribute no points without blocking automatic r
   assert.deepEqual(plain(f.context), plain(before));
 });
 
-test("new rules start May; prizes and D start July", () => {
-  assert.equal(api.incentiveRuleVersion, "2026-05-v3");
-  assert.equal(compute(fixture()).ruleVersion, "2026-05-v3");
-  assert.throws(() => compute(fixture(1, "2026-04")), /旧评分/);
-  for (const month of ["2026-05", "2026-06"]) {
-    const f = fixture(1, month);
-    delete f.reviews[0].inputs.overrides.bonusVideos;
-    const r = compute(f);
-    assert.equal(r.allocated, 0);
-    assert.equal(r.prizeEnabled, false);
-    assert.equal(r.teams[0].total, 90);
-  }
+test("league calculation and prizes only start July, retaining June as growth baseline", () => {
+  assert.equal(api.incentiveStartMonth, "2026-07");
+  assert.equal(api.incentiveRuleVersion, "2026-07-v4");
+  assert.equal(compute(fixture()).ruleVersion, "2026-07-v4");
+  for (const month of ["2026-04", "2026-05", "2026-06"])
+    assert.throws(() => compute(fixture(1, month)), /7 月/);
+  assert.equal(api.previousIncentiveMonth("2026-07"), "2026-06");
   assert.equal(compute(fixture()).allocated, 700000);
 });
+test("legacy designated archive counts verified months, titles, accepted streams and duplicate video IDs", () => {
+  const expected = {
+    AWG: [[2,4], [null,null], [2,4]],
+    AXIZ: [[1,0], [2,0], [null,null]],
+    DFM: [[4,8], [5,6], [5,5]],
+    FL: [[null,null], [0,1], [null,null]],
+    QTD: [[null,null], [null,null], [null,null]],
+    RC: [[null,null], [null,null], [1,2]],
+    SZ: [[2,6], [1,4], [3,2]],
+    ZETA: [[4,7], [12,9], [2,4]],
+  };
+  for (const [name, months] of Object.entries(expected)) {
+    months.forEach(([long, short], index) => {
+      const month = `2026-0${index + 7}`;
+      const f = automaticFixture(1, month);
+      f.context.teams[0].short_name = name;
+      f.context.submissions[0].content_entries = [];
+      f.context.designatedSources = legacyForMonth(month);
+      const before = plain(f.context);
+      const result = compute(f).teams[0];
+      assert.equal(result.proposed.designatedLong, long, `${name} ${month} long`);
+      assert.equal(result.proposed.designatedShort, short, `${name} ${month} short`);
+      assert.equal(result.proposed.hotOfficialVideo, null);
+      assert.equal(result.proposed.bonusVideos, null);
+      assert.deepEqual(plain(f.context), before);
+      if (long !== null) {
+        assert.ok(!result.notices.some((notice) => notice.field === "designatedLong"));
+        assert.equal(result.b.extra, result.eligible ? Math.min(20, Math.max(0,long-4)*5+Math.max(0,short-8)*3) : 0);
+      }
+    });
+  }
+});
+
+test("archive only supplements designated claims without changing existing website records or other months", () => {
+  for (const month of ["2026-06", "2026-10", "2027-07"])
+    assert.deepEqual(plain(legacyForMonth(month)), []);
+  const f = automaticFixture(1, "2026-09");
+  f.context.teams[0].short_name = "AWG";
+  f.context.designatedSources = legacyForMonth("2026-09");
+  const works = f.context.designatedSources.find((source) => source.team === "AWG" && source.entries.length).entries;
+  f.context.submissions[0].content_entries = works.map((entry, i) => ({
+    ...content.emptyContentEntry(`existing-${i}`, "designated"),
+    accountId: "official", title: entry.title, platform: "youtube",
+    url: i === 4 ? entry.url + "?si=other" : entry.url,
+    publishedOn: "2026-09-30",
+  }));
+  const before = plain(f.context.submissions);
+  const result = compute(f).teams[0];
+  assert.equal(result.values.designatedLong, 2);
+  assert.equal(result.values.designatedShort, 4);
+  assert.deepEqual(plain(f.context.submissions), before);
+  assert.ok(result.details.some((line) => line.includes("去重")));
+  f.context.submissions[0].status = "submitted";
+  assert.equal(compute(f).teams[0].hasApprovedData, false);
+  assert.equal(compute(f).teams[0].total, null);
+  f.context.submissions[0].status = "approved";
+  f.context.month = "2026-10";
+  f.context.submissions[0].target_month = "2026-10";
+  f.context.submissions[0].content_entries = [];
+  assert.equal(compute(f).teams[0].values.designatedLong, 0);
+});
+
+test("archive sources participate in team revision hashes and preserve manual score adjustments", () => {
+  const f = automaticFixture(1, "2026-07");
+  f.context.teams[0].short_name = "DFM";
+  f.context.submissions[0].content_entries = [];
+  const before = storage.incentiveHash(storage.sourceForIncentiveTeam(f.context, "t0"));
+  f.context.designatedSources = legacyForMonth("2026-07");
+  assert.notEqual(storage.incentiveHash(storage.sourceForIncentiveTeam(f.context, "t0")), before);
+  const reviewed = fixture().reviews[0];
+  reviewed.inputs = { overrides: {}, individuals: {}, scores: { aYoutube: 25 }, note: "Preserved manual adjustment" };
+  f.reviews = [reviewed];
+  const team = compute(f).teams[0];
+  assert.equal(team.automaticScores.aYoutube, 30);
+  assert.equal(team.a.youtube, 25);
+});
+
+test("workspace reads private designated sources for July-September only and fails closed on source errors", async () => {
+  const f = automaticFixture(1, "2026-07");
+  f.context.teams[0].short_name = "DFM";
+  f.context.submissions[0].content_entries = [];
+  const tables = {
+    teams: f.context.teams, monthly_data_submissions: f.context.submissions,
+    team_incentive_reviews: [], monthly_incentive_results: [], team_monthly_scores: [],
+    team_incentive_designated_sources: [{
+      team_id: "t0", target_month: "2026-07",
+      sources: archive.sources.filter((source) => source.team === "DFM"),
+    }],
+  };
+  let sourceError = null;
+  const reads = [];
+  const client = { from(table) {
+    reads.push(table);
+    const chain = {
+      select() { return chain; }, eq() { return chain; }, in() { return chain; },
+      order() { return chain; }, limit() { return chain; },
+      then(resolve) { return Promise.resolve({
+        data: tables[table], error: table === "team_incentive_designated_sources" ? sourceError : null,
+      }).then(resolve); },
+    };
+    return chain;
+  }};
+  const loader = compile("src/lib/incentive-store.ts", {
+    "node:crypto": crypto, "./monthly-data": monthly, "./incentive-score": api,
+    "./legacy-designated": legacy, "./tiktok-dataset": { loadTiktokDataset: async () => ({ rows: [] }) },
+  });
+  const before = plain(tables);
+  const workspace = await loader.loadIncentiveWorkspace(client, "2026-07");
+  assert.equal(workspace.result.teams[0].proposed.designatedLong, 4);
+  assert.equal(workspace.result.teams[0].proposed.designatedShort, 8);
+  assert.deepEqual(plain(tables), before);
+  sourceError = { message: "private source unavailable" };
+  await assert.rejects(loader.loadIncentiveWorkspace(client, "2026-07"), /未按零分继续计算/);
+  sourceError = null;
+  tables.team_incentive_designated_sources = [];
+  await assert.rejects(loader.loadIncentiveWorkspace(client, "2026-07"), /来源记录缺失/);
+  reads.length = 0;
+  await loader.loadIncentiveWorkspace(client, "2026-10");
+  assert.equal(reads.includes("team_incentive_designated_sources"), false);
+});
+
+test("score page excludes pre-July months and redirects old URLs without querying or writing", async () => {
+  let reads = 0;
+  const query = {
+    select() { return query; }, eq() { return query; }, gte() { return query; }, lte() { return query; },
+    order: async () => ({ data: [{ target_month: "2026-06" }, { target_month: "2026-09" }] }),
+  };
+  const page = compile("src/app/admin/team-scores/page.tsx", {
+    "react/jsx-runtime": jsxRuntime,
+    "@/lib/admin-auth": { getAdminSession: async () => true },
+    "@/lib/incentive-score": api,
+    "@/lib/month-options": {
+      getCurrentMonthValue: () => "2026-11",
+      buildMonthOptions: () => ["2026-05","2026-06","2026-07","2026-08","2026-09","2026-10","2026-11"].map((value) => ({ value,label:value })),
+    },
+    "@/lib/supabase-server": { createSupabaseServerClient: () => ({ from() { reads++; return query; } }) },
+    "next/navigation": { redirect: (url) => { throw new Error(url); } },
+    "./IncentiveScoresPage": { default: () => null },
+  }).default;
+  await assert.rejects(page({ searchParams: Promise.resolve({ month: "2026-06" }) }), /month=2026-07/);
+  assert.equal(reads, 0);
+  const element = await page({ searchParams: Promise.resolve({}) });
+  assert.equal(element.props.month, "2026-09");
+  assert.deepEqual(plain(element.props.months.map((item) => item.value)),
+    ["2026-07","2026-08","2026-09","2026-10","2026-11"]);
+});
+
+test("API refuses calculation, review saves and settlement before July without writing", async () => {
+  const h = routeHarness();
+  for (const month of ["2026-05", "2026-06"])
+    for (const action of ["save", "finalize"]) {
+      const response = await h.send({ month, action });
+      assert.equal(response.status, 400);
+      assert.match((await response.json()).error, /7 月/);
+    }
+  assert.equal(h.writes.length, 0);
+});
+
 test("B only ranks eligible teams, scores each qualifying criterion and caps extras at20", () => {
   const f = fixture(7);
   f.reviews.forEach((row, index) => {
@@ -1416,7 +1599,7 @@ test("API finalizes missing-data automatic results without reviews, preserving n
   assert.equal(h.writes.length, 2);
   for (const write of h.writes) {
     assert.equal(write.table, "monthly_incentive_results");
-    assert.equal(write.row.rule_version, "2026-05-v3");
+    assert.equal(write.row.rule_version, "2026-07-v4");
     assert.equal(write.options.onConflict, "target_month,source_hash");
     assert.equal(write.options.ignoreDuplicates, true);
     assert.deepEqual(plain(write.row.reviews), []);

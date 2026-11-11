@@ -33,7 +33,7 @@ begin
   result:=jsonb_build_object('format','ijl-monthly-backup-v1','captured_at',statement_timestamp(),
     'attachments','References only; original image objects remain in Supabase Storage.',
     'teams',(select coalesce(jsonb_agg(jsonb_build_object('id',id,'name',name,'short_name',short_name) order by id),'[]'::jsonb) from public.teams));
-  foreach t in array array['league_players','monthly_player_assignments','monthly_data_settings','monthly_data_submissions','team_monthly_scores','team_incentive_reviews','monthly_incentive_results'] loop
+  foreach t in array array['league_players','monthly_player_assignments','monthly_data_settings','monthly_data_submissions','team_monthly_scores','team_incentive_reviews','monthly_incentive_results','team_incentive_designated_sources'] loop
     if to_regclass('public.'||t) is not null then
       execute format('select coalesce(jsonb_agg(to_jsonb(r) order by to_jsonb(r)::text),''[]''::jsonb) from public.%I r',t) into records;
       result:=result||jsonb_build_object(t,records);
