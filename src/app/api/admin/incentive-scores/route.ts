@@ -4,11 +4,14 @@ import { createSupabaseServerClient } from "@/lib/supabase-server";
 import {
   assertIncentiveFinalizable,
   loadIncentiveWorkspace,
+  incentiveRankingHash,
 } from "@/lib/incentive-store";
 import {
   buildIncentiveMonth,
   incentiveRuleVersion,
   incentiveStartMonth,
+  hasIncentiveCorrections,
+  hasIncentiveRankingCorrections,
   normalizeIncentiveReview,
   type IncentiveReview,
 } from "@/lib/incentive-score";
@@ -66,6 +69,14 @@ export async function POST(request: Request) {
         );
       const inputs = normalizeIncentiveReview(body.inputs);
       if (
+        hasIncentiveRankingCorrections(inputs) &&
+        body.rankingHash !== workspace.rankingHash
+      )
+        return Response.json(
+          { error: "参评队伍或排名依据已变化，请刷新后确认人工排名分修正。" },
+          { status: 409, headers },
+        );
+      if (
         Object.keys(inputs.individuals).some(
           (id) => !team.members.some((member) => member.id === id),
         )
@@ -74,11 +85,7 @@ export async function POST(request: Request) {
       const status = body.reviewed === true ? "reviewed" : "draft";
       if (status === "reviewed" && body.confirmed !== true)
         throw new Error("请先确认已人工核对视频、活动及补录数据。");
-      if (
-        (Object.keys(inputs.overrides).length ||
-          Object.keys(inputs.individuals).length) &&
-        !inputs.note
-      )
+      if (hasIncentiveCorrections(inputs) && !inputs.note)
         throw new Error("有人工补录或修正时，请填写审核备注和数据来源。");
       const record: IncentiveReview = {
         team_id: teamId,
@@ -88,16 +95,12 @@ export async function POST(request: Request) {
         source_hash: workspace.hashes[teamId],
         updated_at: new Date().toISOString(),
       };
-      if (status === "reviewed") {
-        const recalculated = buildIncentiveMonth(workspace.context, [
-          ...workspace.reviews.filter((review) => review.team_id !== teamId),
-          record,
-        ]).teams.find((row) => row.teamId === teamId)!;
-        if (recalculated.missing.length)
-          throw new Error(
-            `尚不能确认复核，请先补齐：${recalculated.missing.join("、")}。可先保存草稿。`,
-          );
-      }
+      // Missing source fields do not block saving, but scoring invariants still apply.
+      const recalculated = buildIncentiveMonth(workspace.context, [
+        ...workspace.reviews.filter((review) => review.team_id !== teamId),
+        record,
+      ]);
+      inputs.rankingSourceHash = incentiveRankingHash(recalculated);
       const query = existing
         ? supabase
             .from("team_incentive_reviews")

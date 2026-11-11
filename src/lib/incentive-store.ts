@@ -6,6 +6,8 @@ import { parseMonthlyPlayerRows } from "./monthly-data";
 import {
   buildIncentiveMonth,
   incentiveRuleVersion,
+  isIncentiveReviewStale,
+  rankingFields,
   previousIncentiveMonth,
   type IncentiveContext,
   type IncentiveReview,
@@ -32,6 +34,24 @@ function canonical(value: unknown): string {
 }
 export function incentiveHash(value: unknown) {
   return createHash("sha256").update(canonical(value)).digest("hex");
+}
+
+export function incentiveRankingHash(result: IncentiveMonthResult) {
+  return incentiveHash({
+    ruleVersion: result.ruleVersion,
+    month: result.month,
+    teams: result.teams
+      .map((team) => ({
+        id: team.teamId,
+        eligible: team.eligible,
+        values: team.eligible
+          ? Object.fromEntries(
+              rankingFields.map((field) => [field, team.values[field]]),
+            )
+          : null,
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
+  });
 }
 
 function scoreSubmission(row: IncentiveSubmission) {
@@ -181,12 +201,14 @@ export async function loadIncentiveWorkspace(
       source_hash,
     })),
   });
+  const result = buildIncentiveMonth(context, reviews);
   return {
     context,
     reviews,
     hashes,
     sourceHash,
-    result: buildIncentiveMonth(context, reviews),
+    result,
+    rankingHash: incentiveRankingHash(result),
     snapshot: (snapshots?.[0] as IncentiveSnapshot | undefined) || null,
     legacy: legacyRows || [],
   };
@@ -195,23 +217,23 @@ export async function loadIncentiveWorkspace(
 export function assertIncentiveFinalizable(
   workspace: Awaited<ReturnType<typeof loadIncentiveWorkspace>>,
 ) {
-  if (workspace.result.incomplete)
-    throw new Error("仍有待补充数据，不能结束本月结算。空白不能视为 0。");
   const included = workspace.result.teams.filter(
     (team) => team.hasApprovedData,
   );
   if (!included.length) throw new Error("本月没有审核通过的月数据。");
-  const pending = included.filter(
-    (team) =>
-      !workspace.reviews.some(
-        (review) =>
-          review.team_id === team.teamId &&
-          review.status === "reviewed" &&
-          review.source_hash === workspace.hashes[team.teamId],
-      ),
+  const pending = included.filter((team) =>
+    workspace.reviews.some(
+      (review) =>
+        review.team_id === team.teamId &&
+        isIncentiveReviewStale(
+          review,
+          workspace.hashes[team.teamId],
+          workspace.rankingHash,
+        ),
+    ),
   );
   if (pending.length)
     throw new Error(
-      `请先完成或更新人工复核：${pending.map((team) => team.shortName).join("、")}`,
+      `以下战队的人工调整依据已变化，请确认并重新保存调整：${pending.map((team) => team.shortName).join("、")}`,
     );
 }

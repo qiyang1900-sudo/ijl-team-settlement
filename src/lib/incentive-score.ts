@@ -8,7 +8,7 @@ import { parseClubActivityItems } from "./club-activities";
 import type { TeamScoreTeam, TeamScoreSubmission } from "./team-score";
 import type { TiktokMonthlyRow } from "./tiktok-monthly-data";
 
-export const incentiveRuleVersion = "2026-05-v1";
+export const incentiveRuleVersion = "2026-05-v2";
 export const incentiveStartMonth = "2026-05";
 export const incentivePrizeStartMonth = "2026-07";
 export const contentCollectionStartMonth = "2026-10";
@@ -52,6 +52,25 @@ export const incentiveFields = {
 } as const;
 export type IncentiveField = keyof typeof incentiveFields;
 export type IncentiveValues = Record<IncentiveField, number | null>;
+export const incentiveScoreFields = {
+  aYoutube: { group: "A", label: "YouTube", max: 30 },
+  aShorts: { group: "A", label: "Shorts＋TT", max: 15 },
+  aX: { group: "A", label: "X", max: 15 },
+  bX: { group: "B", label: "X 排名", max: 5 },
+  bYoutube: { group: "B", label: "YouTube 排名", max: 15 },
+  bShorts: { group: "B", label: "Shorts＋TT 排名", max: 10 },
+  bExtra: { group: "B", label: "指定视频超额", max: 20 },
+  cGrowth: { group: "C", label: "账号增长", max: null },
+  cPopular: { group: "C", label: "人气作品", max: 30 },
+  cEvents: { group: "C", label: "人气活动", max: null },
+} as const;
+export type IncentiveScoreField = keyof typeof incentiveScoreFields;
+export type IncentiveScores = Record<IncentiveScoreField, number>;
+export type IncentiveNotice = {
+  field: string;
+  kind: "missing" | "unclaimed" | "not_collected";
+  message: string;
+};
 export const rankingFields = [
   "xViews",
   "xEngagements",
@@ -86,6 +105,8 @@ export type IndividualOverride = {
 export type IncentiveReviewInput = {
   overrides: Partial<IncentiveValues>;
   individuals: Record<string, IndividualOverride>;
+  scores?: Partial<IncentiveScores>;
+  rankingSourceHash?: string;
   note: string;
 };
 export type IncentiveReview = {
@@ -110,6 +131,8 @@ export type IncentiveTeamResult = {
   proposed: IncentiveValues;
   values: IncentiveValues;
   details: string[];
+  notices: IncentiveNotice[];
+  automaticScores: IncentiveScores;
   members: IncentiveMember[];
   a: {
     youtube: number | null;
@@ -203,9 +226,10 @@ function accountGrowth(
   field: keyof MonthlyPlayerRow,
   officialThreshold: number,
   detail: string[],
+  notices: IncentiveNotice[],
 ) {
   let count = 0;
-  let missing = false;
+  let comparable = 0;
   for (const row of current) {
     const official = isOfficialMonthlyRow(row);
     const prior = official
@@ -214,9 +238,14 @@ function accountGrowth(
     const now = incentiveNumber(row[field]);
     const before = prior ? incentiveNumber(prior[field]) : null;
     if (now === null || before === null) {
-      missing = true;
+      notices.push({
+        field: field === "xFollowerCount" ? "xGrowth" : "ytGrowth",
+        kind: "missing",
+        message: `${row.playerName} 缺少${now === null ? "当月" : "上月"}${field === "xFollowerCount" ? "X 粉丝数" : "YT 订阅数"}，该账号增长本次未计入。`,
+      });
       continue;
     }
+    comparable++;
     const delta = now - before;
     if (delta > (official ? officialThreshold : 600)) {
       count++;
@@ -225,7 +254,7 @@ function accountGrowth(
       );
     }
   }
-  return current.length && !missing ? count : null;
+  return comparable ? count : null;
 }
 
 function ttAccountKey(row: IncentiveTiktokRow) {
@@ -241,9 +270,10 @@ function tiktokGrowth(
   current: IncentiveTiktokRow[],
   previous: IncentiveTiktokRow[],
   detail: string[],
+  notices: IncentiveNotice[],
 ) {
   let count = 0;
-  let missing = !current.length;
+  let comparable = 0;
   for (const row of current) {
     const prior = previous.find(
       (candidate) => ttAccountKey(candidate) === ttAccountKey(row),
@@ -251,15 +281,20 @@ function tiktokGrowth(
     const before = prior ? incentiveNumber(prior.followerCount) : null;
     const now = incentiveNumber(row.followerCount);
     if (before === null || now === null) {
-      missing = true;
+      notices.push({
+        field: "ttGrowth",
+        kind: "missing",
+        message: `${row.accountName} 缺少${now === null ? "当月" : "上月"} TT 粉丝数，该账号增长本次未计入。`,
+      });
       continue;
     }
+    comparable++;
     if (now - before > (row.isOfficial ? 300 : 600)) {
       count++;
       detail.push(`TT 增长：${row.accountName} +${now - before}`);
     }
   }
-  return missing ? null : count;
+  return comparable ? count : null;
 }
 
 export function proposeIncentiveValues(
@@ -318,11 +353,25 @@ export function proposeIncentiveValues(
             .map((row) => incentiveNumber(row[field])),
         );
   const details: string[] = [];
+  const notices: IncentiveNotice[] = [];
   if (hasTTIssue)
     details.push("TT 同步存在异常行，受影响的 TT 合计需核定，未按 0 处理。");
   const content = parseMonthlyContent(submission?.content_entries);
+  const claimFields: Partial<Record<IncentiveField, string>> = {
+    designatedLong: "designated",
+    designatedLongEvent: "designated",
+    designatedShort: "designated",
+    designatedShortEvent: "designated",
+    hotShort: "hot_short",
+    hotX: "hot_x",
+    hotOfficialVideo: "hot_video",
+    bonusVideos: "bonus_video",
+  };
   const knownClaims = Boolean(
-    submission && (content.length || submission.content_skipped),
+    submission &&
+    (content.length ||
+      submission.content_skipped ||
+      context.month >= contentCollectionStartMonth),
   );
   const activities = parseClubActivityItems({
     link: submission?.club_activity_link,
@@ -337,9 +386,19 @@ export function proposeIncentiveValues(
     hotVideos = 0,
     bonusVideos = 0;
   for (const work of content) {
+    const noteWork = (message: string, claims = work.claims) => {
+      for (const [field, claim] of Object.entries(claimFields)) {
+        if (claims.some((value) => value === claim))
+          notices.push({
+            field,
+            kind: "missing",
+            message: `${work.title || "未命名作品"}：${message}，该作品本次未计入。`,
+          });
+      }
+    };
     const key = contentWorkKey(work.url);
     if (!key || workKeys.has(key)) {
-      details.push(`需人工复核重复或无效链接：${work.title}`);
+      noteWork("链接重复或无效");
       continue;
     }
     workKeys.add(key);
@@ -347,11 +406,29 @@ export function proposeIncentiveValues(
       work.accountId === "official" ||
       members.some((row) => [row.playerId, row.id].includes(work.accountId));
     if (!ownerExists || !work.publishedOn.startsWith(`${context.month}-`)) {
-      details.push(`需人工复核投稿者／月份：${work.title}`);
+      noteWork("投稿者或月份不符合本月名单");
       continue;
     }
     const views = incentiveNumber(work.views),
       likes = incentiveNumber(work.likes);
+    if (views === null)
+      noteWork(
+        "缺少播放量",
+        work.claims.filter(
+          (claim) => claim === "hot_video" || claim === "bonus_video",
+        ),
+      );
+    if (likes === null)
+      noteWork(
+        "缺少点赞量",
+        work.claims.filter(
+          (claim) => claim === "hot_short" || claim === "hot_x",
+        ),
+      );
+    if (work.accountId === "official" && work.claims.includes("bonus_video"))
+      details.push(
+        `D 追加奖励排除官方账号作品：${work.title}。C 官方热门视频仍按原规则计算。`,
+      );
     if (work.claims.includes("designated")) {
       if (work.platform === "youtube") {
         long++;
@@ -386,6 +463,7 @@ export function proposeIncentiveValues(
       hotVideos++;
     if (
       work.claims.includes("bonus_video") &&
+      work.accountId !== "official" &&
       views !== null &&
       ((work.platform === "youtube" && views > 200000) ||
         (["youtube_short", "tiktok"].includes(work.platform) &&
@@ -404,8 +482,20 @@ export function proposeIncentiveValues(
     if (
       audience === null ||
       !activity.activityDate?.startsWith(`${context.month}-`)
-    )
+    ) {
+      const field =
+        activity.popularKind === "online"
+          ? "onlineEvents"
+          : activity.popularKind === "offline"
+            ? "offlineEvents"
+            : "tournamentUnits";
+      notices.push({
+        field,
+        kind: "missing",
+        message: `人气活动 ${activity.activityDate || "日期未填"} 缺少有效${audience === null ? "人数" : "当月日期"}，该活动本次未计入。`,
+      });
       continue;
+    }
     if (activity.popularKind === "online" && audience > 3000) online++;
     if (activity.popularKind === "offline" && audience > 100) offline++;
     if (activity.popularKind === "tournament")
@@ -415,7 +505,8 @@ export function proposeIncentiveValues(
     );
   }
   const ytShortPosts = metric(all, "youtubeShortPostCount");
-  const combinedShortPosts = checkedSum([ytShortPosts, ttMetric("postCount")]);
+  const ttShortPosts = ttMetric("postCount");
+  const combinedShortPosts = checkedSum([ytShortPosts, ttShortPosts]);
   const ytShortReposts = metric(all, "youtubeShortRepostCount");
   const ttShortReposts = ttMetric("repostCount");
   const values: IncentiveValues = {
@@ -427,7 +518,11 @@ export function proposeIncentiveValues(
     streams: metric(all, "youtubeStreamCount"),
     shortPosts:
       combinedShortPosts ??
-      (ytShortPosts !== null && ytShortPosts >= 5 ? ytShortPosts : null),
+      (ytShortPosts !== null && ytShortPosts >= 5
+        ? ytShortPosts
+        : ttShortPosts !== null && ttShortPosts >= 5
+          ? ttShortPosts
+          : null),
     officialTweets: metric(official, "xTweetCount"),
     xViews: metric(all, "xImpressions"),
     xEngagements: metric(all, "xEngagements"),
@@ -443,14 +538,22 @@ export function proposeIncentiveValues(
       ttMetric("likeCount", true),
     ]),
     shortReposts: checkedSum([ytShortReposts, ttShortReposts]),
-    xGrowth: accountGrowth(all, previous, "xFollowerCount", 300, details),
-    ttGrowth: hasTTIssue ? null : tiktokGrowth(tt, oldTT, details),
+    xGrowth: accountGrowth(
+      all,
+      previous,
+      "xFollowerCount",
+      300,
+      details,
+      notices,
+    ),
+    ttGrowth: hasTTIssue ? null : tiktokGrowth(tt, oldTT, details, notices),
     ytGrowth: accountGrowth(
       all,
       previous,
       "youtubeSubscriberCount",
       200,
       details,
+      notices,
     ),
     hotShort: knownClaims ? hotShortAccounts.size : null,
     hotX: knownClaims ? hotXAccounts.size : null,
@@ -464,14 +567,80 @@ export function proposeIncentiveValues(
   };
   if (combinedShortPosts === null && values.shortPosts !== null)
     details.push(
-      "Shorts＋TT 的完整合计尚未齐全，但仅现有 YT Shorts 已满足 5 条基准。",
+      `Shorts＋TT 的完整合计尚未齐全，但仅现有 ${ytShortPosts !== null && ytShortPosts >= 5 ? "YT Shorts" : "TT"} 已满足 5 条基准。`,
     );
   if (context.month >= contentCollectionStartMonth && submission)
-    details.push(`月转发数：YT Shorts ${ytShortReposts ?? "未填完整"}；TT ${ttShortReposts ?? "待补充"}；合计 ${values.shortReposts ?? "待补齐后计算"}。`);
+    details.push(
+      `月转发数：YT Shorts ${ytShortReposts ?? "未填完整"}；TT ${ttShortReposts ?? "待补充"}；合计 ${values.shortReposts ?? "本次不计入排名"}。`,
+    );
+  const eventFields = ["onlineEvents", "offlineEvents", "tournamentUnits"];
+  if (submission)
+    for (const field of Object.keys(incentiveFields) as IncentiveField[]) {
+      const label = incentiveFields[field].label;
+      const claim = claimFields[field];
+      const historical = context.month < contentCollectionStartMonth;
+      if (
+        historical &&
+        values[field] === null &&
+        (claim ||
+          eventFields.includes(field) ||
+          field === "shortLikes" ||
+          field === "shortReposts")
+      ) {
+        notices.push({
+          field,
+          kind: "not_collected",
+          message: `${label}：当月未采集，本次不计入。`,
+        });
+      } else if (
+        claim &&
+        !content.some(
+          (work) =>
+            work.claims.some((value) => value === claim) &&
+            (field !== "bonusVideos" || work.accountId !== "official"),
+        )
+      ) {
+        notices.push({
+          field,
+          kind: "unclaimed",
+          message: `${label}：未申报。`,
+        });
+      } else if (
+        eventFields.includes(field) &&
+        !activities.some(
+          (item) =>
+            item.popular &&
+            item.popularKind ===
+              (
+                {
+                  onlineEvents: "online",
+                  offlineEvents: "offline",
+                  tournamentUnits: "tournament",
+                } as Record<string, string>
+              )[field],
+        )
+      ) {
+        notices.push({
+          field,
+          kind: "unclaimed",
+          message: `${label}：未申报。`,
+        });
+      } else if (
+        values[field] === null &&
+        !notices.some((notice) => notice.field === field)
+      ) {
+        notices.push({
+          field,
+          kind: "missing",
+          message: `${label}：数据不完整，本次未计入${incentiveFields[field].group === "B" ? "排名" : "达标数量"}。`,
+        });
+      }
+    }
   return {
     hasApprovedData: Boolean(submission),
     values,
     details,
+    notices,
     members: members.map((row) => ({
       id: memberKey(row),
       name: row.playerName,
@@ -487,6 +656,20 @@ export function normalizeIncentiveReview(value: unknown): IncentiveReviewInput {
     throw new Error("评分补录格式不正确。");
   const raw = value as Partial<IncentiveReviewInput>;
   const overrides: IncentiveReviewInput["overrides"] = {};
+  const scores: Partial<IncentiveScores> = {};
+  for (const key of Object.keys(
+    incentiveScoreFields,
+  ) as IncentiveScoreField[]) {
+    const value = raw.scores?.[key];
+    if (value == null || String(value).trim() === "") continue;
+    const number = incentiveNumber(value);
+    const field = incentiveScoreFields[key];
+    if (number === null || (field.max !== null && number > field.max))
+      throw new Error(
+        `${field.group} ${field.label}分数必须是 0${field.max === null ? " 或正整数" : ` 至 ${field.max} 的整数`}。`,
+      );
+    scores[key] = number;
+  }
   for (const key of Object.keys(incentiveFields) as IncentiveField[]) {
     const value = raw.overrides?.[key];
     if (value == null || String(value).trim() === "") continue;
@@ -513,7 +696,49 @@ export function normalizeIncentiveReview(value: unknown): IncentiveReviewInput {
   const note = String(raw.note || "")
     .trim()
     .slice(0, 4000);
-  return { overrides, individuals, note };
+  return { overrides, individuals, scores, note };
+}
+
+export function hasIncentiveCorrections(
+  inputs?: Partial<IncentiveReviewInput>,
+) {
+  if (!inputs) return false;
+  return (
+    Object.values(inputs.overrides || {}).some(
+      (value) => value != null && String(value).trim() !== "",
+    ) ||
+    Object.values(inputs.scores || {}).some(
+      (value) => value != null && String(value).trim() !== "",
+    ) ||
+    Object.values(inputs.individuals || {}).some((values) =>
+      Object.values(values).some(
+        (value) => value != null && String(value).trim() !== "",
+      ),
+    )
+  );
+}
+
+export function hasIncentiveRankingCorrections(
+  inputs?: Partial<IncentiveReviewInput>,
+) {
+  return (["bX", "bYoutube", "bShorts"] as const).some(
+    (key) =>
+      inputs?.scores?.[key] != null && String(inputs.scores[key]).trim() !== "",
+  );
+}
+
+export function isIncentiveReviewStale(
+  review: IncentiveReview | undefined,
+  sourceHash: string,
+  rankingHash: string,
+) {
+  return Boolean(
+    review &&
+    hasIncentiveCorrections(review.inputs) &&
+    (review.source_hash !== sourceHash ||
+      (hasIncentiveRankingCorrections(review.inputs) &&
+        review.inputs.rankingSourceHash !== rankingHash)),
+  );
 }
 
 export function competitionRanks<
@@ -550,35 +775,27 @@ export function calculateBase(
           ? "designatedShortEvent"
           : null;
     if (
-      (values[key] !== null && values[key]! < incentiveFields[key].target) ||
+      values[key] === null ||
+      values[key]! < incentiveFields[key].target ||
       (eventKey &&
-        values[eventKey] !== null &&
-        values[eventKey]! < incentiveFields[eventKey].target)
+        (values[eventKey] === null ||
+          values[eventKey]! < incentiveFields[eventKey].target))
     )
       deductions.push(
-        `${incentiveFields[key].label}未达标（${values[key] ?? "待补"}/${incentiveFields[key].target}${eventKey ? `，其中游戏内活动 ${values[eventKey] ?? "待补"}/${incentiveFields[eventKey].target}` : ""}）：扣 10 分`,
+        `${incentiveFields[key].label}${values[key] === null || (eventKey && values[eventKey] === null) ? "数据未齐，本次未计为达标" : "未达标"}（${values[key] ?? "未填"}/${incentiveFields[key].target}${eventKey ? `，其中游戏内活动 ${values[eventKey] ?? "未填"}/${incentiveFields[eventKey].target}` : ""}）：扣 10 分`,
       );
   }
-  const youtube = [
-    ...conditions,
-    "designatedLongEvent",
-    "designatedShortEvent",
-  ].some((key) => values[key as IncentiveField] === null)
-    ? null
-    : Math.max(0, 30 - deductions.length * 10);
-  const shorts =
-    values.shortPosts === null ? null : values.shortPosts >= 5 ? 15 : 5;
+  const youtube = Math.max(0, 30 - deductions.length * 10);
+  const shorts = values.shortPosts !== null && values.shortPosts >= 5 ? 15 : 5;
   const x =
-    values.officialTweets === null
-      ? null
-      : values.officialTweets >= 15
-        ? 15
-        : 5;
+    values.officialTweets !== null && values.officialTweets >= 15 ? 15 : 5;
   if (shorts === 5)
-    deductions.push(`Shorts＋TT 投稿 ${values.shortPosts}＜5：扣 10 分`);
+    deductions.push(
+      `Shorts＋TT 投稿 ${values.shortPosts === null ? "数据未齐，本次未计为达标" : `${values.shortPosts}＜5`}：扣 10 分`,
+    );
   if (x === 5)
     deductions.push(
-      `官方 X 投稿 ${values.officialTweets}＜15：扣 10 分；标签部分保留 5 分`,
+      `官方 X 投稿 ${values.officialTweets === null ? "数据未齐，本次未计为达标" : `${values.officialTweets}＜15`}：扣 10 分；标签部分保留 5 分`,
     );
   return {
     youtube,
@@ -603,33 +820,36 @@ export function buildIncentiveMonth(
     );
     const inputs = normalizeIncentiveReview(review?.inputs);
     const values = { ...proposed.values, ...inputs.overrides };
-    const a = calculateBase(values);
+    const automaticA = calculateBase(values);
+    const a = {
+      ...automaticA,
+      youtube: inputs.scores?.aYoutube ?? automaticA.youtube!,
+      shorts: inputs.scores?.aShorts ?? automaticA.shorts!,
+      x: inputs.scores?.aX ?? automaticA.x!,
+    };
+    a.score = a.youtube + a.shorts + a.x;
     const eligible =
       proposed.hasApprovedData && a.score !== null && a.score >= 45;
     const members = proposed.members.map((member) => ({
       ...member,
       ...inputs.individuals[member.id],
     }));
-    const cFields = (Object.keys(incentiveFields) as IncentiveField[]).filter(
-      (key) => incentiveFields[key].group === "C",
-    );
-    const growth =
+    const automaticGrowth =
       (values.xGrowth ?? 0) * 2 +
       (values.ttGrowth ?? 0) * 2 +
       (values.ytGrowth ?? 0) * 3;
-    const popular =
+    const automaticPopular =
       Math.min(10, (values.hotShort ?? 0) * 2) +
       Math.min(10, (values.hotX ?? 0) * 2) +
       Math.min(10, (values.hotOfficialVideo ?? 0) * 2);
-    const events =
+    const automaticEvents =
       (values.onlineEvents ?? 0) * 2 +
       (values.offlineEvents ?? 0) * 5 +
       (values.tournamentUnits ?? 0) * 5;
-    const cScore = !eligible
-      ? 0
-      : cFields.some((key) => values[key] === null)
-        ? null
-        : growth + popular + events;
+    const growth = inputs.scores?.cGrowth ?? automaticGrowth;
+    const popular = inputs.scores?.cPopular ?? automaticPopular;
+    const events = inputs.scores?.cEvents ?? automaticEvents;
+    const cScore = eligible ? growth + popular + events : 0;
     const scoreMissing = proposed.hasApprovedData
       ? (Object.keys(incentiveFields) as IncentiveField[])
           .filter((key) => {
@@ -644,10 +864,21 @@ export function buildIncentiveMonth(
     const prizeMissing: string[] = [];
     if (eligible && prizeEnabled && values.bonusVideos === null)
       prizeMissing.push(incentiveFields.bonusVideos.label);
+    const notices = proposed.notices.filter(
+      (notice) => inputs.overrides[notice.field as IncentiveField] == null,
+    );
     if (eligible && prizeEnabled)
       for (const member of members) {
-        if (member.views === null || member.posts === null)
-          prizeMissing.push(`${member.name} 个人普通视频播放／投稿`);
+        for (const field of ["views", "posts"] as const) {
+          if (member[field] !== null) continue;
+          const label = `${member.name} 个人普通视频${field === "views" ? "播放量" : "投稿数"}`;
+          prizeMissing.push(label);
+          notices.push({
+            field: `member:${member.id}:${field}`,
+            kind: "missing",
+            message: `${label}待补充，本次不参与对应第一名评选。`,
+          });
+        }
       }
     return {
       teamId: team.id,
@@ -657,6 +888,19 @@ export function buildIncentiveMonth(
       proposed: proposed.values,
       values,
       details: proposed.details,
+      notices,
+      automaticScores: {
+        aYoutube: automaticA.youtube!,
+        aShorts: automaticA.shorts!,
+        aX: automaticA.x!,
+        bX: 0,
+        bYoutube: 0,
+        bShorts: 0,
+        bExtra: 0,
+        cGrowth: automaticGrowth,
+        cPopular: automaticPopular,
+        cEvents: automaticEvents,
+      },
       members,
       a,
       eligible,
@@ -705,24 +949,32 @@ export function buildIncentiveMonth(
       Math.max(0, (team.values.designatedLong ?? 0) - 4) * 5 +
         Math.max(0, (team.values.designatedShort ?? 0) - 8) * 3,
     );
+    Object.assign(team.automaticScores, {
+      bX: team.b.x,
+      bYoutube: team.b.youtube,
+      bShorts: team.b.shorts,
+      bExtra: team.b.extra,
+    });
+    const scores = normalizeIncentiveReview(
+      reviews.find(
+        (review) =>
+          review.team_id === team.teamId &&
+          review.target_month === context.month,
+      )?.inputs,
+    ).scores;
+    team.b.x = scores?.bX ?? team.b.x;
+    team.b.youtube = scores?.bYoutube ?? team.b.youtube;
+    team.b.shorts = scores?.bShorts ?? team.b.shorts;
+    team.b.extra = scores?.bExtra ?? team.b.extra;
     team.b.score = team.b.x + team.b.youtube + team.b.shorts + team.b.extra;
-    team.total = team.scoreMissing.length
-      ? null
-      : (team.a.score ?? 0) + team.b.score + (team.c.score ?? 0);
+    team.total = (team.a.score ?? 0) + team.b.score + (team.c.score ?? 0);
   }
   for (const team of teams.filter((team) => !team.eligible))
     team.total = team.hasApprovedData ? team.a.score : null;
-  // An incomplete eligible team can alter everyone else's rank and payout.
-  const scoreIncomplete = teams.some(
-    (team) => team.hasApprovedData && team.scoreMissing.length > 0,
-  );
-  const prizeIncomplete =
-    prizeEnabled &&
-    teams.some(
-      (team) =>
-        team.hasApprovedData &&
-        (team.a.score === null || team.prizeMissing.length > 0),
-    );
+  // Missing inputs remain unknown in the source; only their award is omitted.
+  // These legacy flags describe calculation blockers, not source completeness.
+  const scoreIncomplete = false;
+  const prizeIncomplete = false;
   const incomplete = scoreIncomplete || prizeIncomplete;
   if (!scoreIncomplete) {
     const ranks = competitionRanks(

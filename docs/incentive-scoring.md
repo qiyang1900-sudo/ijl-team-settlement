@@ -15,6 +15,8 @@ from the original records without resubmitting monthly data.
   20), capped at 30. The official videos may overlap designated videos.
   Shorts + TT total below 5 deducts 10. Official X posts below 15 deducts 10;
   the default tag portion retains 5. Streams are assumed archived.
+  If either known platform's short-post count already reaches 5, the condition
+  is achieved even when the other platform's count is missing.
 - A >= 45 is required for B, C, D and final ranking. Only approved monthly
   submissions participate. Current retirement status never filters their rows;
   coaches participate and explicit manager rows do not.
@@ -35,7 +37,9 @@ from the original records without resubmitting monthly data.
   floor(concurrent viewers / 1,000) * 5 per event. Growth and events are uncapped.
 - D: individual ordinary YT views and posts each have a 50,000 JPY pool;
   coaches qualify and the same person can win both. Qualifying clubs with a
-  single Short >1M or ordinary YT video >200K split 240,000 JPY equally.
+  single member/coach Short >1M or ordinary YT video >200K split 240,000 JPY
+  equally. Official accounts never qualify for D, including this bonus. The
+  separate C official-video award remains unchanged.
 - Placement pools: 600,000 / 400,000 / 300,000 / 200,000 / 160,000 JPY.
   Ties share the occupied places' pools, limited to the first five places.
   Missing places/awards are unpaid. Each share is floored to whole yen; no
@@ -48,25 +52,42 @@ no anon/authenticated privileges, and server-only access. The review table permi
 insert/update; the monthly result table is append-only for the service role.
 Old finalized scores remain read-only archives and are not migrated or overwritten.
 
-Team drafts contain optional count overrides, D-only personal corrections and a
-single review note. Overrides require provenance in that note. Subjective quality,
-topics, durations, originality and evidence require an explicit human checkbox.
-Blank override inputs restore automatic values; explicit 0 is retained.
+Team drafts contain optional component-score overrides, legacy count overrides,
+D-only personal corrections and a single review note. All adjustments live in
+one optional review window; the A/B/C/D details are read-only. Overrides require
+provenance in the note. Component caps are enforced, and changing A eligibility
+recalculates every eligible team's B ranks. Blank override inputs restore
+automatic values; explicit 0 is retained. Monthly approval already covers work
+claims: scoring does not require another per-team subjective review.
 
-Current imports have no TT monthly likes or Shorts/TT reposts. These combined
-ranking counts remain unknown until supplemented. Growth with missing previous-
-month baselines is also unknown. Previously preserved TT rows flagged by import
-issues are excluded from automatic scoring. The UI displays provisional B scores
-but prevents final settlement until the required data is complete.
+Missing combined ranking counts remain unknown and are excluded from that
+criterion, without prorating the remaining criteria. Growth counts every account
+with a valid baseline independently; missing accounts do not erase known growth.
+Previously preserved TT rows flagged by import issues remain excluded.
 
-A+B+C calculation does not depend on D evidence. D may be pending independently.
+Missing inputs never block other scores, rankings, prizes or settlement. A
+condition with insufficient evidence is not counted as achieved and uses the
+ordinary deduction (with each section floor and default X tag points retained).
+B/C/D missing inputs earn no award for that input. Raw nulls are never rewritten
+as zero. Details distinguish unclaimed optional works/events, incomplete claims
+or metrics, historical uncollected fields, and complete below-threshold data.
+Only missing fields are marked pending, never the team's calculated total.
+
+A+B+C calculation does not depend on D evidence. D's views, posts and popular
+awards are independent: a member missing posts can still win by known views.
 Each team's review stores a fingerprint of the relevant source data and uses an
 optimistic update version. Salary-only edits are excluded from the fingerprint.
-Changed sources invalidate review confirmation without erasing overrides. Browser
+Changed sources require existing manual corrections to be reconfirmed and saved,
+without erasing them. Automatic results need no per-team confirmation. Browser
 errors preserve unsaved input; leaving with unsaved edits raises a browser warning.
+Manual B ranking-score corrections additionally track the league-wide eligibility
+and ranking inputs, so changes in another team's data cannot silently leave an
+obsolete ranking correction finalized. The server captures the post-adjustment
+ranking fingerprint, including any simultaneous A eligibility change.
 
-Monthly finalization re-reads the server data, requires every included team's
-fresh review and explicit confirmation of the participation scope, then stores
+Monthly finalization re-reads the server data, checks that any manual corrections
+use fresh source data, and requires explicit confirmation of the participation
+scope and omitted items, then stores
 the full result and review inputs. Repeating the same finalization is idempotent;
 changed data creates a new snapshot. This calculates awards only: it does not
 send Discord notifications, approve submissions or initiate payments.
