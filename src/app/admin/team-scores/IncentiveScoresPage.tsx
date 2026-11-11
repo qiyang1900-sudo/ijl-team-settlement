@@ -84,6 +84,7 @@ export default async function IncentiveScoresPage({
             result={workspace.result}
             reviews={workspace.reviews}
             hashes={workspace.hashes}
+            rankingHash={workspace.rankingHash}
             sourceHash={workspace.sourceHash}
             snapshot={workspace.snapshot}
             legacy={workspace.legacy}

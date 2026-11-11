@@ -110,6 +110,44 @@ function fixture(count = 1, month = "2026-07") {
 const compute = (fixture) =>
   api.buildIncentiveMonth(fixture.context, fixture.reviews);
 
+function automaticFixture(count = 1, month = "2026-10") {
+  const f = fixture(count, month);
+  f.reviews = [];
+  for (const submission of f.context.submissions) {
+    const [official, member] = submission.player_rows;
+    Object.assign(official, {
+      youtubeStreamCount: "10",
+      youtubeShortPostCount: "5",
+      xTweetCount: "15",
+    });
+    Object.assign(member, {
+      youtubeStreamCount: "10",
+      youtubeShortPostCount: "0",
+    });
+    submission.content_skipped = false;
+    submission.content_entries = Array.from({ length: 12 }, (_, index) => ({
+      ...content.emptyContentEntry(`work-${index}`, "designated"),
+      title: `Work ${index}`,
+      accountId: "official",
+      platform: index < 4 ? "youtube" : "youtube_short",
+      url: `https://youtu.be/${submission.team_id}-${index}`,
+      publishedOn: `${month}-01`,
+      durationSeconds: "300",
+      topic: "game_event",
+    }));
+  }
+  return f;
+}
+
+function assertNotice(result, field, kind) {
+  assert.ok(
+    result.notices.some((notice) =>
+      notice.field === field && notice.kind === kind &&
+      typeof notice.message === "string" && notice.message.trim().length > 0),
+    `Expected ${kind} notice for ${field}`,
+  );
+}
+
 test("Shorts repost ranking combines official, player and coach YT with TT, excluding unknowns and real zero", () => {
   const f = fixture(6, "2026-10");
   f.context.submissions.forEach((submission, index) => {
@@ -153,23 +191,22 @@ test("new repost data participates in source revisions without adding a value to
   assert.notEqual(storage.incentiveHash(storage.sourceForIncentiveTeam(f.context, "t0")), before);
 });
 
-function renderScoreBoard(f, { dirty = false } = {}) {
-  let stateIndex = 0;
-  const Board = compile("src/app/admin/team-scores/IncentiveScoreBoard.tsx", {
-    react: {
-      ...React,
-      useState(initial) {
-        const index = stateIndex++;
-        return React.useState(dirty && index === 0 ? new Set(["t0"]) : initial);
-      },
-    },
+function compileScoreBoard() {
+  return compile("src/app/admin/team-scores/IncentiveScoreBoard.tsx", {
+    react: React,
     "react/jsx-runtime": jsxRuntime,
     "next/navigation": { useRouter: () => ({ refresh() {} }) },
     "lucide-react": icons,
     "@/lib/incentive-score": api,
-  }).default;
+  });
+}
+
+function renderScoreBoard(f) {
+  const Board = compileScoreBoard().default;
+  const result = compute(f);
   return renderToStaticMarkup(React.createElement(Board, {
-    result: compute(f),
+    result,
+    rankingHash: storage.incentiveRankingHash(result),
     reviews: f.reviews,
     hashes: Object.fromEntries(f.context.teams.map((team) => [team.id, "source"])),
     sourceHash: "month-source",
@@ -179,47 +216,37 @@ function renderScoreBoard(f, { dirty = false } = {}) {
   }));
 }
 
-test("scoreboard with no approved monthly data waits instead of claiming it is settleable", () => {
+test("scoreboard recognizes received review versions by timestamp rather than lexical format", () => {
+  const { hasReceivedReviewVersion } = compileScoreBoard();
+  const saved = "2026-11-11T01:00:00.123Z";
+  for (const [label, received, pending, expected] of [
+    ["equivalent PostgreSQL timestamp", "2026-11-11T01:00:00.123+00:00", saved, true],
+    ["older timestamp", "2026-11-11T01:00:00.122+00:00", saved, false],
+    ["newer timestamp", "2026-11-11T01:00:00.124+00:00", saved, true],
+    ["missing received version", undefined, saved, false],
+    ["invalid received version", "invalid", saved, false],
+    ["invalid saved version", saved, "invalid", false],
+    ["no saved version", saved, undefined, true],
+    ["neither version present", undefined, undefined, true],
+  ]) {
+    assert.equal(hasReceivedReviewVersion(received, pending), expected, label);
+  }
+});
+
+test("scoreboard renders an empty month without invalid numeric output", () => {
   const f = fixture(8, "2026-10");
   f.context.submissions = [];
   f.reviews = [];
   const html = renderScoreBoard(f);
-  assert.match(html, /月度计算.*?等待月数据通过/);
-  assert.doesNotMatch(html, /可结算|本次分配/);
-  assert.match(html, /等待月数据通过后计算奖金/);
-  assert.match(html, /本月暂无审核通过的月数据，暂不能结算/);
-  assert.match(html, /<input[^>]*type="checkbox"[^>]*disabled=""/);
-  assert.match(html, /<button[^>]*disabled=""[^>]*>.*?已审核结束并保存本月结果/);
+  assert.ok(html.length > 0);
+  assert.doesNotMatch(html, /NaN|undefined/);
 });
 
-test("scoreboard reports missing data and unfinished or stale reviews before settlement", () => {
-  const incomplete = fixture();
-  incomplete.reviews[0].inputs.overrides.shortLikes = null;
-  assert.match(renderScoreBoard(incomplete), /月度计算.*?待补充数据/);
-  for (const update of [
-    (review) => { review.status = "draft"; },
-    (review) => { review.source_hash = "outdated"; },
-  ]) {
-    const f = fixture();
-    update(f.reviews[0]);
-    const html = renderScoreBoard(f);
-    assert.match(html, /月度计算.*?待复核/);
-    assert.doesNotMatch(html, /可结算/);
-    assert.match(html, /<input[^>]*type="checkbox"[^>]*disabled=""/);
-  }
-});
-
-test("scoreboard only becomes settleable with complete current reviews and no unsaved edits", () => {
-  const f = fixture();
-  const ready = renderScoreBoard(f);
-  assert.match(ready, /月度计算.*?可结算/);
-  assert.doesNotMatch(ready, /<input[^>]*type="checkbox"[^>]*disabled=""/);
-  // Final save still requires the administrator's explicit confirmation.
-  assert.match(ready, /<button[^>]*disabled=""[^>]*>.*?已审核结束并保存本月结果/);
-  const dirty = renderScoreBoard(f, { dirty: true });
-  assert.match(dirty, /月度计算.*?有未保存修改/);
-  assert.doesNotMatch(dirty, /可结算/);
-  assert.match(dirty, /<input[^>]*type="checkbox"[^>]*disabled=""/);
+test("scoreboard renders automatic scores and notices without requiring review records", () => {
+  const f = automaticFixture();
+  const html = renderScoreBoard(f);
+  assert.match(html, /T0/);
+  assert.doesNotMatch(html, /NaN|undefined/);
 });
 
 test("A uses new thresholds, per-section floors and default X tag points", () => {
@@ -246,7 +273,7 @@ test("A uses new thresholds, per-section floors and default X tag points", () =>
   );
   assert.equal(
     api.calculateBase({ ...full, officialVideos: null }).score,
-    null,
+    50,
   );
   assert.equal(
     api.calculateBase({ ...full, designatedLongEvent: 1 }).youtube,
@@ -258,7 +285,108 @@ test("A uses new thresholds, per-section floors and default X tag points", () =>
     20,
   );
 });
+
+test("each missing required A condition deducts only its group and leaves raw nulls intact", () => {
+  for (const field of fields.filter((key) => api.incentiveFields[key].group === "A")) {
+    const values = { ...goodValues(), [field]: null };
+    const before = structuredClone(values);
+    const a = api.calculateBase(values);
+    assert.equal(a.score, 50, field);
+    assert.equal(a.youtube, ["shortPosts", "officialTweets"].includes(field) ? 30 : 20, field);
+    assert.equal(a.shorts, field === "shortPosts" ? 5 : 15, field);
+    assert.equal(a.x, field === "officialTweets" ? 5 : 15, field);
+    assert.equal(a.deductions.length, 1, field);
+    assert.deepEqual(values, before);
+  }
+  const values = Object.fromEntries(fields.map((key) => [key, null]));
+  const a = api.calculateBase(values);
+  assert.equal(a.youtube, 0);
+  assert.equal(a.shorts, 5);
+  assert.equal(a.x, 5);
+  assert.equal(a.score, 10);
+  assert.ok(Object.values(values).every((value) => value === null));
+  assert.equal(api.calculateBase({
+    ...goodValues(), designatedLong: null, designatedLongEvent: null,
+  }).youtube, 20);
+});
+
+test("known TT posts meet A's Shorts threshold despite missing YT posts without filling raw blanks", () => {
+  for (const posts of [4, 5, 8]) {
+    const f = automaticFixture();
+    for (const row of f.context.submissions[0].player_rows)
+      row.youtubeShortPostCount = "";
+    f.context.tiktokRows = [{
+      month: "2026-10", teamShortName: "T0", accountName: "TT",
+      link: "https://tiktok.com/@tt", isOfficial: false, postCount: posts,
+    }];
+    const before = plain(f.context);
+    const team = compute(f).teams[0];
+    assert.equal(team.proposed.shortPosts, posts >= 5 ? posts : null);
+    assert.equal(team.values.shortPosts, posts >= 5 ? posts : null);
+    assert.equal(team.a.shorts, posts >= 5 ? 15 : 5);
+    assert.equal(team.a.score, posts >= 5 ? 60 : 50);
+    assert.deepEqual(plain(f.context), before);
+    assert.ok(f.context.submissions[0].player_rows.every((row) => row.youtubeShortPostCount === ""));
+    f.context.tiktokIssues = [{ month: "2026-10", team: "T0" }];
+    const flagged = compute(f).teams[0];
+    assert.equal(flagged.values.shortPosts, null);
+    assert.equal(flagged.a.shorts, 5);
+  }
+  const knownYT = automaticFixture();
+  assert.equal(compute(knownYT).teams[0].values.shortPosts, 5);
+  assert.equal(compute(knownYT).teams[0].a.shorts, 15);
+});
+
+test("missing required A data does not block earned B/C scores or another team's settlement", () => {
+  const f = automaticFixture(2);
+  f.context.submissions[0].player_rows[0].youtubeStreamCount = "";
+  const before = structuredClone(f.context);
+  const result = compute(f);
+  const [partial, complete] = result.teams;
+  assert.equal(partial.values.streams, null);
+  assert.equal(partial.a.score, 50);
+  assert.equal(partial.eligible, true);
+  assert.equal(partial.b.score, 15);
+  assert.equal(partial.total, 65);
+  assert.equal(partial.rank, 2);
+  assert.equal(partial.prize.ranking, 400000);
+  assert.equal(complete.total, 75);
+  assert.equal(complete.rank, 1);
+  assert.equal(complete.prize.ranking, 600000);
+  assert.equal(result.incomplete, false);
+  assertNotice(partial, "streams", "missing");
+  assert.deepEqual(plain(f.context), plain(before));
+});
+
+test("unknown optional metrics contribute no points without blocking automatic rankings or payouts", () => {
+  const f = automaticFixture(2);
+  const before = structuredClone(f.context);
+  const result = compute(f);
+  for (const team of result.teams) {
+    for (const field of ["shortViews", "shortLikes", "shortReposts", "xGrowth", "ttGrowth", "ytGrowth"]) {
+      assert.equal(team.proposed[field], null, field);
+      assert.equal(team.values[field], null, field);
+      assertNotice(team, field, "missing");
+    }
+    assert.equal(team.a.score, 60);
+    assert.equal(team.b.shorts, 0);
+    assert.equal(team.c.score, 0);
+    assert.equal(team.total, 75);
+    assert.equal(team.rank, 1);
+    assert.equal(team.prize.ranking, 500000);
+    assert.equal(team.prize.views, 25000);
+    assert.equal(team.prize.posts, 25000);
+  }
+  assert.equal(result.scoreIncomplete, false);
+  assert.equal(result.prizeIncomplete, false);
+  assert.equal(result.incomplete, false);
+  assert.equal(result.allocated, 1100000);
+  assert.deepEqual(plain(f.context), plain(before));
+});
+
 test("new rules start May; prizes and D start July", () => {
+  assert.equal(api.incentiveRuleVersion, "2026-05-v2");
+  assert.equal(compute(fixture()).ruleVersion, "2026-05-v2");
   assert.throws(() => compute(fixture(1, "2026-04")), /旧评分/);
   for (const month of ["2026-05", "2026-06"]) {
     const f = fixture(1, month);
@@ -382,16 +510,59 @@ test("missing D leaves ABC score/rank intact; missing B leaves independent D int
   assert.equal(r.teams[0].total, 90);
   assert.equal(r.teams[0].rank, 1);
   assert.equal(r.scoreIncomplete, false);
-  assert.equal(r.prizeIncomplete, true);
-  assert.equal(r.teams[0].prize.views, 0);
+  assert.equal(r.prizeIncomplete, false);
+  assert.equal(r.teams[0].values.bonusVideos, null);
+  assert.equal(r.teams[0].prize.views, 50000);
+  assert.equal(r.teams[0].prize.posts, 50000);
   f.reviews[0].inputs.overrides.bonusVideos = 0;
   delete f.reviews[0].inputs.overrides.shortLikes;
   r = compute(f);
-  assert.equal(r.scoreIncomplete, true);
-  assert.equal(r.teams[0].rank, null);
-  assert.equal(r.teams[0].prize.ranking, 0);
+  assert.equal(r.scoreIncomplete, false);
+  assert.equal(r.teams[0].values.shortLikes, null);
+  assert.equal(r.teams[0].total, 86);
+  assert.equal(r.teams[0].rank, 1);
+  assert.equal(r.teams[0].prize.ranking, 600000);
   assert.equal(r.teams[0].prize.views, 50000);
 });
+
+test("missing personal metrics omit only their corresponding award across teams", () => {
+  const f = fixture(2);
+  f.context.submissions[0].player_rows[1].youtubeVideoViews = "";
+  f.context.submissions[1].player_rows[1].youtubeVideoPostCount = "";
+  f.context.submissions[1].content_skipped = false;
+  f.reviews[0].inputs.overrides.bonusVideos = 1;
+  delete f.reviews[1].inputs.overrides.bonusVideos;
+  const before = structuredClone(f.context);
+  const result = compute(f);
+  const [first, second] = result.teams;
+  assert.equal(first.members[0].views, null);
+  assert.equal(second.members[0].posts, null);
+  assert.equal(second.values.bonusVideos, null);
+  assert.equal(first.prize.views, 0);
+  assert.equal(first.prize.posts, 50000);
+  assert.equal(first.prize.popular, 240000);
+  assert.equal(second.prize.views, 50000);
+  assert.equal(second.prize.posts, 0);
+  assert.equal(second.prize.popular, 0);
+  assert.equal(result.allocated, 1340000);
+  assert.equal(result.incomplete, false);
+  assertNotice(first, "member:pt0:views", "missing");
+  assertNotice(second, "member:pt1:posts", "missing");
+  assert.deepEqual(plain(f.context), plain(before));
+});
+
+test("all missing views leave their pool unpaid without withholding posts or popular bonuses", () => {
+  const f = fixture(2);
+  for (const submission of f.context.submissions)
+    submission.player_rows[1].youtubeVideoViews = "";
+  f.reviews[0].inputs.overrides.bonusVideos = 1;
+  const result = compute(f);
+  assert.deepEqual(plain(result.teams.map((team) => team.prize.views)), [0, 0]);
+  assert.deepEqual(plain(result.teams.map((team) => team.prize.posts)), [25000, 25000]);
+  assert.equal(result.teams[0].prize.popular, 240000);
+  assert.equal(result.allocated, 1290000);
+});
+
 test("pending monthly submissions never earn points/prizes; coaches and historical members do", () => {
   const f = fixture(2);
   f.context.submissions[0].status = "submitted";
@@ -428,6 +599,126 @@ test("invalid/empty manual input is not coerced to zero, explicit zero is preser
     { shortReposts: 0 },
   );
 });
+
+test("manual score fields expose A3 B4 C3 with enforced caps and uncapped growth/events", () => {
+  const expected = {
+    aYoutube: ["A", 30], aShorts: ["A", 15], aX: ["A", 15],
+    bX: ["B", 5], bYoutube: ["B", 15], bShorts: ["B", 10], bExtra: ["B", 20],
+    cGrowth: ["C", null], cPopular: ["C", 30], cEvents: ["C", null],
+  };
+  assert.deepEqual(plain(Object.fromEntries(Object.entries(api.incentiveScoreFields)
+    .map(([key, field]) => [key, [field.group, field.max]]))), expected);
+  for (const [field, [, max]] of Object.entries(expected)) {
+    for (const value of [0, max ?? 1000000]) {
+      const normalized = api.normalizeIncentiveReview({ scores: { [field]: String(value) } });
+      assert.equal(normalized.scores[field], value, field);
+    }
+    for (const value of [-1, 1.5, "bad", "Infinity", "9007199254740992", ...(max === null ? [] : [max + 1])]) {
+      assert.throws(() => api.normalizeIncentiveReview({ scores: { [field]: value } }), undefined, `${field}: ${value}`);
+    }
+    for (const value of ["", " ", null, undefined]) {
+      const normalized = api.normalizeIncentiveReview({ scores: { [field]: value } });
+      assert.equal(Object.hasOwn(normalized.scores, field), false, field);
+    }
+  }
+});
+
+test("correction detection ignores notes and blanks but treats explicit zero as a correction", () => {
+  for (const inputs of [
+    undefined, {}, { note: "Read only note" },
+    { overrides: { shortLikes: null }, scores: { bX: "" }, individuals: { pt0: {} } },
+    { individuals: { pt0: { views: null, posts: " " } } },
+  ]) assert.equal(api.hasIncentiveCorrections(inputs), false);
+  for (const inputs of [
+    { overrides: { shortLikes: 0 } },
+    { scores: { bX: 0 } },
+    { individuals: { pt0: { views: 0 } } },
+  ]) {
+    assert.equal(api.hasIncentiveCorrections(inputs), true);
+    assert.equal(api.hasIncentiveCorrections(api.normalizeIncentiveReview(inputs)), true);
+  }
+});
+
+test("only direct B ranking scores depend on the ranking hash, including explicit zero", () => {
+  for (const field of ["bX", "bYoutube", "bShorts"]) {
+    for (const value of [0, 1])
+      assert.equal(api.hasIncentiveRankingCorrections({ scores: { [field]: value } }), true, field);
+    for (const value of [null, undefined, "", " "])
+      assert.equal(api.hasIncentiveRankingCorrections({ scores: { [field]: value } }), false, field);
+  }
+  for (const inputs of [
+    undefined, {}, { scores: { bExtra: 5 } }, { scores: { cGrowth: 2, cEvents: 3 } },
+    { scores: { aYoutube: 30 } }, { overrides: { xViews: 10 } },
+    { individuals: { pt0: { views: 0 } } }, { rankingSourceHash: "old" },
+  ]) assert.equal(api.hasIncentiveRankingCorrections(inputs), false);
+});
+
+test("review staleness checks local source plus ranking source only for direct B corrections", () => {
+  assert.equal(api.isIncentiveReviewStale(undefined, "source", "ranking"), false);
+  const review = {
+    team_id: "t0", target_month: "2026-10", status: "draft", source_hash: "source",
+    inputs: { scores: { bX: 0 }, rankingSourceHash: "ranking" },
+  };
+  assert.equal(api.isIncentiveReviewStale(review, "source", "ranking"), false);
+  assert.equal(api.isIncentiveReviewStale(review, "changed-source", "ranking"), true);
+  assert.equal(api.isIncentiveReviewStale(review, "source", "changed-ranking"), true);
+  delete review.inputs.rankingSourceHash;
+  assert.equal(api.isIncentiveReviewStale(review, "source", "ranking"), true);
+  for (const scores of [{ bExtra: 0 }, { cGrowth: 1 }, { cPopular: 2 }, { cEvents: 3 }]) {
+    review.inputs = { scores, rankingSourceHash: "old" };
+    assert.equal(api.isIncentiveReviewStale(review, "source", "ranking"), false);
+    assert.equal(api.isIncentiveReviewStale(review, "changed-source", "ranking"), true);
+  }
+  review.inputs = { scores: { bX: null }, note: "Note only", rankingSourceHash: "old" };
+  assert.equal(api.isIncentiveReviewStale(review, "changed-source", "ranking"), false);
+});
+
+test("manual A/B/C scores change totals while retaining automatic scores and raw metric values", () => {
+  const f = fixture();
+  const automatic = compute(f).teams[0];
+  f.reviews[0].inputs.scores = {
+    aYoutube: 25, aShorts: 10, aX: 10,
+    bX: 1, bYoutube: 2, bShorts: 3, bExtra: 4,
+    cGrowth: 5, cPopular: 6, cEvents: 7,
+  };
+  const result = compute(f).teams[0];
+  assert.equal(result.a.score, 45);
+  assert.equal(result.eligible, true);
+  assert.equal(result.b.score, 10);
+  assert.equal(result.c.score, 18);
+  assert.equal(result.total, 73);
+  assert.deepEqual(plain(result.automaticScores), plain(automatic.automaticScores));
+  assert.deepEqual(plain(result.values), plain(automatic.values));
+  assert.deepEqual(plain(result.proposed), plain(automatic.proposed));
+  assert.deepEqual(plain([
+    result.a.youtube, result.a.shorts, result.a.x,
+    result.b.x, result.b.youtube, result.b.shorts, result.b.extra,
+    result.c.growth, result.c.popular, result.c.events,
+  ]), [25, 10, 10, 1, 2, 3, 4, 5, 6, 7]);
+  f.reviews[0].inputs.scores = { bX: 0, aX: "", cEvents: null };
+  const zero = compute(f).teams[0];
+  assert.equal(zero.b.x, 0);
+  assert.equal(zero.automaticScores.bX, 5);
+  assert.equal(zero.a.x, 15);
+  assert.equal(zero.c.events, 0);
+  assert.equal(zero.total, 85);
+});
+
+test("manual A corrections determine eligibility and cannot pay B/C/D to an ineligible team", () => {
+  const f = fixture();
+  f.reviews[0].inputs.scores = { aYoutube: 0, bX: 5, cEvents: 100 };
+  f.reviews[0].inputs.overrides.bonusVideos = 1;
+  const result = compute(f).teams[0];
+  assert.equal(result.automaticScores.aYoutube, 30);
+  assert.equal(result.a.score, 30);
+  assert.equal(result.eligible, false);
+  assert.equal(result.b.score, 0);
+  assert.equal(result.c.score, 0);
+  assert.equal(result.total, 30);
+  assert.equal(result.rank, null);
+  assert.equal(result.prize.total, 0);
+});
+
 test("growth uses previous month per account with strict boundaries and missing baselines", () => {
   const f = fixture();
   const before = structuredClone(f.context.submissions[0]);
@@ -449,9 +740,48 @@ test("growth uses previous month per account with strict boundaries and missing 
   before.player_rows.pop();
   assert.equal(
     api.proposeIncentiveValues(f.context.teams[0], f.context).values.xGrowth,
-    null,
+    0,
   );
+  assertNotice(api.proposeIncentiveValues(f.context.teams[0], f.context), "xGrowth", "missing");
 });
+
+test("C retains known X, YT and TT growth accounts when other accounts lack baselines or current values", () => {
+  const f = fixture(1, "2026-10");
+  const submission = f.context.submissions[0];
+  const previous = structuredClone(submission);
+  previous.target_month = "2026-09";
+  previous.player_rows.shift();
+  f.context.submissions.push(previous);
+  const member = submission.player_rows[1];
+  member.xFollowerCount = "1601";
+  member.youtubeSubscriberCount = "1601";
+  submission.player_rows.push({
+    ...member, id: "coach", playerId: "coach", playerRole: "コーチ",
+    xFollowerCount: "", youtubeSubscriberCount: "",
+  });
+  const tt = {
+    teamShortName: "T0", accountName: "Known TT", link: "https://tiktok.com/@known",
+    isOfficial: false, followerCount: 1000,
+  };
+  f.context.tiktokRows = [
+    { ...tt, month: "2026-09" },
+    { ...tt, month: "2026-10", followerCount: 1601 },
+    { ...tt, month: "2026-10", accountName: "Missing TT", link: "https://tiktok.com/@missing", followerCount: null },
+  ];
+  for (const field of ["xGrowth", "ytGrowth", "ttGrowth"])
+    delete f.reviews[0].inputs.overrides[field];
+  const before = structuredClone(f.context);
+  const result = compute(f).teams[0];
+  for (const field of ["xGrowth", "ytGrowth", "ttGrowth"]) {
+    assert.equal(result.values[field], 1, field);
+    assertNotice(result, field, "missing");
+  }
+  assert.equal(result.c.growth, 7);
+  assert.equal(result.c.score, 7);
+  assert.equal(result.total, 97);
+  assert.deepEqual(plain(f.context), plain(before));
+});
+
 test("TT anomalies do not use preserved stale rows for totals or previous-month growth", () => {
   const f = fixture();
   const base = {
@@ -507,7 +837,7 @@ test("single-work thresholds, duplicate links and account caps are distinct from
   let values = api.proposeIncentiveValues(f.context.teams[0], f.context).values;
   assert.equal(values.hotShort, 1);
   assert.equal(values.hotOfficialVideo, 2);
-  assert.equal(values.bonusVideos, 2);
+  assert.equal(values.bonusVideos, 0);
   f.context.submissions[0].content_entries.push(
     work("tt", {
       platform: "tiktok",
@@ -521,6 +851,7 @@ test("single-work thresholds, duplicate links and account caps are distinct from
   );
   f.context.submissions[0].content_entries = [
     work("long", {
+      accountId: "pt0",
       platform: "youtube",
       views: "200000",
       claims: ["bonus_video"],
@@ -529,6 +860,99 @@ test("single-work thresholds, duplicate links and account caps are distinct from
   values = api.proposeIncentiveValues(f.context.teams[0], f.context).values;
   assert.equal(values.bonusVideos, 0);
 });
+
+test("D work bonuses exclude official and manager accounts and include players and coaches at strict thresholds", () => {
+  for (const platform of ["youtube", "youtube_short", "tiktok"]) {
+    const threshold = platform === "youtube" ? 200000 : 1000000;
+    for (const role of ["official", "選手", "コーチ", "manager"]) {
+      for (const views of [threshold, threshold + 1]) {
+        const f = fixture(1, "2026-10");
+        const submission = f.context.submissions[0];
+        submission.player_rows[1].playerRole = role;
+        submission.content_entries = [{
+          ...content.emptyContentEntry("bonus", "popular"),
+          title: "Bonus work", platform,
+          accountId: role === "official" ? "official" : "pt0",
+          url: platform === "tiktok" ? "https://tiktok.com/@account/video/123" : "https://youtu.be/bonus",
+          publishedOn: "2026-10-01", views: String(views), claims: ["bonus_video"],
+        }];
+        delete f.reviews[0].inputs.overrides.bonusVideos;
+        const expected = ["選手", "コーチ"].includes(role) && views > threshold ? 1 : 0;
+        const team = compute(f).teams[0];
+        assert.equal(team.values.bonusVideos, expected, `${platform}/${role}/${views}`);
+        assert.equal(team.prize.popular, expected ? 240000 : 0);
+      }
+    }
+  }
+});
+
+test("notices distinguish modern unclaimed content, historical uncollected data, missing metrics and measured zero", () => {
+  const claimFields = [
+    "designatedLong", "designatedLongEvent", "designatedShort", "designatedShortEvent",
+    "hotShort", "hotX", "hotOfficialVideo", "bonusVideos",
+    "onlineEvents", "offlineEvents", "tournamentUnits",
+  ];
+  for (const skipped of [false, true]) {
+    const f = fixture(1, "2026-10");
+    f.context.submissions[0].content_skipped = skipped;
+    const proposed = api.proposeIncentiveValues(f.context.teams[0], f.context);
+    for (const field of claimFields) {
+      assert.equal(proposed.values[field], 0, field);
+      assertNotice(proposed, field, "unclaimed");
+    }
+    assert.equal(proposed.values.xViews, null);
+    assertNotice(proposed, "xViews", "missing");
+    for (const row of f.context.submissions[0].player_rows) row.xImpressions = "0";
+    const zero = api.proposeIncentiveValues(f.context.teams[0], f.context);
+    assert.equal(zero.values.xViews, 0);
+    assert.equal(zero.notices.some((notice) => notice.field === "xViews"), false);
+  }
+  const old = fixture(1, "2026-09");
+  old.context.submissions[0].content_skipped = false;
+  const proposed = api.proposeIncentiveValues(old.context.teams[0], old.context);
+  for (const field of [...claimFields, "shortLikes", "shortReposts"]) {
+    assert.equal(proposed.values[field], null, field);
+    assertNotice(proposed, field, "not_collected");
+    assert.equal(proposed.notices.some((notice) => notice.field === field && notice.kind === "unclaimed"), false);
+  }
+});
+
+test("claimed work with missing evidence is marked missing, not unclaimed", () => {
+  const f = fixture(1, "2026-10");
+  f.context.submissions[0].content_entries = [{
+    ...content.emptyContentEntry("missing", "popular"),
+    title: "Awaiting evidence", accountId: "pt0", platform: "youtube_short",
+    url: "https://youtu.be/missing", publishedOn: "2026-10-01",
+    claims: ["hot_short", "bonus_video"], views: "", likes: "",
+  }];
+  const proposed = api.proposeIncentiveValues(f.context.teams[0], f.context);
+  for (const field of ["hotShort", "bonusVideos"]) {
+    assertNotice(proposed, field, "missing");
+    assert.equal(proposed.notices.some((notice) => notice.field === field && notice.kind === "unclaimed"), false);
+  }
+  assert.equal(f.context.submissions[0].content_entries[0].views, "");
+  assert.equal(f.context.submissions[0].content_entries[0].likes, "");
+});
+
+test("invalid claimed work URL, month or owner emits missing notices without awarding the work", () => {
+  for (const change of [
+    { url: "invalid" }, { publishedOn: "2026-09-30" }, { accountId: "unknown" },
+  ]) {
+    const f = fixture(1, "2026-10");
+    f.context.submissions[0].content_entries = [{
+      ...content.emptyContentEntry("invalid", "popular"),
+      title: "Invalid evidence", accountId: "pt0", platform: "youtube_short",
+      url: "https://youtu.be/invalid", publishedOn: "2026-10-01",
+      claims: ["hot_short", "bonus_video"], views: "1000001", likes: "2001", ...change,
+    }];
+    const proposed = api.proposeIncentiveValues(f.context.teams[0], f.context);
+    for (const field of ["hotShort", "bonusVideos"]) {
+      assert.equal(proposed.values[field], 0, field);
+      assertNotice(proposed, field, "missing");
+    }
+  }
+});
+
 test("event thresholds and tournament floor apply per event; old uncollected data is unknown", () => {
   const f = fixture(1, "2026-10");
   const items = [
@@ -561,6 +985,27 @@ test("event thresholds and tournament floor apply per event; old uncollected dat
     null,
   );
 });
+
+test("invalid event evidence leaves known qualifying events counted and emits missing notices", () => {
+  const f = fixture(1, "2026-10");
+  const items = [
+    { popularKind: "online", audienceCount: "3001", activityDate: "2026-10-01" },
+    { popularKind: "online", audienceCount: "", activityDate: "2026-10-02" },
+    { popularKind: "offline", audienceCount: "101", activityDate: "" },
+    { popularKind: "tournament", audienceCount: "2000", activityDate: "2026-09-30" },
+  ].map((item, index) => ({ ...activities.emptyClubActivityItem(index), popular: true, ...item }));
+  f.context.submissions[0].club_activity_link = activities.serializeClubActivityItems(items);
+  for (const field of ["onlineEvents", "offlineEvents", "tournamentUnits"])
+    delete f.reviews[0].inputs.overrides[field];
+  const result = compute(f).teams[0];
+  assert.equal(result.values.onlineEvents, 1);
+  assert.equal(result.values.offlineEvents, 0);
+  assert.equal(result.values.tournamentUnits, 0);
+  assert.equal(result.c.events, 2);
+  for (const field of ["onlineEvents", "offlineEvents", "tournamentUnits"])
+    assertNotice(result, field, "missing");
+});
+
 test("duplicate approved records and duplicate individual memberships fail closed", () => {
   const f = fixture(2);
   f.context.submissions[1].player_rows[1].playerId = "pt0";
@@ -578,34 +1023,135 @@ test("review hashes ignore independent salary edits but track scoring inputs", (
   f.context.submissions[0].player_rows[1].xTweetCount = "123";
   assert.notEqual(hash(), initial);
 });
-test("finalization requires all approved teams fresh-reviewed and complete", () => {
-  const f = fixture();
+
+test("ranking hashes track all eligible ranking inputs and eligibility but ignore order and unrelated scores", () => {
+  const result = compute(automaticFixture(2));
+  const initial = storage.incentiveRankingHash(result);
+  const reversed = plain(result);
+  reversed.teams.reverse();
+  assert.equal(storage.incentiveRankingHash(reversed), initial);
+  for (const field of api.rankingFields) {
+    const changed = plain(result);
+    changed.teams[1].values[field] = (changed.teams[1].values[field] ?? 0) + 1;
+    assert.notEqual(storage.incentiveRankingHash(changed), initial, field);
+  }
+  const unrelated = plain(result);
+  unrelated.teams[1].c.score = 100;
+  unrelated.teams[1].b.x = 0;
+  unrelated.teams[1].b.extra = 20;
+  unrelated.teams[1].values.onlineEvents = 50;
+  unrelated.teams[1].values.bonusVideos = 10;
+  assert.equal(storage.incentiveRankingHash(unrelated), initial);
+  const ineligible = plain(result);
+  ineligible.teams[1].eligible = false;
+  const excludedHash = storage.incentiveRankingHash(ineligible);
+  assert.notEqual(excludedHash, initial);
+  ineligible.teams[1].values.xViews = 999999;
+  assert.equal(storage.incentiveRankingHash(ineligible), excludedHash);
+});
+
+test("another team's A eligibility or ranking data invalidates B corrections but not unrelated C corrections", () => {
+  for (const change of ["eligibility", "ranking data"]) {
+    const f = automaticFixture(2);
+    const source = () => storage.incentiveHash(storage.sourceForIncentiveTeam(f.context, "t0"));
+    const originalSource = source();
+    const originalRanking = storage.incentiveRankingHash(compute(f));
+    const review = {
+      team_id: "t0", target_month: "2026-10", status: "draft", source_hash: originalSource,
+      inputs: { scores: { bYoutube: 5 }, rankingSourceHash: originalRanking, note: "Verified ranking" },
+    };
+    f.reviews = [review];
+    if (change === "eligibility") {
+      f.reviews.push({
+        team_id: "t1", target_month: "2026-10", status: "draft",
+        source_hash: storage.incentiveHash(storage.sourceForIncentiveTeam(f.context, "t1")),
+        inputs: { scores: { aYoutube: 0 }, note: "Verified A correction" },
+      });
+    } else {
+      f.context.submissions[1].player_rows[1].youtubeVideoViews = "999";
+    }
+    const result = compute(f);
+    const rankingHash = storage.incentiveRankingHash(result);
+    assert.equal(source(), originalSource, change);
+    assert.notEqual(rankingHash, originalRanking, change);
+    const workspace = {
+      result, reviews: f.reviews, rankingHash,
+      hashes: Object.fromEntries(f.context.teams.map((team) => [team.id,
+        storage.incentiveHash(storage.sourceForIncentiveTeam(f.context, team.id))])),
+    };
+    assert.equal(api.isIncentiveReviewStale(review, source(), rankingHash), true);
+    assert.throws(() => storage.assertIncentiveFinalizable(workspace));
+    for (const scores of [{ cEvents: 2 }, { bExtra: 0 }]) {
+      review.inputs.scores = scores;
+      workspace.result = compute(f);
+      assert.equal(api.isIncentiveReviewStale(review, source(), rankingHash), false);
+      assert.doesNotThrow(() => storage.assertIncentiveFinalizable(workspace));
+    }
+  }
+});
+
+test("finalization accepts approved automatic results with missing data and no reviews", () => {
+  const f = automaticFixture();
   const w = {
     result: compute(f),
     reviews: f.reviews,
     hashes: { t0: "source" },
   };
+  w.rankingHash = storage.incentiveRankingHash(w.result);
+  assert.ok(w.result.teams[0].missing.length > 0);
   assert.doesNotThrow(() => storage.assertIncentiveFinalizable(w));
   w.hashes.t0 = "new";
-  assert.throws(() => storage.assertIncentiveFinalizable(w), /更新人工复核/);
-  w.hashes.t0 = "source";
+  assert.doesNotThrow(() => storage.assertIncentiveFinalizable(w));
   w.result.incomplete = true;
-  assert.throws(() => storage.assertIncentiveFinalizable(w), /待补充/);
+  assert.doesNotThrow(() => storage.assertIncentiveFinalizable(w));
+  f.context.submissions = [];
+  w.result = compute(f);
+  w.rankingHash = storage.incentiveRankingHash(w.result);
+  assert.throws(() => storage.assertIncentiveFinalizable(w), /月数据/);
+});
+
+test("only stale actual corrections block finalization, not draft status or stale empty reviews", () => {
+  const f = automaticFixture();
+  const w = { result: compute(f), reviews: [], hashes: { t0: "source" } };
+  w.rankingHash = storage.incentiveRankingHash(w.result);
+  for (const inputs of [
+    { overrides: { shortLikes: 0 } },
+    { scores: { bX: 0 } },
+    { individuals: { pt0: { views: 0 } } },
+  ]) {
+    for (const status of ["draft", "reviewed"]) {
+      const review = {
+        team_id: "t0", target_month: "2026-10", status, source_hash: "source",
+        inputs: api.normalizeIncentiveReview({ ...inputs, note: "Verified correction" }),
+      };
+      review.inputs.rankingSourceHash = w.rankingHash;
+      w.reviews = [review];
+      assert.doesNotThrow(() => storage.assertIncentiveFinalizable(w));
+      review.source_hash = "stale";
+      assert.throws(() => storage.assertIncentiveFinalizable(w));
+    }
+  }
+  for (const inputs of [{}, { note: "Historical note" }, { individuals: { pt0: {} }, scores: { bX: null } }]) {
+    w.reviews = [{ team_id: "t0", status: "draft", source_hash: "stale", inputs }];
+    assert.doesNotThrow(() => storage.assertIncentiveFinalizable(w));
+  }
 });
 
 function routeHarness({
   session = true,
   writeError = null,
   conflict = false,
+  count = 1,
 } = {}) {
-  const f = fixture();
+  const f = automaticFixture(count, "2026-07");
   const w = {
     context: f.context,
     result: compute(f),
     reviews: [],
-    hashes: { t0: "source" },
+    hashes: Object.fromEntries(f.context.teams.map((team) => [team.id, "source"])),
     sourceHash: "month-source",
   };
+  w.rankingHash = storage.incentiveRankingHash(w.result);
   const writes = [];
   const client = {
     from(table) {
@@ -644,7 +1190,10 @@ function routeHarness({
     "@/lib/supabase-server": { createSupabaseServerClient: () => client },
     "@/lib/incentive-store": {
       ...storage,
-      loadIncentiveWorkspace: async () => w,
+      loadIncentiveWorkspace: async () => {
+        const result = api.buildIncentiveMonth(w.context, w.reviews);
+        return { ...w, result, rankingHash: storage.incentiveRankingHash(result) };
+      },
     },
     "@/lib/incentive-score": api,
   });
@@ -658,6 +1207,7 @@ function routeHarness({
           month: "2026-07",
           teamId: "t0",
           sourceHash: "source",
+          rankingHash: w.rankingHash,
           inputs: { overrides: {}, individuals: {}, note: "" },
           ...change,
         }),
@@ -674,7 +1224,7 @@ test("API rejects unauthenticated, cross-origin, stale source and concurrent rev
   assert.equal((await h.send()).status, 409);
   assert.equal(h.writes.length, 0);
 });
-test("API requires explicit review and supplemental provenance, preserves zero and returns save feedback", async () => {
+test("API requires confirmation only for explicit review and provenance for corrections", async () => {
   const h = routeHarness();
   assert.equal((await h.send({ reviewed: true })).status, 400);
   assert.equal(
@@ -711,17 +1261,189 @@ test("API reports DB failures; finalization is append-only and never touches old
     false,
   );
 });
-test("API only confirms review after recalculating complete supplemental inputs", async () => {
+test("API saves and explicitly confirms reviews without requiring complete source metrics", async () => {
   const h = routeHarness();
-  const pending = await h.send({ reviewed: true, confirmed: true });
-  assert.equal(pending.status, 400);
-  assert.match((await pending.json()).error, /请先补齐/);
-  assert.equal(h.writes.length, 0);
-  const complete = await h.send({
-    reviewed: true,
-    confirmed: true,
-    inputs: { overrides: goodValues(), note: "Verified source" },
+  assert.ok(h.w.result.teams[0].missing.length > 0);
+  const draft = await h.send();
+  assert.equal(draft.status, 200);
+  assert.equal(h.writes[0].row.status, "draft");
+  const reviewed = await h.send({ reviewed: true, confirmed: true });
+  assert.equal(reviewed.status, 200);
+  assert.equal(h.writes[1].row.status, "reviewed");
+});
+
+test("API validates score caps and requires a note for every correction type including zero", async () => {
+  for (const inputs of [
+    { overrides: { shortLikes: 0 } },
+    { scores: { bX: 0 } },
+    { individuals: { pt0: { views: 0 } } },
+  ]) {
+    const h = routeHarness();
+    assert.equal((await h.send({ inputs })).status, 400);
+    assert.equal(h.writes.length, 0);
+    assert.equal((await h.send({ inputs: { ...inputs, note: "Verified source" } })).status, 200);
+    assert.equal(h.writes[0].row.status, "draft");
+    assert.equal(api.hasIncentiveCorrections(h.writes[0].row.inputs), true);
+  }
+  for (const scores of [{ aYoutube: 31 }, { bExtra: 21 }, { cPopular: 31 }, { cGrowth: -1 }, { cEvents: 1.5 }]) {
+    const h = routeHarness();
+    assert.equal((await h.send({ inputs: { scores, note: "Verified source" } })).status, 400);
+    assert.equal(h.writes.length, 0);
+  }
+  const blank = routeHarness();
+  assert.equal((await blank.send({ inputs: { scores: { bX: "" }, individuals: { pt0: {} } } })).status, 200);
+  assert.equal(api.hasIncentiveCorrections(blank.writes[0].row.inputs), false);
+});
+
+test("API recalculates draft score corrections and rejects unsafe totals before writing", async () => {
+  const h = routeHarness();
+  const response = await h.send({
+    inputs: { scores: { cGrowth: Number.MAX_SAFE_INTEGER, cEvents: 1 }, note: "Verified source" },
   });
-  assert.equal(complete.status, 200);
-  assert.equal(h.writes[0].row.status, "reviewed");
+  assert.equal(response.status, 400);
+  assert.equal(h.writes.length, 0);
+  const saved = await h.send({
+    inputs: { scores: { bX: 0, cEvents: 10 }, note: "Verified source" },
+  });
+  assert.equal(saved.status, 200);
+  assert.equal(h.writes[0].row.status, "draft");
+  assert.deepEqual(plain(h.writes[0].row.inputs.scores), { bX: 0, cEvents: 10 });
+  h.w.reviews = [h.writes[0].row];
+  h.w.sourceHash = "corrected-month";
+  assert.equal((await h.send({ action: "finalize", sourceHash: "corrected-month", confirmed: true })).status, 200);
+  const snapshot = h.writes[1].row.result.teams[0];
+  assert.equal(snapshot.automaticScores.cEvents, 0);
+  assert.equal(snapshot.c.events, 10);
+  assert.equal(snapshot.total, 85);
+});
+
+test("API finalizes missing-data automatic results without reviews, preserving nulls and append-only snapshots", async () => {
+  const h = routeHarness();
+  const before = structuredClone(h.w.context);
+  const request = { action: "finalize", sourceHash: "month-source", confirmed: true };
+  assert.equal((await h.send(request)).status, 200);
+  assert.equal((await h.send(request)).status, 200);
+  assert.equal(h.writes.length, 2);
+  for (const write of h.writes) {
+    assert.equal(write.table, "monthly_incentive_results");
+    assert.equal(write.row.rule_version, "2026-05-v2");
+    assert.equal(write.options.onConflict, "target_month,source_hash");
+    assert.equal(write.options.ignoreDuplicates, true);
+    assert.deepEqual(plain(write.row.reviews), []);
+    assert.equal(write.row.result.incomplete, false);
+    assert.equal(write.row.result.teams[0].total, 75);
+    assert.equal(write.row.result.teams[0].prize.total, 700000);
+    assert.equal(write.row.result.teams[0].values.shortLikes, null);
+    assert.equal(write.row.result.teams[0].proposed.shortLikes, null);
+    assertNotice(write.row.result.teams[0], "shortLikes", "not_collected");
+  }
+  assert.deepEqual(plain(h.writes[0].row), plain(h.writes[1].row));
+  assert.deepEqual(plain(h.w.context), plain(before));
+  const firstSnapshot = plain(h.writes[0].row);
+  h.w.context.submissions[0].player_rows[1].youtubeVideoViews = "200";
+  h.w.sourceHash = "updated-month";
+  assert.equal((await h.send({ ...request, sourceHash: "updated-month" })).status, 200);
+  assert.equal(h.writes[2].table, "monthly_incentive_results");
+  assert.equal(h.writes[2].row.source_hash, "updated-month");
+  assert.equal(h.writes[2].row.result.teams[0].members[0].views, 200);
+  assert.deepEqual(plain(h.writes[0].row), firstSnapshot);
+});
+
+test("API finalization retains explicit confirmation, stale-source and approved-submission guards", async () => {
+  const h = routeHarness();
+  const request = { action: "finalize", sourceHash: "month-source", confirmed: true };
+  assert.equal((await h.send({ ...request, confirmed: false })).status, 400);
+  assert.equal((await h.send({ ...request, sourceHash: "stale" })).status, 409);
+  h.w.context.submissions[0].status = "submitted";
+  assert.equal((await h.send(request)).status, 400);
+  assert.equal(h.writes.length, 0);
+});
+
+test("API finalizes fresh draft corrections but rejects stale corrections and ignores stale empty reviews", async () => {
+  const request = { action: "finalize", sourceHash: "month-source", confirmed: true };
+  for (const sourceHash of ["source", "stale"]) {
+    const h = routeHarness();
+    h.w.reviews = [{
+      team_id: "t0", target_month: "2026-07", status: "draft", source_hash: sourceHash,
+      inputs: { scores: { bX: 0 }, rankingSourceHash: h.w.rankingHash, note: "Verified source" },
+    }];
+    assert.equal((await h.send(request)).status, sourceHash === "source" ? 200 : 400);
+    assert.equal(h.writes.length, sourceHash === "source" ? 1 : 0);
+  }
+  const h = routeHarness();
+  h.w.reviews = [{
+    team_id: "t0", target_month: "2026-07", status: "draft", source_hash: "stale",
+    inputs: { scores: {}, individuals: { pt0: {} }, note: "Note only" },
+  }];
+  assert.equal((await h.send(request)).status, 200);
+});
+
+test("API rejects old or missing ranking hashes only for direct B ranking corrections", async () => {
+  for (const field of ["bX", "bYoutube", "bShorts"]) {
+    for (const rankingHash of ["old-ranking", undefined]) {
+      const h = routeHarness();
+      const response = await h.send({
+        rankingHash,
+        inputs: { scores: { [field]: 0 }, rankingSourceHash: h.w.rankingHash, note: "Verified source" },
+      });
+      assert.equal(response.status, 409, field);
+      assert.equal(h.writes.length, 0);
+    }
+  }
+  for (const scores of [{ bExtra: 0 }, { cEvents: 2 }]) {
+    const h = routeHarness();
+    assert.equal((await h.send({ rankingHash: "old-ranking", inputs: { scores, note: "Verified source" } })).status, 200);
+  }
+});
+
+test("API detects another team's ranking changes even when the corrected team's source is unchanged", async () => {
+  for (const change of ["eligibility", "ranking data"]) {
+    const h = routeHarness({ count: 2 });
+    const oldHash = h.w.rankingHash;
+    const ownSource = storage.incentiveHash(storage.sourceForIncentiveTeam(h.w.context, "t0"));
+    if (change === "eligibility") {
+      h.w.reviews = [{
+        team_id: "t1", target_month: "2026-07", status: "draft", source_hash: "source",
+        inputs: { scores: { aYoutube: 0 }, note: "Updated A score" },
+      }];
+    } else {
+      h.w.context.submissions[1].player_rows[1].youtubeVideoViews = "999";
+    }
+    const currentHash = storage.incentiveRankingHash(api.buildIncentiveMonth(h.w.context, h.w.reviews));
+    assert.notEqual(currentHash, oldHash);
+    assert.equal(storage.incentiveHash(storage.sourceForIncentiveTeam(h.w.context, "t0")), ownSource);
+    const inputs = { scores: { bYoutube: 5 }, note: "Verified ranking" };
+    assert.equal((await h.send({ rankingHash: oldHash, inputs })).status, 409);
+    assert.equal(h.writes.length, 0);
+    assert.equal((await h.send({ rankingHash: currentHash, inputs })).status, 200);
+    assert.equal(h.writes[0].row.inputs.rankingSourceHash, currentHash);
+  }
+});
+
+test("API stamps the authoritative post-edit ranking hash for own A+B changes and ignores forged input", async () => {
+  const h = routeHarness();
+  h.w.reviews = [{
+    team_id: "t0", target_month: "2026-07", status: "draft", source_hash: "source",
+    inputs: { scores: { aYoutube: 0 }, note: "Existing A correction" },
+  }];
+  h.w.result = api.buildIncentiveMonth(h.w.context, h.w.reviews);
+  h.w.rankingHash = storage.incentiveRankingHash(h.w.result);
+  assert.equal(h.w.result.teams[0].eligible, false);
+  const oldHash = h.w.rankingHash;
+  const response = await h.send({
+    inputs: { scores: { aYoutube: 30, bYoutube: 5 }, rankingSourceHash: "forged", note: "Verified A and B" },
+  });
+  assert.equal(response.status, 200);
+  const record = h.writes[0].row;
+  const recalculated = api.buildIncentiveMonth(h.w.context, [record]);
+  const newHash = storage.incentiveRankingHash(recalculated);
+  assert.equal(recalculated.teams[0].eligible, true);
+  assert.notEqual(newHash, oldHash);
+  assert.equal(record.inputs.rankingSourceHash, newHash);
+  assert.notEqual(record.inputs.rankingSourceHash, "forged");
+  assert.equal(api.isIncentiveReviewStale(record, "source", newHash), false);
+  h.w.reviews = [record];
+  h.w.sourceHash = "updated-month";
+  assert.equal((await h.send({ action: "finalize", sourceHash: "updated-month", confirmed: true })).status, 200);
+  assert.equal(h.writes[1].row.reviews[0].inputs.rankingSourceHash, newHash);
 });
