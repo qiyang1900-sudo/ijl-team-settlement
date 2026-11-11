@@ -7,26 +7,29 @@ import { contentWorkKey, parseMonthlyContent } from "./monthly-content";
 import { parseClubActivityItems } from "./club-activities";
 import type { TeamScoreTeam, TeamScoreSubmission } from "./team-score";
 import type { TiktokMonthlyRow } from "./tiktok-monthly-data";
+import type { LegacyDesignatedSource } from "./legacy-designated";
 
-export const incentiveRuleVersion = "2026-05-v3";
-export const incentiveStartMonth = "2026-05";
+export const incentiveRuleVersion = "2026-07-v4";
+export const incentiveStartMonth = "2026-07";
 export const incentivePrizeStartMonth = "2026-07";
 export const contentCollectionStartMonth = "2026-10";
 export const rankPrizes = [600000, 400000, 300000, 200000, 160000];
 
 export const incentiveFields = {
-  officialVideos: { group: "A", label: "官方合格普通视频", target: 2 },
-  designatedLong: { group: "A", label: "合格指定长视频", target: 4 },
+  officialVideos: { group: "A", label: "官方普通视频总数", target: 2 },
+  designatedLong: { group: "A", label: "指定长视频总数", target: 4 },
   designatedLongEvent: {
     group: "A",
     label: "其中：游戏内活动长视频",
     target: 2,
+    informational: true,
   },
-  designatedShort: { group: "A", label: "合格指定 Shorts／切片", target: 8 },
+  designatedShort: { group: "A", label: "指定 Shorts／切片总数", target: 8 },
   designatedShortEvent: {
     group: "A",
     label: "其中：游戏内活动 Shorts／切片",
     target: 4,
+    informational: true,
   },
   streams: { group: "A", label: "全队 YouTube 直播次数", target: 20 },
   shortPosts: { group: "A", label: "全队 Shorts＋TT 投稿合计", target: 5 },
@@ -97,6 +100,7 @@ export type IncentiveContext = {
   submissions: IncentiveSubmission[];
   tiktokRows: IncentiveTiktokRow[];
   tiktokIssues?: Array<{ month: string; team: string; account?: string }>;
+  designatedSources?: LegacyDesignatedSource[];
 };
 export type IndividualOverride = {
   views?: number | null;
@@ -378,6 +382,7 @@ export function proposeIncentiveValues(
     link: submission?.club_activity_link,
   });
   const workKeys = new Set<string>();
+  const designatedKeys = new Set<string>();
   const hotShortAccounts = new Set<string>();
   const hotXAccounts = new Set<string>();
   let long = 0,
@@ -431,6 +436,7 @@ export function proposeIncentiveValues(
         `D 追加奖励排除官方账号作品：${work.title}。C 官方热门视频仍按原规则计算。`,
       );
     if (work.claims.includes("designated")) {
+      if (["youtube", "youtube_short"].includes(work.platform)) designatedKeys.add(key);
       if (work.platform === "youtube") {
         long++;
         if (work.topic === "game_event") longEvent++;
@@ -475,6 +481,40 @@ export function proposeIncentiveValues(
       `${work.accountName || work.accountId} · ${work.title} · ${work.platform} · 播放 ${views ?? "未填"} / 点赞 ${likes ?? "未填"}`,
     );
   }
+  const legacySources = /^2026-0[789]$/.test(context.month)
+    ? (context.designatedSources ?? []).filter((source) => teamKey(source.team) === teamKey(team.short_name))
+    : [];
+  let hasLegacyDesignated = false;
+  if (submission) {
+    for (const source of legacySources) {
+      for (const work of source.entries) {
+        if (work.month !== context.month) {
+          if (work.month === null)
+            details.push(`旧表待确认：${source.sheetName} 第 ${work.row} 行「${work.title}」未填写月份，本次未新增计入。`);
+          continue;
+        }
+        const key = contentWorkKey(work.url);
+        const isShort = work.platform === "youtube_short";
+        const isLong = work.platform === "youtube" ||
+          (work.platform === "youtube_live" && work.countAsLong === true);
+        if (!key || (!isShort && !isLong)) continue;
+        hasLegacyDesignated = true;
+        if (designatedKeys.has(key)) {
+          details.push(`旧表指定视频去重：第 ${work.row} 行「${work.title}」与已有链接重复，仅计一次。`);
+          continue;
+        }
+        designatedKeys.add(key);
+        if (isShort) short++;
+        else long++;
+        details.push(`旧表指定${isShort ? "Shorts" : "长视频"}：${source.sheetName} 第 ${work.row} 行 · ${work.title} · ${work.publishedOn}${work.platform === "youtube_live" ? "（管理员确认直播计入指定长视频）" : ""}`);
+      }
+    }
+    if (legacySources.length)
+      details.push(hasLegacyDesignated
+        ? `指定视频按网站记录与旧表链接去重合并：长视频 ${long} 条，Shorts ${short} 条。`
+        : "旧表暂无可确定为本月的指定视频，未替换网站已有记录。");
+  }
+  const knownDesignated = knownClaims || hasLegacyDesignated;
   let online = 0,
     offline = 0,
     units = 0;
@@ -527,10 +567,10 @@ export function proposeIncentiveValues(
   const ttShortReposts = ttMetric("repostCount");
   const values: IncentiveValues = {
     officialVideos: metric(official, "youtubeVideoPostCount"),
-    designatedLong: knownClaims ? long : null,
-    designatedLongEvent: knownClaims ? longEvent : null,
-    designatedShort: knownClaims ? short : null,
-    designatedShortEvent: knownClaims ? shortEvent : null,
+    designatedLong: knownDesignated ? long : null,
+    designatedLongEvent: knownDesignated ? longEvent : null,
+    designatedShort: knownDesignated ? short : null,
+    designatedShortEvent: knownDesignated ? shortEvent : null,
     streams: metric(all, "youtubeStreamCount"),
     shortPosts:
       combinedShortPosts ??
@@ -606,6 +646,7 @@ export function proposeIncentiveValues(
         });
       } else if (
         claim &&
+        !(claim === "designated" && hasLegacyDesignated) &&
         !content.some(
           (work) =>
             work.claims.some((value) => value === claim) &&
@@ -780,21 +821,12 @@ export function calculateBase(
     "streams",
   ] as const;
   for (const key of conditions) {
-    const eventKey =
-      key === "designatedLong"
-        ? "designatedLongEvent"
-        : key === "designatedShort"
-          ? "designatedShortEvent"
-          : null;
     if (
       values[key] === null ||
-      values[key]! < incentiveFields[key].target ||
-      (eventKey &&
-        (values[eventKey] === null ||
-          values[eventKey]! < incentiveFields[eventKey].target))
+      values[key]! < incentiveFields[key].target
     )
       deductions.push(
-        `${incentiveFields[key].label}${values[key] === null || (eventKey && values[eventKey] === null) ? "数据未齐，本次未计为达标" : "未达标"}（${values[key] ?? "未填"}/${incentiveFields[key].target}${eventKey ? `，其中游戏内活动 ${values[eventKey] ?? "未填"}/${incentiveFields[eventKey].target}` : ""}）：扣 10 分`,
+        `${incentiveFields[key].label}${values[key] === null ? "数据未齐，本次未计为达标" : "未达标"}（${values[key] ?? "未填"}/${incentiveFields[key].target}）：扣 10 分`,
       );
   }
   const youtube = Math.max(0, 30 - deductions.length * 10);
@@ -823,7 +855,7 @@ export function buildIncentiveMonth(
   reviews: IncentiveReview[] = [],
 ): IncentiveMonthResult {
   if (context.month < incentiveStartMonth)
-    throw new Error("2026 年 5 月前应使用旧评分制度。");
+    throw new Error("联盟评分仅计算 2026 年 7 月及之后的数据。");
   const prizeEnabled = context.month >= incentivePrizeStartMonth;
   const teams: IncentiveTeamResult[] = context.teams.map((team) => {
     const proposed = proposeIncentiveValues(team, context);
@@ -867,6 +899,7 @@ export function buildIncentiveMonth(
           .filter((key) => {
             const group = incentiveFields[key].group;
             return (
+              !("informational" in incentiveFields[key]) &&
               values[key] === null &&
               (group === "A" || (eligible && group !== "D"))
             );

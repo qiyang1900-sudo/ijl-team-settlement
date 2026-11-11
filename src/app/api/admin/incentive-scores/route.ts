@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     const body = JSON.parse(raw);
     const month = String(body.month || "");
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || month < incentiveStartMonth)
-      throw new Error("新版评分从 2026 年 5 月开始。");
+      throw new Error("联盟评分仅计算 2026 年 7 月及之后的数据。");
     const supabase = createSupabaseServerClient(url, undefined, key);
     const workspace = await loadIncentiveWorkspace(supabase, month);
     let reviewVersion: string | undefined;

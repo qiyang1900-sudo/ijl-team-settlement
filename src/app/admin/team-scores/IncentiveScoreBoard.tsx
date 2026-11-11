@@ -39,7 +39,8 @@ import type { IncentiveSnapshot } from "@/lib/incentive-store";
 const number = (value: number | null | undefined) =>
   value == null ? "—" : value.toLocaleString("ja-JP");
 const yen = (value: number) => `¥${number(value)}`;
-const fieldKeys = Object.keys(incentiveFields) as IncentiveField[];
+const fieldKeys = (Object.keys(incentiveFields) as IncentiveField[])
+  .filter((key) => !("informational" in incentiveFields[key]));
 const scoreKeys = Object.keys(incentiveScoreFields) as IncentiveScoreField[];
 const groups = {
   A: "基础内容",
