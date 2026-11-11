@@ -182,6 +182,14 @@ export async function loadIncentiveWorkspace(
         (row) => row.team_id === team.id && row.target_month === month,
       ),
   );
+  if (/^2026-0[789]$/.test(month)) {
+    const missingSources = teams.filter((team) =>
+      submissions.some((row) => row.team_id === team.id && row.target_month === month) &&
+      !designatedResult.data?.some((row) => row.team_id === team.id && row.target_month === month),
+    );
+    if (missingSources.length)
+      throw new Error(`历史指定视频来源记录缺失：${missingSources.map((team) => team.short_name).join("、")}。未按零分继续计算。`);
+  }
   const context: IncentiveContext = {
     month,
     teams,

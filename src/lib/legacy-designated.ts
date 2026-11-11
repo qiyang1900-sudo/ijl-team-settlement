@@ -14,7 +14,7 @@ export type LegacyDesignatedSource = {
   }>;
 };
 
-// Historical evidence is versioned separately from team submissions. Reading
+// Historical evidence is stored separately from team submissions. Reading
 // it must never rewrite monthly metrics, claims, salaries or review states.
 export function legacyDesignatedForMonth(
   month: string,

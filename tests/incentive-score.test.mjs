@@ -626,6 +626,9 @@ test("workspace reads private designated sources for July-September only and fai
   assert.deepEqual(plain(tables), before);
   sourceError = { message: "private source unavailable" };
   await assert.rejects(loader.loadIncentiveWorkspace(client, "2026-07"), /未按零分继续计算/);
+  sourceError = null;
+  tables.team_incentive_designated_sources = [];
+  await assert.rejects(loader.loadIncentiveWorkspace(client, "2026-07"), /来源记录缺失/);
   reads.length = 0;
   await loader.loadIncentiveWorkspace(client, "2026-10");
   assert.equal(reads.includes("team_incentive_designated_sources"), false);
