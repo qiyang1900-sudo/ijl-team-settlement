@@ -506,13 +506,46 @@ test("unknown optional metrics contribute no points without blocking automatic r
 
 test("league calculation and prizes only start July, retaining June as growth baseline", () => {
   assert.equal(api.incentiveStartMonth, "2026-07");
-  assert.equal(api.incentiveRuleVersion, "2026-07-v4");
-  assert.equal(compute(fixture()).ruleVersion, "2026-07-v4");
+  assert.equal(api.incentiveRuleVersion, "2026-07-v5");
+  assert.equal(compute(fixture()).ruleVersion, "2026-07-v5");
   for (const month of ["2026-04", "2026-05", "2026-06"])
     assert.throws(() => compute(fixture(1, month)), /7 月/);
   assert.equal(api.previousIncentiveMonth("2026-07"), "2026-06");
   assert.equal(compute(fixture()).allocated, 700000);
 });
+test("A accepts a proven minimum despite blank member counts, without changing raw data or B totals", () => {
+  const f = automaticFixture(1, "2026-07");
+  f.context.teams[0].short_name = "DFM";
+  f.context.designatedSources = legacyForMonth("2026-07");
+  f.context.submissions[0].content_entries = [];
+  const [official, member] = f.context.submissions[0].player_rows;
+  official.youtubeStreamCount = "4";
+  member.youtubeStreamCount = "20";
+  member.youtubeShortPostCount = "";
+  f.context.submissions[0].player_rows.push({
+    ...monthly.emptyMonthlyPlayerRow(2), id: "blank-member", playerId: "blank-member",
+    playerName: "Missing data", playerRole: "選手",
+    youtubeStreamCount: "", youtubeVideoPostCount: "", youtubeShortPostCount: "",
+  });
+  const before = plain(f.context.submissions);
+  const team = compute(f).teams[0];
+  assert.equal(team.proposed.streams,24);
+  assert.equal(team.proposed.shortPosts,5);
+  assert.equal(team.a.score,60);
+  assert.equal(team.proposed.videoPosts,null);
+  assert.equal(team.b.ranks.videoPosts,null);
+  assert.ok(team.details.some((line) => line.includes("已确认至少 24")));
+  assert.deepEqual(plain(f.context.submissions),before);
+  member.youtubeStreamCount = "15";
+  assert.equal(compute(f).teams[0].proposed.streams,null);
+  official.youtubeShortPostCount = "4";
+  assert.equal(compute(f).teams[0].proposed.shortPosts,null);
+  member.youtubeStreamCount = "0";
+  official.youtubeStreamCount = "0";
+  f.context.submissions[0].player_rows[2].youtubeStreamCount = "0";
+  assert.equal(compute(f).teams[0].proposed.streams,0);
+});
+
 test("legacy designated archive counts verified months, titles, accepted streams and duplicate video IDs", () => {
   const expected = {
     AWG: [[2,4], [null,null], [2,4]],
@@ -1599,7 +1632,7 @@ test("API finalizes missing-data automatic results without reviews, preserving n
   assert.equal(h.writes.length, 2);
   for (const write of h.writes) {
     assert.equal(write.table, "monthly_incentive_results");
-    assert.equal(write.row.rule_version, "2026-07-v4");
+    assert.equal(write.row.rule_version, "2026-07-v5");
     assert.equal(write.options.onConflict, "target_month,source_hash");
     assert.equal(write.options.ignoreDuplicates, true);
     assert.deepEqual(plain(write.row.reviews), []);
