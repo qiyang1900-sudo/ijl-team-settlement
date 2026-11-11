@@ -39,6 +39,7 @@ type PreviewAction = {
 };
 
 type Preview = {
+  previewToken: string;
   targetMonth: string;
   dataType: MonthlyImportDataType;
   mode: MonthlyImportMode;
@@ -128,6 +129,7 @@ export default function MonthlyImportClient({
           dataType,
           mode,
           dryRun,
+          previewToken: preview?.previewToken,
         }),
       });
       const result = (await response.json()) as ImportResponse;
@@ -161,7 +163,7 @@ export default function MonthlyImportClient({
 
   function handleOverwrite() {
     const confirmed = window.confirm(
-      "覆盖导入会覆盖该月份对应类型的字段。其他类型字段会保留。确定继续吗？"
+      "覆盖导入会替换该月份对应类型的非空数字。空白单元格、其他类型数据及工资会保留；明确填写 0 会覆盖为 0。确定继续吗？"
     );
 
     if (!confirmed) {

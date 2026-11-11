@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import type { ProjectSaveResult } from "@/lib/project-submission-save";
 import {
   calculateTaxAmount,
   formatTaxRate,
@@ -62,6 +64,7 @@ export default function SubmissionForm({
   projectTeamId,
   teamId,
   currentStatus,
+  baseRevision,
   companyInfo,
   profile,
   summaryRows,
@@ -71,10 +74,11 @@ export default function SubmissionForm({
   invoiceUploadUrl,
   invoiceConfirmed,
 }: {
-  action: (formData: FormData) => void | Promise<void>;
+  action: (formData: FormData) => Promise<ProjectSaveResult>;
   projectTeamId: string;
   teamId: string;
   currentStatus: string;
+  baseRevision: string;
   companyInfo?: CompanyInfo | null;
   profile?: ProfileInfo | null;
   summaryRows: SourceSummaryRow[];
@@ -84,6 +88,24 @@ export default function SubmissionForm({
   invoiceUploadUrl: string;
   invoiceConfirmed: boolean;
 }) {
+  const router = useRouter();
+  const [saveError, setSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const locked = ["submitted", "resubmitted", "reviewing", "approved", "exported"].includes(currentStatus);
+  async function save(formData: FormData) {
+    if (saving || locked) return;
+    setSaving(true);
+    setSaveError("");
+    try {
+      const result = await action(formData);
+      if (result.status === "error") { setSaveError(result.message); return; }
+      if (result.redirectTo) { router.push(result.redirectTo); router.refresh(); }
+    } catch (error) {
+      setSaveError(`保存結果を確認できませんでした。入力は保持しています。別のタブで保存状況を確認してください。${error instanceof Error ? error.message : ""}`);
+    } finally {
+      setSaving(false);
+    }
+  }
   const defaultCompanyName =
     companyInfo?.company_name || profile?.company_name || "";
   const defaultBankName = companyInfo?.bank_name || profile?.bank_name || "";
@@ -329,15 +351,21 @@ export default function SubmissionForm({
 
   return (
     <form
-      action={action}
+      onSubmit={(event) => {
+        event.preventDefault();
+        const submitter = (event.nativeEvent as SubmitEvent).submitter;
+        void save(new FormData(event.currentTarget, submitter));
+      }}
       encType="multipart/form-data"
       className="space-y-5 text-sm"
     >
       <input type="hidden" name="project_team_id" value={projectTeamId} />
       <input type="hidden" name="team_id" value={teamId} />
       <input type="hidden" name="current_status" value={currentStatus} />
+      <input type="hidden" name="base_revision" value={baseRevision} />
       <input type="hidden" name="summary_count" value={summaries.length} />
       <input type="hidden" name="detail_count" value={details.length} />
+      <fieldset disabled={saving || locked} className="contents">
 
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-bold">① 契約・口座情報</h2>
@@ -816,7 +844,9 @@ export default function SubmissionForm({
         )}
       </section>
 
-      <SubmitButtons />
+      {saveError ? <p role="alert" className="rounded-md border border-rose-300 bg-rose-50 p-3 text-rose-800">{saveError}</p> : null}
+      {!locked ? <SubmitButtons saving={saving} /> : null}
+      </fieldset>
     </form>
   );
 }

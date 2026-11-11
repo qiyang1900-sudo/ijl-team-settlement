@@ -1,6 +1,8 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import historyData from "@/lib/historical-monthly-import-data.json";
-import { normalizePlayerLookupKey } from "@/lib/monthly-import";
+import { normalizePlayerLookupKey, mergeImportedMonthlyRows } from "@/lib/monthly-import";
+import { parseMonthlyPlayerRows } from "@/lib/monthly-data";
+import { readAllRows } from "@/lib/read-all-rows";
 
 export const runtime = "nodejs";
 
@@ -103,7 +105,7 @@ export async function POST(request: Request) {
 
   const { error: retiredError } = await supabase
     .from("league_players")
-    .upsert(retiredRows, { onConflict: "handle" });
+    .upsert(retiredRows, { onConflict: "handle", ignoreDuplicates: true });
 
   if (retiredError) {
     return Response.json({ error: retiredError.message }, { status: 500 });
@@ -129,7 +131,7 @@ export async function POST(request: Request) {
           is_active: true,
           updated_at: now,
         })),
-        { onConflict: "handle" }
+        { onConflict: "handle", ignoreDuplicates: true }
       );
 
     if (missingPlayerError) {
@@ -151,16 +153,17 @@ export async function POST(request: Request) {
     updated_at: now,
   }));
 
-  for (let index = 0; index < submissionRows.length; index += 30) {
-    const chunk = submissionRows.slice(index, index + 30);
-    const { error } = await supabase
-      .from("monthly_data_submissions")
-      .upsert(chunk, { onConflict: "team_id,target_month" });
-
-    if (error) {
-      return Response.json({ error: error.message }, { status: 500 });
-    }
-  }
+  const existing = await readAllRows((from, to) => supabase.from("monthly_data_submissions").select("*", { count: "exact" }).lte("target_month", "2026-05").order("id").range(from, to));
+  if (existing.error) return Response.json({ error: existing.error.message }, { status: 500 });
+  const batch = submissionRows.map((row) => {
+    if (row.target_month > "2026-05") throw new Error("历史导入不能覆盖网站启用后的月份。");
+    const before = existing.data?.find((record) => record.team_id === row.team_id && record.target_month === row.target_month) || null;
+    let players = parseMonthlyPlayerRows(before?.player_rows);
+    for (const dataType of ["x", "youtube"] as const) players = mergeImportedMonthlyRows({ existingRows: players, incomingRows: parseMonthlyPlayerRows(row.player_rows), dataType, mode: "overwrite" });
+    return { before, patch: { ...row, player_rows: players } };
+  });
+  const { error: importError } = await supabase.rpc("import_monthly_submissions_atomic", { p_rows: batch });
+  if (importError) return Response.json({ error: `整批导入未完成：${importError.message}` }, { status: 500 });
 
   return Response.json({
     ok: true,

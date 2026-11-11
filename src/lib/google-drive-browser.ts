@@ -79,14 +79,14 @@ export function requestGoogleDriveToken(clientId: string): Promise<string> {
   });
 }
 
-export function authorizeReportFolder(config: GoogleDriveConfig, token: string, folderId: string) {
+export function authorizeReportFolder(config: GoogleDriveConfig, token: string, folderId: string, title = "授权此战队的请求书文件夹") {
   return new Promise<void>((resolve, reject) => {
     const picker = (window as GoogleWindow).google?.picker;
     if (!picker) return reject(new Error("Google 文件夹选择器尚未就绪。"));
     const view = new picker.DocsView(picker.ViewId.FOLDERS)
       .setFileIds(folderId).setIncludeFolders(true).setSelectFolderEnabled(true);
     new picker.PickerBuilder().setAppId(config.appId).setDeveloperKey(config.apiKey)
-      .setOAuthToken(token).setOrigin(window.location.origin).setTitle("授权此战队的请求书文件夹")
+      .setOAuthToken(token).setOrigin(window.location.origin).setTitle(title)
       .addView(view).setCallback((data) => {
         if (data.action === "cancel") reject(new Error("已取消文件夹授权，未上传报告。"));
         if (data.action === "picked") {
