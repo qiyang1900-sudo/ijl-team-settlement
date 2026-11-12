@@ -39,7 +39,7 @@ export default async function IncentiveScoresPage({
           <div>
             <h1 className="text-2xl font-bold sm:text-3xl">战队积分计算</h1>
             <p className="mt-3 text-sm text-slate-400">
-              新制度 · A＋B＋C · A ≥ 45 参评 · D 单独计奖
+              A＋B＋C 排名须 A ≥ 45 · D 仅需当月月数据审核通过，不受 A 分数及排名限制
             </p>
           </div>
           <form action="/admin/team-scores" className="flex items-center gap-3">

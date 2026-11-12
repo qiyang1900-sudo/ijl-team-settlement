@@ -1,9 +1,9 @@
 # Monthly incentive scoring
 
-The administrator's `/admin/team-scores` page selects the rule set by month.
-The existing engine and `team_monthly_scores` records remain unchanged for
-months before May 2026. From May 2026 the new engine computes A + B + C; D
-and placement prizes start in July 2026. New work claims collected on the
+The administrator's `/admin/team-scores` page computes incentives from July
+2026 onward. The existing engine and `team_monthly_scores` records remain
+unchanged. A + B + C, D and placement prizes start in July 2026 in this
+calculator. New work claims collected on the
 website start with October data. Older claims may be entered by an administrator
 from the original records without resubmitting monthly data.
 
@@ -21,7 +21,7 @@ from the original records without resubmitting monthly data.
   Explicit YouTube `/shorts/` URLs are classified as Shorts when reading claims;
   ambiguous watch/youtu.be links retain their selected format. Reading does not
   rewrite submissions or backfill missing historical designated works.
-- A >= 45 is required for B, C, D and final ranking. Only approved monthly
+- A >= 45 is required for B, C and final ranking, not D. Only approved monthly
   submissions participate. Current retirement status never filters their rows;
   coaches participate and explicit manager rows do not.
 - B: X 2 for one top-five criterion or 5 for both; YouTube 5 each for three
@@ -39,7 +39,9 @@ from the original records without resubmitting monthly data.
   videos (>40,000 views) earn 2 per unique work, capped at 10. Online >3,000
   earns 2/event; offline >100 earns 5/event; qualified tournaments earn
   floor(concurrent viewers / 1,000) * 5 per event. Growth and events are uncapped.
-- D: individual ordinary YT views and posts each have a 50,000 JPY pool;
+- D: all teams with approved monthly submissions participate, independently
+  of A scores, ABC totals or placement. Individual ordinary YT views and posts
+  each have a 50,000 JPY pool;
   coaches qualify and the same person can win both. Qualifying clubs with a
   single member/coach Short >1M or ordinary YT video >200K split 240,000 JPY
   equally. Official accounts never qualify for D, including this bonus. The
