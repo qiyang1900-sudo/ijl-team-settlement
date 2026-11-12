@@ -506,8 +506,8 @@ test("unknown optional metrics contribute no points without blocking automatic r
 
 test("league calculation and prizes only start July, retaining June as growth baseline", () => {
   assert.equal(api.incentiveStartMonth, "2026-07");
-  assert.equal(api.incentiveRuleVersion, "2026-07-v5");
-  assert.equal(compute(fixture()).ruleVersion, "2026-07-v5");
+  assert.equal(api.incentiveRuleVersion, "2026-07-v6");
+  assert.equal(compute(fixture()).ruleVersion, "2026-07-v6");
   for (const month of ["2026-04", "2026-05", "2026-06"])
     assert.throws(() => compute(fixture(1, month)), /7 月/);
   assert.equal(api.previousIncentiveMonth("2026-07"), "2026-06");
@@ -720,7 +720,9 @@ test("B only ranks eligible teams, scores each qualifying criterion and caps ext
   assert.equal(r.teams[1].b.score, 50);
   assert.equal(r.teams[5].b.score, 30);
   assert.equal(r.teams[6].b.score, 0);
-  assert.equal(r.teams[0].prize.total, 0);
+  assert.equal(r.teams[0].prize.ranking, 0);
+  assert.equal(r.teams[0].prize.views, Math.floor(50000 / 7));
+  assert.equal(r.teams[0].prize.posts, Math.floor(50000 / 7));
 });
 test("B ties at fifth all count, zero never ranks and null never becomes zero", () => {
   assert.deepEqual(
@@ -1010,7 +1012,7 @@ test("manual A/B/C scores change totals while retaining automatic scores and raw
   assert.equal(zero.total, 85);
 });
 
-test("manual A corrections determine eligibility and cannot pay B/C/D to an ineligible team", () => {
+test("manual A corrections gate B/C and placement but never D for approved data", () => {
   const f = fixture();
   f.reviews[0].inputs.scores = { aYoutube: 0, bX: 5, cEvents: 100 };
   f.reviews[0].inputs.overrides.bonusVideos = 1;
@@ -1022,7 +1024,111 @@ test("manual A corrections determine eligibility and cannot pay B/C/D to an inel
   assert.equal(result.c.score, 0);
   assert.equal(result.total, 30);
   assert.equal(result.rank, null);
-  assert.equal(result.prize.total, 0);
+  assert.equal(result.prize.ranking, 0);
+  assert.equal(result.prize.views, 50000);
+  assert.equal(result.prize.posts, 50000);
+  assert.equal(result.prize.popular, 240000);
+  assert.equal(result.prize.total, 340000);
+});
+
+test("D winners come from all approved members including an A-zero coach and never change ABC", () => {
+  const f = fixture(3);
+  f.reviews[0].inputs.scores = { aYoutube: 0, aShorts: 0, aX: 0 };
+  f.context.submissions[0].player_rows[1].playerRole = "コーチ";
+  const before = compute(f);
+  f.context.submissions[0].player_rows[1].youtubeVideoViews = "999";
+  f.context.submissions[0].player_rows[1].youtubeVideoPostCount = "9";
+  const sourceBefore = structuredClone(f);
+  const after = compute(f);
+  const coach = after.teams[0];
+  assert.equal(coach.a.score, 0);
+  assert.equal(coach.total, 0);
+  assert.equal(coach.rank, null);
+  assert.equal(coach.prize.views, 50000);
+  assert.equal(coach.prize.posts, 50000);
+  assert.ok(after.teams.slice(1).every((team) => team.prize.views === 0 && team.prize.posts === 0));
+  const abc = (result) => plain(result.teams.map(({ a, b, c, total, rank, eligible, prize }) =>
+    ({ a, b, c, total, rank, eligible, rankingPrize: prize.ranking })));
+  assert.deepEqual(abc(after), abc(before));
+  assert.deepEqual(plain(f), plain(sourceBefore));
+});
+
+test("D includes approved members outside the ABC top five", () => {
+  const f = fixture(6);
+  f.reviews.forEach((review, i) => { review.inputs.overrides.onlineEvents = 6 - i; });
+  f.context.submissions[5].player_rows[1].youtubeVideoViews = "999";
+  f.context.submissions[5].player_rows[1].youtubeVideoPostCount = "99";
+  const last = compute(f).teams[5];
+  assert.equal(last.eligible, true);
+  assert.equal(last.rank, null);
+  assert.equal(last.prize.ranking, 0);
+  assert.equal(last.prize.views, 50000);
+  assert.equal(last.prize.posts, 50000);
+});
+
+test("D ties share the same pools across qualified and below-A teams", () => {
+  const f = fixture(3);
+  f.reviews[1].inputs.scores = { aYoutube: 0 };
+  f.reviews[2].inputs.scores = { aYoutube: 0, aShorts: 0, aX: 0 };
+  f.reviews[0].inputs.overrides.bonusVideos = 1;
+  f.reviews[1].inputs.overrides.bonusVideos = 2;
+  const result = compute(f);
+  assert.ok(result.teams.every((team) => team.prize.views === 16666 && team.prize.posts === 16666));
+  assert.deepEqual(plain(result.teams.map((team) => team.prize.popular)), [120000, 120000, 0]);
+  assert.equal(result.allocated, 939996);
+});
+
+test("D excludes every non-approved status even with manual evidence or a high A score", () => {
+  for (const status of ["draft", "submitted", "reviewing", "rejected", "not_submitted"]) {
+    const f = fixture(2);
+    f.context.submissions[0].status = status;
+    f.context.submissions[0].player_rows[1].youtubeVideoViews = "999999";
+    f.reviews[0].inputs.overrides.bonusVideos = 1;
+    f.reviews[0].inputs.individuals.pt0 = { views: 999999, posts: 999 };
+    const result = compute(f);
+    assert.equal(result.teams[0].prize.total, 0, status);
+    assert.equal(result.teams[1].prize.views, 50000, status);
+    assert.equal(result.teams[1].prize.posts, 50000, status);
+  }
+});
+
+test("D below-A missing fields emit notices and omit only that award; real zero never wins", () => {
+  const f = fixture(2);
+  f.reviews[0].inputs.scores = { aYoutube: 0 };
+  f.context.submissions[0].player_rows[1].youtubeVideoViews = "";
+  f.context.submissions[0].player_rows[1].youtubeVideoPostCount = "9";
+  f.context.submissions[0].content_skipped = false;
+  delete f.reviews[0].inputs.overrides.bonusVideos;
+  const result = compute(f);
+  assert.equal(result.teams[0].prize.views, 0);
+  assert.equal(result.teams[0].prize.posts, 50000);
+  assert.equal(result.teams[1].prize.views, 50000);
+  assertNotice(result.teams[0], "member:pt0:views", "missing");
+  assert.ok(result.teams[0].prizeMissing.includes(api.incentiveFields.bonusVideos.label));
+  for (const row of f.context.submissions) {
+    row.player_rows[1].youtubeVideoViews = "0";
+    row.player_rows[1].youtubeVideoPostCount = "0";
+  }
+  assert.ok(compute(f).teams.every((team) => team.prize.views === 0 && team.prize.posts === 0));
+});
+
+test("D detects duplicate members across below-A teams too", () => {
+  const f = fixture(2);
+  f.reviews[0].inputs.scores = { aYoutube: 0 };
+  f.context.submissions[1].player_rows[1].playerId = "pt0";
+  assert.throws(() => compute(f), /重复成员/);
+});
+
+test("scoreboard distinguishes A failure from D participation and earned bonuses", () => {
+  const f = fixture();
+  f.reviews[0].inputs.scores = { aYoutube: 0 };
+  f.reviews[0].inputs.overrides.bonusVideos = 1;
+  const html = renderScoreBoard(f);
+  assert.match(html, /A 未达标 · D 单独参评/);
+  assert.match(html, /不受 A 分数、ABC 总分及排名限制/);
+  assert.match(html, /¥340,000/);
+  assert.match(html, /热门视频追加奖励达标作品数<span[^>]*>已计入/);
+  assert.doesNotMatch(html, /不参与加分及奖励/);
 });
 
 test("growth uses previous month per account with strict boundaries and missing baselines", () => {
@@ -1632,7 +1738,7 @@ test("API finalizes missing-data automatic results without reviews, preserving n
   assert.equal(h.writes.length, 2);
   for (const write of h.writes) {
     assert.equal(write.table, "monthly_incentive_results");
-    assert.equal(write.row.rule_version, "2026-07-v5");
+    assert.equal(write.row.rule_version, "2026-07-v6");
     assert.equal(write.options.onConflict, "target_month,source_hash");
     assert.equal(write.options.ignoreDuplicates, true);
     assert.deepEqual(plain(write.row.reviews), []);

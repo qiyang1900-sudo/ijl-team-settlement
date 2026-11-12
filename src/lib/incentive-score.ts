@@ -9,7 +9,7 @@ import type { TeamScoreTeam, TeamScoreSubmission } from "./team-score";
 import type { TiktokMonthlyRow } from "./tiktok-monthly-data";
 import type { LegacyDesignatedSource } from "./legacy-designated";
 
-export const incentiveRuleVersion = "2026-07-v5";
+export const incentiveRuleVersion = "2026-07-v6";
 export const incentiveStartMonth = "2026-07";
 export const incentivePrizeStartMonth = "2026-07";
 export const contentCollectionStartMonth = "2026-10";
@@ -145,7 +145,7 @@ export type IncentiveTeamResult = {
     score: number | null;
     deductions: string[];
   };
-  eligible: boolean;
+  eligible: boolean; // A >= 45 eligibility for B, C and placement prizes only.
   b: {
     x: number;
     youtube: number;
@@ -928,12 +928,12 @@ export function buildIncentiveMonth(
           .map((key) => incentiveFields[key].label)
       : [];
     const prizeMissing: string[] = [];
-    if (eligible && prizeEnabled && values.bonusVideos === null)
+    if (proposed.hasApprovedData && prizeEnabled && values.bonusVideos === null)
       prizeMissing.push(incentiveFields.bonusVideos.label);
     const notices = proposed.notices.filter(
       (notice) => inputs.overrides[notice.field as IncentiveField] == null,
     );
-    if (eligible && prizeEnabled)
+    if (proposed.hasApprovedData && prizeEnabled)
       for (const member of members) {
         for (const field of ["views", "posts"] as const) {
           if (member[field] !== null) continue;
@@ -1058,7 +1058,9 @@ export function buildIncentiveMonth(
     }
   }
   if (prizeEnabled && !prizeIncomplete) {
-    const members = eligible.flatMap((team) =>
+    // D uses every approved team's members, independently of ABC eligibility/rank.
+    const participants = teams.filter((team) => team.hasApprovedData);
+    const members = participants.flatMap((team) =>
       team.members.map((member) => ({ ...member, teamId: team.teamId })),
     );
     if (new Set(members.map((member) => member.id)).size !== members.length)
@@ -1068,14 +1070,14 @@ export function buildIncentiveMonth(
       const winners =
         max > 0 ? members.filter((member) => member[field] === max) : [];
       for (const winner of winners) {
-        const team = eligible.find((team) => team.teamId === winner.teamId)!;
+        const team = participants.find((team) => team.teamId === winner.teamId)!;
         team.prize[field] += Math.floor(50000 / winners.length);
         team.prize.winners.push(
           `${winner.name} · YT ${field === "views" ? "播放量" : "投稿数"}第一 · ¥${Math.floor(50000 / winners.length).toLocaleString("ja-JP")}`,
         );
       }
     }
-    const popular = eligible.filter(
+    const popular = participants.filter(
       (team) => (team.values.bonusVideos ?? 0) > 0,
     );
     for (const team of popular)

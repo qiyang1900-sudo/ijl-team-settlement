@@ -262,7 +262,7 @@ export default function IncentiveScoreBoard({
               {sorted.map((team) => (
                 <tr key={team.teamId} className="border-b border-slate-800">
                   <td className="px-3 py-3">
-                    {!team.eligible ? "未达标" : (team.rank ?? "五名外")}
+                    {!team.eligible ? "A 未达标" : (team.rank ?? "五名外")}
                   </td>
                   <th className="px-3 py-3">{team.shortName}</th>
                   <td className="px-3 py-3">{number(team.a.score)}</td>
@@ -622,7 +622,8 @@ function sourceStatus(team: IncentiveTeamResult, key: IncentiveField) {
   if (value === null) return "待补充 · 本次不计入";
   const field = incentiveFields[key];
   if ("target" in field) return value >= field.target ? "已达标" : "未达标";
-  if (!team.eligible) return "A 未达标 · 不参与加分及奖励";
+  if (field.group !== "D" && !team.eligible)
+    return "A 未达标 · 不参与 B/C 加分";
   if (rankingFields.some((field) => field === key)) {
     const rank = team.b.ranks[key as (typeof rankingFields)[number]];
     return rank != null && rank <= 5 ? "已达标" : "未达标 · 0 分";
@@ -712,7 +713,7 @@ function TeamCard({
             : team.eligible
               ? "A 达标 · " +
                 (team.rank == null ? "五名外" : "第 " + team.rank + " 名")
-              : "未达标 / " + number(team.a.score ?? 0) + "分"}
+              : "A 未达标 · D 单独参评"}
         </span>
         <span className="text-slate-300">
           奖金合计 {team.hasApprovedData ? yen(team.prize.total) : "—"}
@@ -781,7 +782,7 @@ function TeamCard({
                     ))}
                   </dl>
                   <p className="mt-3 text-xs text-slate-400">
-                    D 仅限选手／教练，官方账号不参与；奖金不计入 A＋B＋C。
+                    D 仅需当月月数据审核通过，不受 A 分数、ABC 总分及排名限制。仅选手／教练参与，官方账号不参与；奖金不计入 A＋B＋C。
                   </p>
                 </>
               )}
@@ -1263,7 +1264,7 @@ function ManualReviewForm({
         <section className="border-t border-slate-700 pt-4">
           <h4 className="text-sm font-semibold">D · 额外奖励依据</h4>
           <p className="mt-2 text-xs text-slate-400">
-            仅选手／教练参与，官方账号不计入；奖金按规则自动分配。
+            当月月数据审核通过的选手／教练均可参与，不受 A 分数及排名限制；官方账号不计入，奖金按规则自动分配。
           </p>
           <div className="mt-3 max-w-sm">
             <NumericCorrection
