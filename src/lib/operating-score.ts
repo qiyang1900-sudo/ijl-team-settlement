@@ -5,7 +5,7 @@ import type { TiktokMonthlyRow } from "./tiktok-monthly-data";
 import type { TiktokImportIssue } from "./tiktok-sheet-import";
 
 export const operatingStartMonth = "2026-10";
-export const operatingRuleVersion = "2026-10-v1";
+export const operatingRuleVersion = "2026-10-v2";
 export const operatingGroups = {
   players: { label: "① 選手管理", max: 15 },
   team: { label: "② チーム管理", max: 25 },
@@ -22,7 +22,7 @@ export const operatingFields = {
   appearances: { label: "選手のイベント出演", group: "team", min: 0, max: 5 },
   officialVideos: { label: "公式動画 2本", group: "youtube", min: 0, max: 10 },
   memberVideos: { label: "選手・コーチ長尺 4本（指定2本）", group: "youtube", min: 0, max: 10 },
-  memberShorts: { label: "選手・コーチ Shorts 6本（指定4本）", group: "youtube", min: 0, max: 10 },
+  memberShorts: { label: "選手・コーチ Shorts 8本（指定4本＋その他4本）", group: "youtube", min: 0, max: 10 },
   streams: { label: "全隊 YouTube配信 20回", group: "youtube", min: -10, max: 0 },
   ttAccounts: { label: "TikTokアカウント開設", group: "tiktok", min: 0, max: 5 },
   ttPosts: { label: "TikTok投稿 5本", group: "tiktok", min: 0, max: 10 },
@@ -124,9 +124,9 @@ export function calculateOperatingTeam(team: OperatingTeam, context: OperatingCo
     if (work.platform === "youtube_short") short++;
   }
   const mv = total(members, "youtubeVideoPostCount"), ms = total(members, "youtubeShortPostCount");
-  const longOK = mv.value >= 4 && long >= 2, shortOK = ms.value >= 6 && short >= 4;
+  const longOK = mv.value >= 4 && long >= 2, shortOK = ms.value >= 8 && short >= 4;
   add("memberVideos", longOK ? 10 : 0, `选手＋教练长视频 ${mv.value}/4 条，其中指定视频 ${long}/2 条；${longOK ? "达标" : [mv.value < 4 ? "总数不足4条" : "", long < 2 ? "指定视频不足2条" : ""].filter(Boolean).join("、") + "，本项扣10分"}。指定视频包含在总数内，不重复相加。`, false, mv.missing);
-  add("memberShorts", shortOK ? 10 : 0, `选手＋教练 YT Shorts ${ms.value}/6 条，其中指定 Shorts ${short}/4 条；${shortOK ? "达标" : [ms.value < 6 ? "总数不足6条" : "", short < 4 ? "指定Shorts不足4条" : ""].filter(Boolean).join("、") + "，本项扣10分"}。不计官方账号或TT。`, false, ms.missing);
+  add("memberShorts", shortOK ? 10 : 0, `选手＋教练 YT Shorts ${ms.value}/8 条，其中指定 Shorts ${short}/4 条（要求指定内容4条＋其他内容4条）；${shortOK ? "达标" : [ms.value < 8 ? "总数不足8条" : "", short < 4 ? "指定Shorts不足4条" : ""].filter(Boolean).join("、") + "，本项扣10分"}。指定内容包含在总数内，不重复相加。不计官方账号或TT。`, false, ms.missing);
   const streams = total(all, "youtubeStreamCount");
   add("streams", streams.value >= 20 ? 0 : -10, `全队 YouTube 直播 ${streams.value}/20 次${streams.value < 20 ? "，扣10分" : "，不扣分"}；默认已保留存档。YouTube板块最低0分。`, false, streams.missing);
   add("ttAccounts", 5, "默认已开设TikTok账号；账号覆盖情况由人工复核。", true);
