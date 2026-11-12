@@ -49,6 +49,7 @@ function harness(options = {}) {
     return query;
   } };
   const mocks = {
+    "@/lib/admin-auth": { getAdminSession: async () => options.adminSession || null },
     "@/lib/supabase-server": { createSupabaseServerClient: () => supabase },
     "@/lib/settlement-report-template": { SETTLEMENT_REPORT_TEMPLATE_BASE64: "" },
     "@/lib/xlsx-template": {
@@ -70,7 +71,7 @@ function harness(options = {}) {
     vm.runInNewContext(code, {
       exports, Buffer, Uint8Array, URL, Response, Request, Intl, Date: Clock,
       console: { error() {} },
-      process: { env: { NEXT_PUBLIC_SUPABASE_URL: "test", NEXT_PUBLIC_SUPABASE_ANON_KEY: "test", SUPABASE_SERVICE_ROLE_KEY: "test" } },
+      process: { env: { NEXT_PUBLIC_SUPABASE_URL: "test", NEXT_PUBLIC_SUPABASE_ANON_KEY: "test", SUPABASE_SERVICE_ROLE_KEY: "test", ...options.env } },
       fetch: async (url, init) => { requests.push({ url, ...init }); return { ok: true }; },
       require(name) {
         if (name in mocks) return mocks[name];
@@ -190,6 +191,27 @@ test("Tokyo weekend skips both auto entrypoints while manual reminders remain av
   const result = await h.load("src/app/api/cron/discord-reminders/route.ts").GET(new Request("https://example.invalid/api/cron/discord-reminders?dryRun=1"));
   assert.equal(result.status, 200);
   assert.equal((await result.json()).skipReason, undefined);
+});
+
+test("cron secret preserves same-origin authenticated admin nudges without exposing the secret", async () => {
+  for (const [method, source, origin, adminSession, authorization, expected] of [
+    ["POST", "admin_reviews", "https://example.invalid", { role: "admin" }, null, 200],
+    ["POST", "admin_reviews", "https://example.invalid", null, null, 401],
+    ["POST", "admin_reviews", "https://other.invalid", { role: "admin" }, null, 401],
+    ["GET", "admin_reviews", "https://example.invalid", { role: "admin" }, null, 401],
+    ["POST", "scheduled", "https://example.invalid", { role: "admin" }, null, 401],
+    ["GET", "scheduled", null, null, "Bearer cron-test", 200],
+    ["GET", "scheduled", null, null, "Bearer wrong", 401],
+  ]) {
+    const h = harness({ now: "2026-09-05T01:00:00Z", env: { CRON_SECRET: "cron-test" }, adminSession });
+    const headers = {};
+    if (origin) headers.origin = origin;
+    if (authorization) headers.authorization = authorization;
+    const request = new Request(`https://example.invalid/api/cron/discord-reminders?source=${source}`, { method, headers });
+    const result = await h.load("src/app/api/cron/discord-reminders/route.ts")[method](request);
+    assert.equal(result.status, expected);
+    assert.equal(h.requests.length, 0);
+  }
 });
 
 test("project assignment query failure stops the entire automatic batch", async () => {

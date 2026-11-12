@@ -8,6 +8,32 @@ import { loadTiktokDataset } from "./tiktok-dataset";
 
 export const BACKUP_FOLDER_ID = "1ZMnCooqyGDerJ0uwdCkj47GMChU13odx";
 export const BACKUP_REDIRECT = "https://team-settlement-system.vercel.app/api/admin/backups/oauth";
+export const BACKUP_TABLES = [
+  "teams", "league_players", "monthly_player_assignments", "monthly_data_settings",
+  "monthly_data_submissions", "team_monthly_scores", "team_incentive_reviews",
+  "monthly_incentive_results", "team_incentive_designated_sources", "team_operating_reviews",
+  "team_operating_review_history", "submission_change_history",
+] as const;
+
+export function encodeMonthlyBackup(snapshot: Record<string, unknown>) {
+  const tiktok = snapshot.tiktok as { rows?: unknown[] } | undefined;
+  if (snapshot.format !== "ijl-monthly-backup-v2" || !snapshot.captured_at ||
+      BACKUP_TABLES.some(table => !Array.isArray(snapshot[table])) || !Array.isArray(tiktok?.rows)) {
+    throw new Error("备份范围不完整，请先安装 monthly-drive-backup-v2.sql；本次未生成不完整备份。");
+  }
+  const counts = Object.fromEntries(BACKUP_TABLES.map(table => [table, (snapshot[table] as unknown[]).length]));
+  const manifest = { table_counts: counts, tiktok_rows: tiktok.rows.length, original_images_included: false };
+  const bytes = gzipSync(Buffer.from(JSON.stringify({ ...snapshot, manifest })), { level: 9 });
+  return { bytes, manifest, md5: createHash("md5").update(bytes).digest("hex") };
+}
+
+export async function createMonthlyBackup() {
+  const db = backupDatabase();
+  const tiktok = await loadTiktokDataset(db);
+  const { data, error } = await db.rpc("monthly_backup_snapshot");
+  if (error || !data) throw new Error("备份快照读取失败，请检查备份数据库安装情况。");
+  return encodeMonthlyBackup({ ...data, tiktok: { captured_at: new Date().toISOString(), ...tiktok } });
+}
 export function backupDatabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -63,7 +89,6 @@ export function tokyoBackupDate(now = new Date()) {
 }
 export async function runMonthlyDriveBackup(scheduled: boolean) {
   const date = tokyoBackupDate();
-  if (scheduled && !date.endsWith("-01")) return { skipped: true, reason: "not_month_start" };
   const db = backupDatabase();
   if (scheduled) {
     const config = await db.from("monthly_drive_backup_config").select("enabled").eq("id", true).maybeSingle();
@@ -73,7 +98,7 @@ export async function runMonthlyDriveBackup(scheduled: boolean) {
     if (previous.error) throw new Error("备份记录读取失败。");
     if (previous.data?.status === "completed") return { alreadyCompleted: true, fileId: previous.data.file_id };
   }
-  const token = await backupAccessToken();
+  const token = await backupAccessToken(scheduled);
   await verifyBackupFolder(token);
   const runKey = scheduled ? `monthly-${date.slice(0,7)}` : `manual-${randomUUID()}`;
   const ids = await driveRequest(token, "https://www.googleapis.com/drive/v3/files/generateIds?count=1&space=drive&type=files");
@@ -84,8 +109,7 @@ export async function runMonthlyDriveBackup(scheduled: boolean) {
   if (error || !run) throw new Error(error?.message || "备份快照创建失败。");
   if (run.status === "completed") return { alreadyCompleted: true, fileId: run.file_id };
   try {
-    const bytes = gzipSync(Buffer.from(JSON.stringify(run.snapshot)), { level: 9 });
-    const md5 = createHash("md5").update(bytes).digest("hex");
+    const { bytes, md5 } = encodeMonthlyBackup(run.snapshot);
     const fileUrl = `https://www.googleapis.com/drive/v3/files/${run.file_id}?fields=id,parents,trashed,md5Checksum,appProperties`;
     let result = await driveRequest(token, fileUrl);
     if (result.status === 404) {

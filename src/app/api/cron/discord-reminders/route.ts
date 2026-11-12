@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getAdminSession } from "@/lib/admin-auth";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import {
   buildMonthlyReminderSettings,
@@ -68,7 +69,7 @@ async function handleDiscordReminders(request: Request) {
 }
 
 async function runDiscordReminders(request: Request) {
-  if (!isAuthorized(request)) {
+  if (!(await isAuthorized(request))) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -399,7 +400,7 @@ function getReminderSchedule(
   return null;
 }
 
-function isAuthorized(request: Request) {
+async function isAuthorized(request: Request) {
   const secret = process.env.CRON_SECRET;
 
   if (!secret) {
@@ -408,10 +409,16 @@ function isAuthorized(request: Request) {
 
   const url = new URL(request.url);
 
-  return (
+  if (
     request.headers.get("authorization") === `Bearer ${secret}` ||
     url.searchParams.get("secret") === secret
-  );
+  ) return true;
+
+  // The admin page uses its session, never a browser-visible cron secret.
+  return request.method === "POST" &&
+    url.searchParams.get("source") === "admin_reviews" &&
+    request.headers.get("origin") === url.origin &&
+    !!(await getAdminSession());
 }
 
 function isDryRunRequest(url: URL) {
