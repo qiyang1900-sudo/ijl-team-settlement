@@ -135,6 +135,78 @@ test("sync updates instead of appending, preserves skipped historical data and z
   assert.equal(second.rows.length, 9);
   assert.equal(second.rows.find((r) => r.accountName === "old-player").postCount, 9);
 });
+test("TT monthly likes are read by header from October, including zero and normalized numbers", async () => {
+  const bytes = await fixture((sheet) => {
+    sheet.getCell("I1").value = "コメント数";
+    sheet.getCell("K1").value = "いいね数";
+    for (let row = 2; row <= 9; row++) {
+      sheet.getCell(`I${row}`).value = 99999;
+      sheet.getCell(`K${row}`).value = 10;
+    }
+    sheet.getCell("K2").value = "１,２３４";
+    sheet.getCell("K3").value = 0;
+    sheet.getCell("K4").value = { formula: "SUM(K5:K6)", result: 20 };
+  }, "26年10月");
+  const imported = await api.parseTiktokWorkbook(bytes, "2026-10");
+  assert.equal(imported.rows[0].likeCount, 1234);
+  assert.equal(imported.rows[1].likeCount, 0);
+  assert.equal(imported.rows[2].likeCount, 20);
+  assert.equal(imported.issues.length, 0);
+});
+test("new TT like columns do not backfill or alter September and older rows", async () => {
+  for (const title of ["26年7月", "26年8月", "26年09月"]) {
+    const make = async (likes) => api.parseTiktokWorkbook(await fixture((sheet, workbook) => {
+      workbook.removeWorksheet(workbook.getWorksheet("26年9月").id);
+      if (likes) {
+        sheet.getCell("J1").value = "いいね数";
+        sheet.getCell("J2").value = 987654;
+        sheet.getCell("J3").value = { error: "#N/A" };
+      }
+    }, title), "2026-10");
+    const before = await make(false);
+    const after = await make(true);
+    assert.equal(JSON.stringify(after), JSON.stringify(before));
+    assert.ok(after.rows.every((row) => !Object.hasOwn(row, "likeCount")));
+    const merged = api.mergeTiktokImport(before.rows, after);
+    assert.equal(merged.updated, 0);
+    assert.equal(JSON.stringify(merged.rows), JSON.stringify(api.mergeTiktokImport(before.rows, before).rows));
+  }
+});
+test("missing or invalid TT likes only flag that metric and keep other current data", async () => {
+  const withoutHeader = await api.parseTiktokWorkbook(await fixture(() => {}, "26年10月"), "2026-10");
+  assert.equal(withoutHeader.rows.length, 8);
+  assert.ok(withoutHeader.rows.every((row) => row.likeCount === null));
+  assert.ok(withoutHeader.issues.every((issue) => issue.metric === "likeCount"));
+  const imported = await api.parseTiktokWorkbook(await fixture((sheet) => {
+    sheet.getCell("J1").value = "いいね数";
+    const values = [null, { error: "#N/A" }, -1, 1.5, "-", "bad", 0, 12];
+    values.forEach((value, i) => { sheet.getCell(`J${i + 2}`).value = value; });
+  }, "26年10月"), "2026-10");
+  assert.equal(imported.rows.length, 8);
+  assert.equal(imported.issues.length, 6);
+  assert.ok(imported.rows.slice(0, 6).every((row) => row.likeCount === null && row.videoViews === 100));
+  assert.equal(imported.rows[6].likeCount, 0);
+});
+test("like-only changes count as updates, preserve invalid previous values and remain idempotent", async () => {
+  const valid = await api.parseTiktokWorkbook(await fixture((sheet) => {
+    sheet.getCell("J1").value = "いいね数";
+    for (let i = 2; i <= 9; i++) sheet.getCell(`J${i}`).value = 20;
+  }, "26年10月"), "2026-10");
+  const old = valid.rows.map((row) => {
+    const previous = { ...row };
+    delete previous.likeCount;
+    return previous;
+  });
+  const first = api.mergeTiktokImport(old, valid);
+  assert.equal(first.updated, 8);
+  assert.equal(api.mergeTiktokImport(first.rows, valid).updated, 0);
+  const changed = { ...valid, rows: valid.rows.map((row, index) => ({ ...row, likeCount: index === 0 ? 0 : index === 1 ? null : 20 })) };
+  const merged = api.mergeTiktokImport(first.rows, changed);
+  assert.equal(merged.updated, 1);
+  assert.equal(merged.rows.find((row) => row.teamShortName === "AWG").likeCount, 0);
+  assert.equal(merged.rows.find((row) => row.teamShortName === "AXIZ").likeCount, 20);
+  assert.equal(first.rows.find((row) => row.teamShortName === "AWG").likeCount, 20);
+});
 test("league includes synced TT-only months, scoring uses synced TT without mutating review overrides", async () => {
   const imported = await api.parseTiktokWorkbook(await fixture(), "2026-09");
   const league = summaries.buildLeaguePlatformSummaries([], imported.rows, "2026-09");
@@ -185,6 +257,32 @@ test("a full sync is atomic, backed up, idempotent and releases the lock", async
   assert.equal(second.added, 0);
   assert.equal(second.updated, 0);
   assert.equal(second.unchanged, 8);
+});
+test("October likes survive workbook sync and storage loading into B without touching historical data", async () => {
+  const store = mockStorage();
+  const oldRows = (await api.parseTiktokWorkbook(await fixture(), "2026-09")).rows;
+  store.objects.set("current.json", JSON.stringify({ version: 1, syncedAt: "2026-09-30T00:00:00Z", rows: oldRows }));
+  const bytes = await fixture((sheet) => {
+    sheet.insertRow(3, ["", "https://www.tiktok.com/@lizdesuyo", 2000, 0, 3, 0, 0, 100]);
+    sheet.getCell("J1").value = "いいね数";
+    for (let i = 2; i <= 10; i++) sheet.getCell(`J${i}`).value = i === 3 ? 200 : 99999;
+  }, "26年10月");
+  await sync.syncTiktokSheet(store.client, async () => new Response(bytes, { headers: { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" } }));
+  const dataset = await load("src/lib/tiktok-dataset.ts").loadTiktokDataset(store.client);
+  const afterOldRows = dataset.rows.filter((row) => row.month === "2026-06");
+  assert.equal(JSON.stringify(afterOldRows), JSON.stringify(api.mergeTiktokImport(oldRows, { rows: [] }).rows));
+  const monthly = load("src/lib/monthly-data.ts");
+  const incentive = load("src/lib/incentive-score.ts");
+  const result = incentive.buildIncentiveMonth({
+    month: "2026-10", teams: [{ id: "awg", short_name: "AWG" }],
+    submissions: [{ team_id: "awg", target_month: "2026-10", status: "approved", content_skipped: true,
+      player_rows: [{ ...monthly.emptyMonthlyPlayerRow(0), id: "aez", playerId: "aez", playerName: "Aez", playerRole: "選手", youtubeLikeCount: "100" }] }],
+    tiktokRows: dataset.rows, tiktokIssues: dataset.snapshot.issues,
+  }, [{ team_id: "awg", target_month: "2026-10", status: "draft", source_hash: "fixture", inputs: {
+    overrides: {}, individuals: {}, scores: { aYoutube: 30, aShorts: 15, aX: 15 }, note: "Test fixture A" } }]);
+  assert.equal(result.teams[0].proposed.shortLikes, 300);
+  assert.equal(result.teams[0].b.ranks.shortLikes, 1);
+  assert.equal(result.teams[0].b.shorts, 3);
 });
 test("bad source, concurrent clicks and failed write preserve the current dataset", async () => {
   const store = mockStorage({ failAt: "current.json" });

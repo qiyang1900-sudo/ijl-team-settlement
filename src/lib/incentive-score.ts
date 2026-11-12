@@ -91,7 +91,6 @@ export type IncentiveSubmission = TeamScoreSubmission & {
   club_activity_link?: string | null;
 };
 export type IncentiveTiktokRow = TiktokMonthlyRow & {
-  likeCount?: number | null;
   repostCount?: number | null;
 };
 export type IncentiveContext = {
@@ -99,7 +98,7 @@ export type IncentiveContext = {
   teams: TeamScoreTeam[];
   submissions: IncentiveSubmission[];
   tiktokRows: IncentiveTiktokRow[];
-  tiktokIssues?: Array<{ month: string; team: string; account?: string }>;
+  tiktokIssues?: Array<{ month: string; team: string; account?: string; metric?: "likeCount" }>;
   designatedSources?: LegacyDesignatedSource[];
 };
 export type IndividualOverride = {
@@ -344,6 +343,7 @@ export function proposeIncentiveValues(
       row.month === previousIncentiveMonth(context.month) &&
       !context.tiktokIssues?.some(
         (issue) =>
+          !issue.metric &&
           issue.month === row.month &&
           teamKey(issue.team) === teamKey(row.teamShortName),
       ),
@@ -353,15 +353,20 @@ export function proposeIncentiveValues(
       issue.month === context.month &&
       teamKey(issue.team) === teamKey(team.short_name),
   );
-  const hasTTIssue = ttIssues.length > 0;
-  const ttMetric = (field: keyof IncentiveTiktokRow, onlyMembers = false) =>
-    hasTTIssue
-      ? null
-      : checkedSum(
-          tt
-            .filter((row) => !onlyMembers || !row.isOfficial)
-            .map((row) => incentiveNumber(row[field])),
-        );
+  const hasTTIssue = ttIssues.some((issue) => !issue.metric);
+  const ttMetric = (field: keyof IncentiveTiktokRow, onlyMembers = false) => {
+    const metricIssue = ttIssues.some((issue) => {
+      if (issue.metric !== field) return false;
+      const account = teamKey(issue.account);
+      if (!onlyMembers || !account) return true;
+      return !tt.some((row) => row.isOfficial &&
+        [teamKey(row.accountName), teamKey(row.link)].includes(account));
+    });
+    if (hasTTIssue || metricIssue) return null;
+    return checkedSum(tt
+      .filter((row) => !onlyMembers || !row.isOfficial)
+      .map((row) => incentiveNumber(row[field])));
+  };
   const details: string[] = [];
   const notices: IncentiveNotice[] = [];
   // A is a minimum-count test. Keep B's metric() strict so incomplete totals
@@ -570,12 +575,12 @@ export function proposeIncentiveValues(
   const combinedShortPosts = checkedSum([ytShortPosts, ttShortPosts]);
   // A needs only a proven minimum, unlike B's complete totals. Do not reuse a
   // flagged account's preserved old row; unscoped legacy issues exclude all TT.
-  const validTTRows = ttIssues.some((issue) => !issue.account?.trim())
+  const validTTRows = ttIssues.some((issue) => !issue.metric && !issue.account?.trim())
     ? []
     : tt.filter((row) =>
         !ttIssues.some((issue) =>
-          [teamKey(row.accountName), teamKey(row.link)].includes(teamKey(issue.account)),
-        ),
+          !issue.metric &&
+          [teamKey(row.accountName), teamKey(row.link)].includes(teamKey(issue.account))),
       );
   const knownTTPosts = checkedSum(
     validTTRows
@@ -586,6 +591,10 @@ export function proposeIncentiveValues(
   const knownShortPosts = checkedSum([knownYTPosts ?? 0, knownTTPosts ?? 0]);
   const ytShortReposts = metric(all, "youtubeShortRepostCount");
   const ttShortReposts = ttMetric("repostCount");
+  const ytShortLikes = metric(members, "youtubeLikeCount");
+  const ttShortLikes = context.month >= contentCollectionStartMonth
+    ? ttMetric("likeCount", true)
+    : null;
   const values: IncentiveValues = {
     officialVideos: minimumMetric(official, "youtubeVideoPostCount", 2, "官方普通视频"),
     designatedLong: knownDesignated ? long : null,
@@ -606,10 +615,7 @@ export function proposeIncentiveValues(
       metric(members, "youtubeShortViews"),
       ttMetric("videoViews", true),
     ]),
-    shortLikes: checkedSum([
-      metric(members, "youtubeLikeCount"),
-      ttMetric("likeCount", true),
-    ]),
+    shortLikes: checkedSum([ytShortLikes, ttShortLikes]),
     shortReposts: checkedSum([ytShortReposts, ttShortReposts]),
     xGrowth: accountGrowth(
       all,
@@ -641,6 +647,10 @@ export function proposeIncentiveValues(
   if (combinedShortPosts === null && values.shortPosts !== null)
     details.push(
       `Shorts＋TT 的完整合计尚未齐全；已确认 YT Shorts ${knownYTPosts ?? "未填完整"} 条、TT ${knownTTPosts ?? "未确认"} 条，已确认合计至少 ${values.shortPosts} 条，满足 5 条基准。异常账号及缺失值未计入，不作为完整排名数据。`,
+    );
+  if (context.month >= contentCollectionStartMonth && submission)
+    details.push(
+      `选手＋教练月点赞数：YT Shorts ${ytShortLikes ?? "未填完整"}；TT ${ttShortLikes ?? "待补充"}；合计 ${values.shortLikes ?? "本次不计入排名"}。官方账号不参与此项。`,
     );
   if (context.month >= contentCollectionStartMonth && submission)
     details.push(
