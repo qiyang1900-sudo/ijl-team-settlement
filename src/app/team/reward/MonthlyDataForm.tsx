@@ -101,7 +101,11 @@ const youtubeFields: Array<{
     label: "視聴回数（ショート）",
     shortLabel: "Short再生",
   },
-  { key: "youtubeLikeCount", label: "いいね数", shortLabel: "いいね" },
+  {
+    key: "youtubeLikeCount",
+    label: "いいね数（YT Shortsのみ・月間）",
+    shortLabel: "Shortsいいね数",
+  },
   { key: "youtubeShortRepostCount", label: "共有数（YT Shorts・月間）", shortLabel: "Short共有数", required: true },
   { key: "youtubeStreamCount", label: "配信回数", shortLabel: "配信回数" },
   { key: "youtubeStreamViews", label: "視聴回数（配信）", shortLabel: "配信再生" },

@@ -148,6 +148,24 @@ test("Shorts repost column starts in October, is required for every account and 
   }
 });
 
+test("YouTube likes explicitly label Shorts for official and player accounts without changing stored values", () => {
+  const h = harness({
+    initialOfficialRow: { ...official, youtubeLikeCount: "2137" },
+    initialPlayers: [{ ...player, youtubeLikeCount: "416" }],
+  });
+  const section = h.nodes().find((node) => node.type?.name === "MetricSection" && node.props.kind === "youtube");
+  const field = section.props.fields.find((field) => field.key === "youtubeLikeCount");
+  assert.equal(field.label, "いいね数（YT Shortsのみ・月間）");
+  assert.equal(field.shortLabel, "Shortsいいね数");
+  const rendered = nodes(section.type(section.props));
+  const header = rendered.find((node) => node.type === "th" && node.props.title === field.label);
+  assert.ok(header);
+  assert.ok(header.props.children.includes(field.shortLabel));
+  const inputs = rendered.filter((node) => node.type === "input" && node.props["aria-label"]?.includes(field.label));
+  assert.equal(inputs.length, 2);
+  assert.deepEqual(inputs.map((input) => input.props.value), ["2137", "416"]);
+});
+
 test("current local edits restore their links but keep server-owned images", () => {
   const h = harness({ draft: { monthlyRevision: "month-v2", salaryRevision: "salary-v1", activities: [{ ...activity, link: "https://example.test/unsent-edit", imageUrl: "" }] } });
   const restored = h.nodes().find((node) => node.type?.name === "ClubActivitySection").props.activities[0];
