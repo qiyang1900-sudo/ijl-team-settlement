@@ -1,13 +1,22 @@
+import type { Metadata } from "next";
+import LegalLinks from "@/components/LegalLinks";
+import { legalApplicationName } from "@/lib/legal-documents";
+
+export const metadata: Metadata = {
+  title: `${legalApplicationName} | IJL 戦隊管理システム`,
+  description: "IJL 戦隊の資料提出・審査・結案報告・管理者バックアップ。",
+};
+
 export default function Home() {
   return (
     <main className="min-h-screen bg-[#f6f7fb] text-slate-950">
       <div className="mx-auto max-w-5xl px-6 py-16">
         <div className="mb-12 text-center">
-          <p className="text-sm font-semibold tracking-[0.18em] text-slate-500">
-            TEAM SETTLEMENT SYSTEM
+          <p className="text-sm font-semibold text-slate-500">
+            {legalApplicationName}
           </p>
           <h1 className="mt-3 text-4xl font-bold">
-            戦隊精算・結案報告提出システム
+            IJL 戦隊精算・結案報告提出システム
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-slate-600">
             管理者入口と戦隊入口を分けて、精算資料・結果報告・審査進捗を管理します。
@@ -41,6 +50,7 @@ export default function Home() {
             </p>
           </a>
         </div>
+        <footer className="mt-10 border-t border-slate-200 pt-6"><LegalLinks className="justify-center text-slate-600" /></footer>
       </div>
     </main>
   );

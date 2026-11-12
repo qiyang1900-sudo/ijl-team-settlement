@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import LegalLinks from "@/components/LegalLinks";
 import { loadGoogleDriveLibraries, requestGoogleDriveToken, type GoogleDriveConfig } from "@/lib/google-drive-browser";
 import { exportReportToDrive } from "@/lib/google-drive-export-client";
 import { prepareDriveBatch, runDriveBatch, type BatchExportRow, type DriveExportTarget } from "@/lib/project-drive-batch";
@@ -112,6 +113,7 @@ export default function ProjectDriveExport({ projectId, approvedCount, config }:
           </button> : null}
         </div>
       </div>
+      <LegalLinks className="mt-3 text-slate-400" />
       {error ? <p role="alert" className="mt-3 break-words text-sm text-red-300">{error}</p> : null}
       {notice ? <p role="status" className="mt-3 text-sm text-slate-300">{notice}</p> : null}
       {rows.length > 0 ? <div className="mt-4">

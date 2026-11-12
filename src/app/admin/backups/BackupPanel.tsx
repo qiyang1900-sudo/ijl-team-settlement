@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import LegalLinks from "@/components/LegalLinks";
 import { useEffect, useState } from "react";
 import { CloudUpload, Download, Link2, Pause, FolderOpen } from "lucide-react";
 import { authorizeReportFolder, loadGoogleDriveLibraries } from "@/lib/google-drive-browser";
@@ -27,6 +28,7 @@ export default function BackupPanel({ authorization }: { authorization?: string 
     <Link href="/admin" className="text-sm text-slate-600">返回管理员后台</Link>
     <div className="mt-6 flex flex-wrap items-center justify-between gap-4"><h1 className="text-2xl font-bold">月数据备份</h1><span className="text-sm">{data?.config?.enabled ? "自动备份已启用" : "自动备份未启用"}</span></div>
     <dl className="mt-6 grid gap-4 border-y border-slate-200 py-5 text-sm sm:grid-cols-2"><div><dt className="text-slate-500">执行时间</dt><dd className="mt-1">日本时间每月 1 日凌晨 03:00；未成功时次日补跑，首次启用后补齐当月备份。</dd></div><div><dt className="text-slate-500">目标文件夹</dt><dd className="mt-1"><a href="https://drive.google.com/drive/folders/1ZMnCooqyGDerJ0uwdCkj47GMChU13odx" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-sky-700"><FolderOpen size={16}/>战队备份数据</a></dd></div><div className="sm:col-span-2"><dt className="text-slate-500">备份范围</dt><dd className="mt-1">全部月份的月数据、工资、指定视频、热门作品、活动、名册、TT 同步数据、内容激励与運営方針评分审核记录，以及月数据修改历史。包含附件链接，不包含图片文件本体。每次保留独立版本。</dd></div></dl>
+    <LegalLinks className="mt-4 text-slate-600" />
     {data?.missing?.length ? <p role="alert" className="mt-4 text-sm text-amber-800">尚未配置：{data.missing.join("、")}</p> : null}
     {data?.config?.last_error && <p role="alert" className="mt-4 text-sm text-red-700">上次自动备份失败：{data.config.last_error}</p>}
     {error && <p role="alert" className="mt-4 text-sm text-red-700">{error}</p>}{message && <p role="status" className="mt-4 text-sm text-emerald-700">{message}</p>}
