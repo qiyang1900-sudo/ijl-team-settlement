@@ -82,10 +82,14 @@ export default function AdminPage() {
             href="/admin/team-scores"
             className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-orange-300 hover:shadow-md"
           >
-            <h2 className="text-xl font-semibold">战队积分计算</h2>
+            <h2 className="text-xl font-semibold">内容激励评分</h2>
             <p className="mt-2 text-sm text-slate-600">
-              根据审核通过的月数据计算战队分数和扣分项。
+              コンテンツ奨励 · A／B／C／D 与月度奖金。
             </p>
+          </Link>
+          <Link href="/admin/operating-scores" className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm transition hover:border-emerald-400">
+            <h2 className="text-xl font-semibold">運営方針评分</h2>
+            <p className="mt-2 text-sm text-slate-600">チーム運営・コンテンツ活動の評価基準 · 100 点</p>
           </Link>
         </div>
       </div>

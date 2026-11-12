@@ -733,16 +733,18 @@ function TeamCard({
             className="shrink-0 transition-transform group-open:rotate-180"
           />
         </summary>
-        <div className="space-y-5 px-4 pb-4">
+        <div className="max-h-[65vh] space-y-3 overflow-y-auto overscroll-contain px-4 pb-4">
           {team.hasApprovedData && <SourceNotices team={team} />}
           {groupKeys.map((group) => (
-            <section
+            <details
               key={group}
-              className="min-w-0 border-t border-slate-700 pt-3"
+              className="group/block min-w-0 border-t border-slate-700"
             >
-              <h3 className="text-sm font-semibold">
-                {group} · {groups[group]}
-              </h3>
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-3 text-sm font-semibold">
+                <span>{group} · {groups[group]}</span>
+                <span className="ml-auto shrink-0 tabular-nums">{!team.hasApprovedData ? "—" : group === "D" ? yen(dPrize) : number(group === "A" ? team.a.score : group === "B" ? team.b.score : team.c.score) + " 分"}</span>
+                <ChevronDown size={16} className="shrink-0 transition-transform group-open/block:rotate-180" />
+              </summary>
               {group !== "D" ? (
                 <dl className="mt-3 grid grid-cols-2 gap-3 text-xs">
                   {scoreKeys
@@ -852,7 +854,7 @@ function TeamCard({
                   ))}
                 </>
               )}
-            </section>
+            </details>
           ))}
           {review?.inputs.note && (
             <div className="border-t border-slate-700 pt-3 text-sm">
