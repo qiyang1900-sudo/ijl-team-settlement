@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import LegalLinks from "@/components/LegalLinks";
 import {
   loadGoogleDriveLibraries,
   requestGoogleDriveToken, type GoogleDriveConfig,
@@ -68,6 +69,7 @@ export default function ReportExportButtons({
           {busy || (configured && !ready && !error ? "正在加载 Google…" : "导出到 Google 网盘")}
         </button>
       </div>
+      <LegalLinks className="mt-3 text-slate-400" />
       {error ? <p role="alert" className="mt-3 max-w-3xl break-words text-sm text-red-300">{error}</p> : null}
       {notice ? <p role="status" className="mt-3 text-sm text-slate-300">{notice}</p> : null}
       {result ? <div role="status" className="mt-3 max-w-3xl space-y-1 break-words text-sm text-emerald-200">
