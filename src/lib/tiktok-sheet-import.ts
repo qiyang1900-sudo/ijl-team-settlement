@@ -8,7 +8,7 @@ const metrics = {
   followerCount: "粉丝数", streamCount: "配信回数", postCount: "投稿回数",
   streamViews: "配信視聴回数", videoViews: "動画視聴回数",
 } as const;
-export type TiktokImportIssue = { month: string; sheet: string; row: number; team: string; account: string; reason: string };
+export type TiktokImportIssue = { month: string; sheet: string; row: number; team: string; account: string; reason: string; metric?: "likeCount" };
 export type TiktokImport = { rows: TiktokMonthlyRow[]; issues: TiktokImportIssue[]; months: string[]; emptyMonths: string[] };
 
 export function tiktokMonthFromSheet(title: string, previousMonth?: string | null): string | null {
@@ -106,6 +106,8 @@ export async function parseTiktokWorkbook(buffer: Buffer, maxMonth: string): Pro
       throw new Error(`${sheet.name} 缺少 TikTok、粉丝数或投稿/直播列，本次未更新数据。`);
     }
     const nameCol = headers.get("選手名");
+    const collectLikes = month >= "2026-10";
+    const likeCol = headers.get("いいね数");
     const seenTeams = new Set<string>();
     const seenKeys = new Set<string>();
     let team = "";
@@ -131,7 +133,7 @@ export async function parseTiktokWorkbook(buffer: Buffer, maxMonth: string): Pro
       const alias = key ? aliases.get(key) : undefined;
       const explicitName = nameCol ? String(cellValue(source.getCell(nameCol).value)).trim() : "";
       const account = explicitName || alias?.name || key || link || "未填写账号链接";
-      const issue = (reason: string) => issues.push({ month, sheet: sheet.name, row: index, team, account, reason });
+      const issue = (reason: string, metric?: "likeCount") => issues.push({ month, sheet: sheet.name, row: index, team, account, reason, ...(metric ? { metric } : {}) });
       if (!team) throw new Error(`${sheet.name}!${index} 缺少所属战队，本次未更新数据。`);
       if (!key) { issue("账号链接缺失或无法识别，跳过此行；已有数据保留。"); continue; }
       hasAccount = true;
@@ -142,8 +144,12 @@ export async function parseTiktokWorkbook(buffer: Buffer, maxMonth: string): Pro
       const values = Object.fromEntries(Object.entries(metrics).map(([metric, label]) => [metric, parseTiktokCount(source.getCell(headers.get(label)!).value)]));
       const missing = Object.entries(values).filter(([, value]) => value === null).map(([metric]) => metrics[metric as keyof typeof metrics]);
       if (missing.length) { issue(`${missing.join("、")} 含空白、#N/A 或非整数，跳过此行；已有数据保留。`); continue; }
+      const likeCount = collectLikes && likeCol ? parseTiktokCount(source.getCell(likeCol).value) : null;
+      if (collectLikes && likeCount === null) {
+        issue(`${likeCol ? "いいね数含空白、#N/A 或非整数" : "缺少いいね数列"}，本次月点赞未计入排名；其他有效数据正常同步，已有点赞数据保留。`, "likeCount");
+      }
       rows.push({ month, teamShortName: team, accountName: account, isOfficial: alias?.official ?? /公式|官方/.test(explicitName), link,
-        ...values as Pick<TiktokMonthlyRow, keyof typeof metrics> });
+        ...values as Pick<TiktokMonthlyRow, keyof typeof metrics>, ...(collectLikes ? { likeCount } : {}) });
     }
     if (!hasAccount) { emptyMonths.push(month); continue; }
     const missingTeams = tiktokTeams.filter((name) => !seenTeams.has(name));
@@ -160,10 +166,15 @@ export function mergeTiktokImport(previous: TiktokMonthlyRow[], imported: Tiktok
   let added = 0, updated = 0, unchanged = 0;
   for (const row of imported.rows) {
     const old = records.get(key(row));
+    // An invalid new like cell must not erase the last stored number. Its
+    // metric-scoped issue prevents that preserved value entering this ranking.
+    const next = row.month >= "2026-10" && row.likeCount == null && old?.likeCount != null
+      ? { ...row, likeCount: old.likeCount }
+      : row;
     if (!old) added++;
-    else if (Object.keys(metrics).some((metric) => old[metric as keyof typeof metrics] !== row[metric as keyof typeof metrics]) || old.accountName !== row.accountName || old.isOfficial !== row.isOfficial) updated++;
+    else if (Object.keys(metrics).some((metric) => old[metric as keyof typeof metrics] !== next[metric as keyof typeof metrics]) || old.accountName !== next.accountName || old.isOfficial !== next.isOfficial || old.likeCount !== next.likeCount) updated++;
     else unchanged++;
-    records.set(key(row), row);
+    records.set(key(row), next);
   }
   return {
     rows: [...records.values()].sort((a, b) => key(a).localeCompare(key(b))),

@@ -59,7 +59,7 @@ export default function TiktokSyncButton() {
         {!!status?.emptyMonths.length && <p className="mt-2 text-slate-600">空月份未导入：{status.emptyMonths.join("、")}</p>}
       </div>
       {!!status?.issues.length && <details className="mt-3 text-sm">
-        <summary className="cursor-pointer font-medium text-amber-800">异常明细（{status.issues.length} 行已跳过，已有数据保留）</summary>
+        <summary className="cursor-pointer font-medium text-amber-800">异常明细（{status.issues.length} 项，影响范围见原因）</summary>
         <div className="mt-2 max-h-64 overflow-auto rounded-md border border-slate-200">
           <table className="w-full min-w-[660px] text-left">
             <thead className="sticky top-0 bg-slate-100"><tr>{["月份", "来源行", "战队 / 账号", "原因"].map((label) => <th key={label} className="p-2">{label}</th>)}</tr></thead>

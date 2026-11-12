@@ -12,6 +12,8 @@ export type TiktokMonthlyRow = {
   postCount: number;
   streamViews: number;
   videoViews: number;
+  // Collected from October 2026; absent historical values are not zero.
+  likeCount?: number | null;
 };
 
 export type TiktokMetricSummary = {

@@ -221,6 +221,105 @@ test("new repost data participates in source revisions without adding a value to
   assert.notEqual(storage.incentiveHash(storage.sourceForIncentiveTeam(f.context, "t0")), before);
 });
 
+test("October B combines member and coach Shorts plus TT likes, excluding official likes and zero ranks", () => {
+  const f = fixture(6, "2026-10");
+  f.context.submissions.forEach((submission, index) => {
+    submission.player_rows[0].youtubeLikeCount = "999999";
+    submission.player_rows[1].youtubeLikeCount = String(index * 10);
+    submission.player_rows.push({ ...submission.player_rows[1], id: `coach-${index}`, playerId: `coach-${index}`, playerRole: "コーチ", youtubeLikeCount: String(index) });
+    f.context.tiktokRows.push(
+      { month: "2026-10", teamShortName: `T${index}`, accountName: `T${index}公式`, isOfficial: true, likeCount: 999999 },
+      { month: "2026-10", teamShortName: `T${index}`, accountName: `Player ${index}`, isOfficial: false, likeCount: index * 100 },
+      { month: "2026-10", teamShortName: `T${index}`, accountName: `Coach ${index}`, isOfficial: false, likeCount: index },
+    );
+    delete f.reviews[index].inputs.overrides.shortLikes;
+  });
+  const result = compute(f);
+  for (let i = 0; i < 6; i++) {
+    const team = result.teams.find((team) => team.teamId === `t${i}`);
+    assert.equal(team.values.shortLikes, i * 112);
+    assert.equal(team.b.ranks.shortLikes, i === 0 ? null : 6 - i);
+    assert.equal(team.b.shorts, i === 0 ? 6 : 10);
+    assert.ok(team.details.some((line) => line.includes(`TT ${i * 101}；合计 ${i * 112}`)));
+  }
+  f.reviews[5].inputs.overrides.officialTweets = 0;
+  f.reviews[5].inputs.overrides.shortPosts = 0;
+  assert.equal(compute(f).teams[5].eligible, false);
+  assert.equal(compute(f).teams[5].b.shorts, 0);
+});
+
+test("unknown TT likes are not treated as zero and cannot use a preserved stale number", () => {
+  const f = automaticFixture();
+  const [official, member] = f.context.submissions[0].player_rows;
+  official.youtubeLikeCount = "5000";
+  member.youtubeLikeCount = "100";
+  member.youtubeShortViews = "50";
+  const current = { month: "2026-10", teamShortName: "T0", accountName: "Player", link: "https://www.tiktok.com/@player", isOfficial: false, likeCount: 200, followerCount: 2000, postCount: 5, videoViews: 1000, repostCount: 2 };
+  f.context.tiktokRows = [{ ...current, month: "2026-09", followerCount: 1000 }, current];
+  const baseline = compute(f).teams[0];
+  assert.equal(baseline.proposed.shortLikes, 300);
+  assert.equal(baseline.proposed.shortViews, 1050);
+  assert.equal(baseline.proposed.ttGrowth, 1);
+  f.context.tiktokIssues = [{ month: "2026-10", team: "T0", account: "Player", metric: "likeCount" }];
+  let team = compute(f).teams[0];
+  assert.equal(team.proposed.shortLikes, null);
+  assert.equal(team.b.ranks.shortLikes, null);
+  assert.equal(team.proposed.shortViews, baseline.proposed.shortViews);
+  assert.equal(team.proposed.shortPosts, baseline.proposed.shortPosts);
+  assert.equal(team.proposed.ttGrowth, baseline.proposed.ttGrowth);
+  assert.deepEqual(plain(team.a), plain(baseline.a));
+  assert.deepEqual(plain(team.prize.views), plain(baseline.prize.views));
+  assertNotice(team, "shortLikes", "missing");
+  f.context.tiktokIssues = [{ month: "2026-09", team: "T0", account: "Player", metric: "likeCount" }];
+  assert.equal(compute(f).teams[0].proposed.ttGrowth, 1);
+  f.context.tiktokIssues = [];
+  for (const value of [null, undefined]) {
+    current.likeCount = value;
+    team = compute(f).teams[0];
+    assert.equal(team.proposed.shortLikes, null);
+    assert.equal(team.b.ranks.shortLikes, null);
+  }
+  current.likeCount = 0;
+  assert.equal(compute(f).teams[0].proposed.shortLikes, 100);
+  member.youtubeLikeCount = "";
+  assert.equal(compute(f).teams[0].proposed.shortLikes, null);
+});
+
+test("official-only TT like errors do not suppress the member like ranking", () => {
+  const f = automaticFixture();
+  f.context.submissions[0].player_rows[1].youtubeLikeCount = "10";
+  f.context.tiktokRows = [
+    { month: "2026-10", teamShortName: "T0", accountName: "公式", isOfficial: true, likeCount: null },
+    { month: "2026-10", teamShortName: "T0", accountName: "Player", isOfficial: false, likeCount: 20 },
+  ];
+  f.context.tiktokIssues = [{ month: "2026-10", team: "T0", account: "公式", metric: "likeCount" }];
+  assert.equal(compute(f).teams[0].proposed.shortLikes, 30);
+  f.context.tiktokIssues[0].account = "";
+  assert.equal(compute(f).teams[0].proposed.shortLikes, null);
+});
+
+test("TT likes cannot backfill July through September scores or prizes", () => {
+  for (const month of ["2026-07", "2026-08", "2026-09"]) {
+    const f = automaticFixture(2, month);
+    f.context.tiktokRows = f.context.teams.map((team) => ({ month, teamShortName: team.short_name, accountName: "Player", isOfficial: false, postCount: 5, videoViews: 100 }));
+    const before = plain(compute(f));
+    f.context.tiktokRows.forEach((row) => { row.likeCount = 999999; });
+    assert.deepEqual(plain(compute(f)), before);
+    assert.ok(compute(f).teams.every((team) => team.proposed.shortLikes === null));
+  }
+});
+
+test("a changed October TT like value invalidates the saved source and ranking references", () => {
+  const f = automaticFixture();
+  f.context.submissions[0].player_rows[1].youtubeLikeCount = "10";
+  f.context.tiktokRows = [{ month: "2026-10", teamShortName: "T0", accountName: "Player", isOfficial: false, likeCount: 20 }];
+  const before = storage.incentiveHash(storage.sourceForIncentiveTeam(f.context, "t0"));
+  const rankingBefore = storage.incentiveRankingHash(compute(f));
+  f.context.tiktokRows[0].likeCount = 30;
+  assert.notEqual(storage.incentiveHash(storage.sourceForIncentiveTeam(f.context, "t0")), before);
+  assert.notEqual(storage.incentiveRankingHash(compute(f)), rankingBefore);
+});
+
 function compileScoreBoard() {
   return compile("src/app/admin/team-scores/IncentiveScoreBoard.tsx", {
     react: React,
