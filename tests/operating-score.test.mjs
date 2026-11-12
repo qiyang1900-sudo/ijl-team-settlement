@@ -26,7 +26,7 @@ const store = compile("src/lib/operating-store.ts", { "./operating-score": api, 
 function fixture() {
   const team = { id: "t1", name: "Example Team", short_name: "EX", is_active: true };
   const official = { ...monthly.emptyMonthlyPlayerRow(0), id: "official", playerName: "EX公式", playerRole: "official_account", xTweetCount: "15", youtubeVideoPostCount: "2", youtubeShortPostCount: "99", youtubeStreamCount: "5" };
-  const member = { ...monthly.emptyMonthlyPlayerRow(1), id: "p1", playerId: "id1", playerName: "Example", playerRole: "コーチ", youtubeVideoPostCount: "4", youtubeShortPostCount: "6", youtubeStreamCount: "15" };
+  const member = { ...monthly.emptyMonthlyPlayerRow(1), id: "p1", playerId: "id1", playerName: "Example", playerRole: "コーチ", youtubeVideoPostCount: "4", youtubeShortPostCount: "8", youtubeStreamCount: "15" };
   const works = Array.from({ length: 6 }, (_, i) => ({ ...content.emptyContentEntry("w" + i, "designated"), accountId: "id1", publishedOn: "2026-10-10", platform: i < 2 ? "youtube" : "youtube_short", url: i < 2 ? "https://youtu.be/long" + i : "https://youtube.com/shorts/short" + i, claims: ["designated"] }));
   const submission = { team_id: team.id, target_month: "2026-10", status: "submitted", player_rows: [official, member], content_entries: works, club_activity_link: JSON.stringify([{ id: "event", link: "https://example.com/event" }]) };
   const tt = { month: "2026-10", teamShortName: "EX", accountName: "example", isOfficial: false, link: "https://tiktok.com/@example", postCount: 5 };
@@ -48,8 +48,39 @@ test("YouTube uses member-only totals including coaches, designated counts are s
   assert.equal(score(f).groups.youtube, 20, "official Shorts cannot satisfy member task");
   f.member.youtubeVideoPostCount = "3";
   assert.equal(score(f).groups.youtube, 10, "do not add designated entries to monthly total");
-  f.member.youtubeShortPostCount = "6"; f.member.youtubeVideoPostCount = "4";
+  f.member.youtubeShortPostCount = "8"; f.member.youtubeVideoPostCount = "4";
   assert.equal(score(f).groups.youtube, 30, "coaches are included");
+});
+test("member Shorts need eight total including four designated, with other rules unchanged", () => {
+  const f = fixture();
+  const baseline = score(f);
+  for (const posts of ["6", "7"]) {
+    f.member.youtubeShortPostCount = posts;
+    const result = score(f);
+    const item = result.items.find((entry) => entry.key === "memberShorts");
+    assert.equal(item.auto, 0);
+    assert.equal(result.groups.youtube, 20);
+    assert.equal(result.total, 90);
+    assert.match(item.reason, new RegExp(`${posts}/8 条`));
+    assert.match(item.reason, /总数不足8条.*本项扣10分/);
+    assert.deepEqual(result.items.filter((entry) => entry.key !== "memberShorts"), baseline.items.filter((entry) => entry.key !== "memberShorts"));
+  }
+  f.member.youtubeShortPostCount = "8";
+  assert.equal(score(f).total, 100);
+  f.works.pop();
+  const item = score(f).items.find((entry) => entry.key === "memberShorts");
+  assert.equal(item.auto, 0, "eight total still needs four designated Shorts");
+  assert.match(item.reason, /指定 Shorts 3\/4 条.*指定Shorts不足4条/);
+  assert.equal(score(f, { scores: { memberShorts: 10 }, note: "Reviewed exception" }).total, 100, "manual review remains available");
+  assert.match(api.operatingFields.memberShorts.label, /8本（指定4本＋その他4本）/);
+});
+test("updated Shorts rule invalidates old review source without changing submissions", () => {
+  const f = fixture(), before = JSON.stringify(f.context);
+  const source = store.operatingTeamSource(f.context, f.team.id);
+  assert.equal(source.rule, "2026-10-v2");
+  assert.notEqual(hash(source), hash({ ...source, rule: "2026-10-v1" }));
+  score(f);
+  assert.equal(JSON.stringify(f.context), before);
 });
 test("designated work counts exclude official, other month, unknown owner and duplicates", () => {
   for (const invalid of [
