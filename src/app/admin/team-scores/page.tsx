@@ -22,7 +22,7 @@ export default async function AdminTeamScoresPage({
   if (!supabaseUrl || !supabaseAnonKey) {
     return (
       <main className="min-h-screen bg-slate-950 p-10 text-white">
-        <h1 className="text-3xl font-bold">战队积分计算</h1>
+        <h1 className="text-3xl font-bold">内容激励评分 · コンテンツ奨励</h1>
         <p className="mt-4 text-red-400">Supabase 环境变量没有设置成功。</p>
       </main>
     );

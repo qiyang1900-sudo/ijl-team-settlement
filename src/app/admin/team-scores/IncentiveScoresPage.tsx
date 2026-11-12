@@ -37,7 +37,8 @@ export default async function IncentiveScoresPage({
         </Link>
         <header className="flex flex-wrap items-end justify-between gap-5 py-7">
           <div>
-            <h1 className="text-2xl font-bold sm:text-3xl">战队积分计算</h1>
+            <h1 className="text-2xl font-bold sm:text-3xl">内容激励评分</h1>
+            <p className="mt-1 text-sm text-slate-400">コンテンツ奨励</p>
             <p className="mt-3 text-sm text-slate-400">
               A＋B＋C 排名须 A ≥ 45 · D 仅需当月月数据审核通过，不受 A 分数及排名限制
             </p>
