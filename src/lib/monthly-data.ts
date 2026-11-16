@@ -523,6 +523,19 @@ export function getMonthlyStatusLabel(status: unknown) {
   return labels[normalized];
 }
 
+export function getMonthlyEditNotice(status: unknown) {
+  switch (normalizeMonthlyStatus(status)) {
+    case "submitted":
+      return "提出済み・審査待ちです。審査開始前は「提出を取り消して編集する」から撤回できます。保存済みのデータ・画像は保持されます。修正後は再度審査へ提出してください。";
+    case "reviewing":
+      return "現在審査中のため、提出の取り消し・編集はできません。撤回や修正が必要な場合は、kiyoまでご連絡ください。";
+    case "approved":
+      return "審査承認済みのため、提出の取り消し・編集はできません。修正が必要な場合は、kiyoまでご連絡ください。";
+    default:
+      return "";
+  }
+}
+
 export function getMonthlyAdminStatusLabel(status: unknown) {
   const normalized = normalizeMonthlyStatus(status);
 

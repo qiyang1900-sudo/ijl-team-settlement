@@ -1,5 +1,4 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
-import { redirect } from "next/navigation";
 import {
   ClubActivityItem,
   getPrimaryClubActivityItem,
@@ -18,6 +17,7 @@ import {
   emptyMonthlyPlayerRow,
   formatMonthLabel,
   getMonthlyStatusLabel,
+  getMonthlyEditNotice,
   getMonthlyStatusTone,
   getSalaryScreenshotSummary,
   hasMonthlyMetricScreenshot,
@@ -131,7 +131,7 @@ function buildMonthlyDataActionError(
 
   return {
     status: "error",
-    message: `${label}を保存できませんでした：${message}`,
+    message: `${label}を${actionType === "withdraw" ? "取り消せませんでした" : "保存できませんでした"}：${message}`,
     submittedAt: Date.now(),
   };
 }
@@ -208,6 +208,46 @@ async function saveMonthlyData(
     .eq("target_month", targetMonth)
     .maybeSingle();
   if (existingError) throw new Error(existingError.message);
+  if (actionType === "withdraw") {
+    if (!existingSubmission) throw new Error("取り消し対象の月データが見つかりません。");
+    const status = normalizeMonthlyStatus(existingSubmission.status);
+    if (status !== "submitted") {
+      throw new Error(getMonthlyEditNotice(status) || "審査待ちの月データのみ取り消しできます。最新の提出状況をご確認ください。");
+    }
+    if (formData.get("base_revision") !== monthlyDraftRevision(existingSubmission)) {
+      throw new Error("提出内容または審査状況が更新されています。ページを開き直して最新の状況をご確認ください。変更が必要な場合はkiyoまでご連絡ください。");
+    }
+    // Withdraw only the still-pending version; never write the browser's data back.
+    const write = supabase.from("monthly_data_submissions").update({
+      status: "draft",
+      submitted_at: null,
+      reviewing_at: null,
+      returned_at: null,
+      approved_at: null,
+      return_reason: null,
+      updated_at: now,
+    }).eq("id", existingSubmission.id).eq("team_id", teamId).eq("target_month", targetMonth).eq("status", "submitted");
+    const guardedWrite = existingSubmission.updated_at
+      ? write.eq("updated_at", existingSubmission.updated_at)
+      : write.is("updated_at", null);
+    const { data: saved, error } = await guardedWrite.select("*").maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!saved) throw new Error("審査開始などにより提出状況が更新されたため、取り消せませんでした。最新の状況をご確認ください。撤回が必要な場合はkiyoまでご連絡ください。");
+    const savedRows = splitMonthlyRows(parseMonthlyPlayerRows(saved.player_rows));
+    return {
+      status: "success",
+      message: "月データの提出を取り消しました。保存済みのデータ・画像は保持されています。修正後、再度審査へ提出してください。給与の提出・審査状況は変更していません。",
+      actionType,
+      submittedAt: Date.now(),
+      savedRevision: monthlyDraftRevision(saved),
+      previousOtherRevision: monthlyDraftRevision(existingSubmission, true),
+      savedOtherRevision: monthlyDraftRevision(saved, true),
+      savedOfficialRow: savedRows.officialRow || undefined,
+      savedPlayers: savedRows.playerRows,
+      savedActivities: parseClubActivityItems({ link: saved.club_activity_link, imageUrl: saved.club_activity_image_url, imageName: saved.club_activity_image_name, imageMimeType: saved.club_activity_image_mime_type, imageStoragePath: saved.club_activity_image_storage_path }),
+      savedContent: parseMonthlyContent(saved.content_entries),
+    };
+  }
   const relevantStatus = isSalaryScreenshotAction ? existingSubmission?.salary_status : existingSubmission?.status;
   if (["submitted", "reviewing", "approved"].includes(String(relevantStatus))) throw new Error("提出済み・審査中・承認済みの内容は変更できません。提出状況を確認してください。");
   const baseRevision = formData.get("base_revision");
@@ -402,69 +442,6 @@ async function saveMonthlyData(
   } catch (error) {
     return buildMonthlyDataActionError(error, actionType);
   }
-}
-
-async function cancelMonthlyDataSubmission(formData: FormData) {
-  "use server";
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Supabase環境変数が設定されていません。");
-  }
-
-  const teamId = String(formData.get("team_id") || "");
-  const targetMonth = String(formData.get("target_month") || "");
-
-  if (!teamId || !targetMonth) {
-    throw new Error("戦隊または対象月が確認できません。");
-  }
-
-  await requireTeamAccess(teamId);
-
-  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
-  const { data: submission, error: fetchError } = await supabase
-    .from("monthly_data_submissions")
-    .select("id, status")
-    .eq("team_id", teamId)
-    .eq("target_month", targetMonth)
-    .maybeSingle();
-
-  if (fetchError) {
-    throw new Error(fetchError.message);
-  }
-
-  if (!submission) {
-    throw new Error("取り消し対象の月データが見つかりません。");
-  }
-
-  if (normalizeMonthlyStatus(submission.status) !== "submitted") {
-    throw new Error("提出済みの月データのみ取り消しできます。");
-  }
-
-  const { error } = await supabase
-    .from("monthly_data_submissions")
-    .update({
-      status: "draft",
-      submitted_at: null,
-      reviewing_at: null,
-      returned_at: null,
-      approved_at: null,
-      return_reason: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", submission.id);
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  redirect(
-    `/team/reward?teamId=${encodeURIComponent(teamId)}&month=${encodeURIComponent(
-      targetMonth
-    )}&result=cancelled`
-  );
 }
 
 export default async function TeamRewardPage({
@@ -853,27 +830,15 @@ export default async function TeamRewardPage({
               {status === "submitted" ? (
                 <section className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 shadow-sm">
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <p>
-                      提出済みです。管理者が審査を開始する前であれば、提出を取り消して再編集できます。
-                    </p>
-                    <form action={cancelMonthlyDataSubmission}>
-                      <input type="hidden" name="team_id" value={teamId} />
-                      <input
-                        type="hidden"
-                        name="target_month"
-                        value={selectedMonth}
-                      />
-                      <button className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-400">
-                        提出を取り消して編集する
-                      </button>
-                    </form>
+                    <p>{getMonthlyEditNotice(status)}</p>
+                    <a href="#monthly-submission-actions" className="shrink-0 font-semibold underline underline-offset-4">提出操作へ</a>
                   </div>
                 </section>
               ) : null}
 
               {status === "reviewing" || status === "approved" ? (
                 <section className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-                  月データは審査中、または承認済みのため編集できません。給与スクリーンショットは別提出として管理されます。
+                  {getMonthlyEditNotice(status)}給与スクリーンショットは別提出として管理されます。
                 </section>
               ) : null}
 
@@ -881,7 +846,7 @@ export default async function TeamRewardPage({
               salaryStatus === "reviewing" ||
               salaryStatus === "approved" ? (
                 <section className="mb-5 rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-                  給与スクリーンショットは審査提出済み、審査中、または承認済みのため編集できません。
+                  給与スクリーンショットは審査提出済み、審査中、または承認済みのため編集できません。撤回や修正が必要な場合は、kiyoまでご連絡ください。
                 </section>
               ) : null}
 
@@ -890,6 +855,7 @@ export default async function TeamRewardPage({
                 action={saveMonthlyData}
                 teamId={teamId}
                 selectedMonth={selectedMonth}
+                monthlyStatus={status}
                 initialMonthlyRevision={monthlyDraftRevision(selectedSubmission)}
                 initialSalaryRevision={monthlyDraftRevision(selectedSubmission, true)}
                 initialOfficialRow={officialRow}

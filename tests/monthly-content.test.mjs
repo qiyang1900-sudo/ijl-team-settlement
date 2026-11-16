@@ -271,6 +271,7 @@ function actionHarness(existing, { conflict = false, uploadError = null, writeEr
   let payload;
   let writes = 0;
   let uploads = 0;
+  const writeFilters = [];
   const client = {
     from() {
       let writing = false;
@@ -278,10 +279,12 @@ function actionHarness(existing, { conflict = false, uploadError = null, writeEr
         select() {
           return chain;
         },
-        eq() {
+        eq(key, value) {
+          if (writing) writeFilters.push([key, value]);
           return chain;
         },
-        is() {
+        is(key, value) {
+          if (writing) writeFilters.push([key, value]);
           return chain;
         },
         update(value) {
@@ -353,8 +356,58 @@ function actionHarness(existing, { conflict = false, uploadError = null, writeEr
     payload: () => payload,
     writes: () => writes,
     uploads: () => uploads,
+    writeFilters: () => writeFilters,
   };
 }
+
+test("withdrawal preserves submitted data, images and salary and guards against a concurrent review", async () => {
+  const original = {
+    id: "pending-row", status: "submitted", salary_status: "approved", updated_at: "version-1",
+    player_rows: [{ ...monthly.createOfficialMonthlyRow("AXIZ"), xTweetCount: "62", youtubeScreenshotUrl: "https://example.test/yt" }],
+    content_entries: [work()], club_activity_link: "https://example.test/event", club_activity_image_url: "https://example.test/event.png",
+    salary_approved_at: "approved-salary", salary_submitted_at: "submitted-salary",
+  };
+  const h = actionHarness(original);
+  const result = await h.save({}, h.form("withdraw"));
+  assert.equal(result.status, "success");
+  assert.match(result.message, /保持/);
+  assert.equal(result.actionType, "withdraw");
+  assert.equal(h.uploads(), 0);
+  assert.deepEqual(Object.keys(h.payload()).sort(), ["approved_at", "returned_at", "reviewing_at", "return_reason", "status", "submitted_at", "updated_at"].sort());
+  assert.equal(h.payload().status, "draft");
+  assert.equal(result.savedOfficialRow.xTweetCount, "62");
+  assert.equal(result.savedOfficialRow.youtubeScreenshotUrl, "https://example.test/yt");
+  assert.equal(result.savedActivities[0].imageUrl, original.club_activity_image_url);
+  assert.equal(result.savedContent[0].title, original.content_entries[0].title);
+  assert.equal(result.savedRevision, revisions.monthlyDraftRevision({ ...original, ...h.payload() }));
+  assert.equal(result.savedOtherRevision, revisions.monthlyDraftRevision(original, true));
+  assert.deepEqual(h.writeFilters(), [["id", "pending-row"], ["team_id", "team-1"], ["target_month", "2026-06"], ["status", "submitted"], ["updated_at", "version-1"]]);
+  const racing = actionHarness(original, { conflict: true });
+  const refused = await racing.save({}, racing.form("withdraw"));
+  assert.equal(refused.status, "error");
+  assert.match(refused.message, /取り消せませんでした.*kiyo/);
+});
+
+test("reviewing and approved submissions cannot be withdrawn; failures stay on the form", async () => {
+  for (const status of ["reviewing", "approved", "returned", "draft"]) {
+    const h = actionHarness({ id: "row", status, updated_at: "v1" });
+    const result = await h.save({}, h.form("withdraw"));
+    assert.equal(result.status, "error");
+    assert.equal(h.writes(), 0);
+    if (["reviewing", "approved"].includes(status)) assert.match(result.message, /kiyo/);
+  }
+  for (const existing of [null, { id: "row", status: "submitted" }]) {
+    const h = actionHarness(existing);
+    const form = h.form("withdraw");
+    form.set("base_revision", "outdated");
+    assert.equal((await h.save({}, form)).status, "error");
+    assert.equal(h.writes(), 0);
+  }
+  const h = actionHarness({ id: "row", status: "submitted" }, { writeError: { message: "Storage unavailable" } });
+  const result = await h.save({}, h.form("withdraw"));
+  assert.equal(result.status, "error");
+  assert.match(result.message, /Storage unavailable/);
+});
 test("monthly draft saves both pages and returns the saved content without changing salary status", async () => {
   const h = actionHarness({
     id: "row",
