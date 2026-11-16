@@ -21,6 +21,8 @@ const player = { ...monthly.emptyMonthlyPlayerRow(0), playerName: "Player", play
 const activity = { ...activities.emptyClubActivityItem(), link: "https://example.test/new-event", imageUrl: "https://example.test/saved.png", imageName: "saved.png" };
 const nodes = (node) => !node || typeof node !== "object" ? [] : Array.isArray(node) ? node.flatMap(nodes) : [node, ...nodes(node.props?.children)];
 
+class TestButton { constructor(value) { this.value = value; } }
+
 function harness({ draft, readFails = false, actionResult, pending = false, ...overrides } = {}) {
   let index = 0;
   let dirty = false;
@@ -76,8 +78,8 @@ function harness({ draft, readFails = false, actionResult, pending = false, ...o
     "@/lib/monthly-data": monthly,
     "@/lib/club-activities": activities,
     "@/lib/monthly-content": content,
-  }, { window }).default;
-  const props = { action: async () => actionResult, teamId: "SZ-test", selectedMonth: "2026-08", initialOfficialRow: official, initialPlayers: [player], clubActivityItems: [activity], initialContentEntries: [], initialMonthlyRevision: "month-v2", initialSalaryRevision: "salary-v1", isMonthlyDataLocked: false, isSalaryLocked: false, canSaveSalaryScreenshots: true, isDataScreenshotRequired: true, ...overrides };
+  }, { window, HTMLButtonElement: TestButton }).default;
+  const props = { action: async () => actionResult, teamId: "SZ-test", selectedMonth: "2026-08", monthlyStatus: "draft", initialOfficialRow: official, initialPlayers: [player], clubActivityItems: [activity], initialContentEntries: [], initialMonthlyRevision: "month-v2", initialSalaryRevision: "salary-v1", isMonthlyDataLocked: false, isSalaryLocked: false, canSaveSalaryScreenshots: true, isDataScreenshotRequired: true, ...overrides };
   function render() {
     let count = 0;
     do {
@@ -105,6 +107,75 @@ function harness({ draft, readFails = false, actionResult, pending = false, ...o
     click: (label) => { const button = nodes(tree).find((node) => node.type === "button" && node.props.children === label); assert.ok(button, label); button.props.onClick(); render(); },
   };
 }
+
+test("only pending monthly submissions offer withdrawal next to submit, with Japanese review notices", () => {
+  for (const status of ["draft", "returned", "submitted", "reviewing", "approved"]) {
+    const locked = ["submitted", "reviewing", "approved"].includes(status);
+    const h = harness({ monthlyStatus: status, isMonthlyDataLocked: locked });
+    const panel = h.nodes().find((node) => node.props?.id === "monthly-submission-actions");
+    const button = nodes(panel).find((node) => node.props?.value === "withdraw");
+    assert.equal(Boolean(button), status === "submitted");
+    if (button) {
+      assert.equal(button.props.disabled, false);
+      assert.equal(button.props.formNoValidate, true);
+    }
+    assert.equal(h.nodes().find((node) => node.props?.value === "submit").props.disabled, locked);
+    if (["reviewing", "approved"].includes(status)) assert.ok(nodes(panel).some((node) => typeof node.props?.children === "string" && node.props.children.includes("kiyo")));
+  }
+});
+
+test("withdrawal confirms, does not validate incomplete submitted content, and respects cancellation and pending state", () => {
+  for (const confirm of [true, false]) {
+    const h = harness({ monthlyStatus: "submitted", isMonthlyDataLocked: true, selectedMonth: "2026-10" });
+    const form = h.nodes().find((node) => node.type === "form" && node.props.noValidate);
+    const dialog = h.nodes().find((node) => node.type === "dialog" && node.props["aria-labelledby"] === "withdrawal-title");
+    let opened = false;
+    dialog.props.ref.current = { showModal() { opened = true; }, close() { opened = false; } };
+    let prevented = false;
+    let sent = false;
+    const submitter = new TestButton("withdraw");
+    form.props.ref.current = { requestSubmit(button) {
+      assert.equal(button, submitter);
+      let blocked = false;
+      form.props.onSubmitCapture({ nativeEvent: { submitter: button }, preventDefault() { blocked = true; } });
+      sent = !blocked;
+    } };
+    form.props.onSubmitCapture({ nativeEvent: { submitter }, preventDefault() { prevented = true; } });
+    h.render();
+    assert.equal(prevented, true);
+    assert.equal(opened, true);
+    h.click(confirm ? "取り消して編集する" : "取り消さずに戻る");
+    assert.equal(sent, confirm);
+    assert.equal(opened, false);
+  }
+  const busy = harness({ monthlyStatus: "submitted", isMonthlyDataLocked: true, pending: true });
+  assert.equal(busy.nodes().find((node) => node.props?.value === "withdraw").props.disabled, true);
+});
+
+test("withdrawal rebases the local monthly draft without clearing unsent salary and reopens editable", async () => {
+  const salaryEdit = { ...player, salaryAmount: "1234" };
+  const result = { status: "success", actionType: "withdraw", savedRevision: "withdrawn-v3", previousOtherRevision: "salary-v1", savedOtherRevision: "salary-v1", savedOfficialRow: official, savedPlayers: [player], savedActivities: [activity], savedContent: [] };
+  const h = harness({ monthlyStatus: "submitted", isMonthlyDataLocked: true, initialPlayers: [salaryEdit], actionResult: result });
+  const salaryFile = { value: "unsent-salary.png" };
+  h.nodes().filter((node) => node.type === "form")[0].props.ref.current = { querySelectorAll: () => [salaryFile] };
+  await h.submit();
+  const draft = JSON.parse(h.stored());
+  assert.equal(draft.monthlyRevision, "withdrawn-v3");
+  assert.equal(draft.players[0].salaryAmount, "1234");
+  assert.equal(salaryFile.value, "unsent-salary.png");
+  assert.equal(draft.activities[0].imageUrl, activity.imageUrl);
+  assert.equal(h.refreshes(), 1);
+  const reopened = harness({ draft, initialMonthlyRevision: "withdrawn-v3" });
+  assert.equal(reopened.nodes().find((node) => node.props?.value === "submit").props.disabled, false);
+});
+
+test("withdrawal never overwrites an unresolved old browser draft", async () => {
+  const draft = { salaryRevision: "old", players: [{ ...player, salaryAmount: "100" }] };
+  const h = harness({ draft, monthlyStatus: "submitted", isMonthlyDataLocked: true, actionResult: { status: "success", actionType: "withdraw", savedRevision: "withdrawn-v3" } });
+  await h.submit();
+  h.flush(350);
+  assert.equal(h.stored(), JSON.stringify(draft));
+});
 
 test("legacy and outdated browser drafts cannot automatically replace saved club links or metrics", () => {
   for (const monthlyRevision of [undefined, "month-v1"]) {

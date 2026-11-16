@@ -10,12 +10,14 @@ import {
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, RotateCcw } from "lucide-react";
 import MonthlyContentFields from "./MonthlyContentFields";
 import { type MonthlyContentEntry, parseMonthlyContent, shouldConfirmEmptyContent, validateMonthlyContent } from "@/lib/monthly-content";
 import {
   MonthlyPlayerRow,
+  type MonthlyDataStatus,
   formatMonthlyNumber,
+  getMonthlyEditNotice,
   hasMonthlyMetricScreenshot,
   isMonthlyShortRepostRequiredMonth,
   sumMonthlyField,
@@ -52,6 +54,7 @@ type MonthlyDataFormProps = {
   ) => Promise<MonthlyDataActionState>;
   teamId: string;
   selectedMonth: string;
+  monthlyStatus: MonthlyDataStatus;
   initialMonthlyRevision: string;
   initialSalaryRevision: string;
   initialOfficialRow: MonthlyPlayerRow;
@@ -155,6 +158,7 @@ export default function MonthlyDataForm({
   action,
   teamId,
   selectedMonth,
+  monthlyStatus,
   initialMonthlyRevision,
   initialSalaryRevision,
   initialOfficialRow,
@@ -176,9 +180,12 @@ export default function MonthlyDataForm({
   const [contentEntries, setContentEntries] = useState(initialContentEntries);
   const [page, setPage] = useState<1 | 2>(1);
   const [confirmEmptyPage, setConfirmEmptyPage] = useState(false);
+  const [confirmWithdrawal, setConfirmWithdrawal] = useState(false);
   const monthlyFormRef = useRef<HTMLFormElement>(null);
   const salaryFormRef = useRef<HTMLFormElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const withdrawalDialogRef = useRef<HTMLDialogElement>(null);
+  const confirmedWithdrawalRef = useRef(false);
   const confirmedEmptyRef = useRef(false);
   const submitterRef = useRef<HTMLButtonElement | null>(null);
   const restoredKeyRef = useRef("");
@@ -235,11 +242,13 @@ export default function MonthlyDataForm({
     setActivities(nextActivities);
     setContentEntries(nextContent);
     // Persist the acknowledged snapshot before refresh, not after the autosave debounce.
-    try {
-      window.localStorage.setItem(draftStorageKey, JSON.stringify({ officialRow: nextOfficial, players: nextPlayers, activities: nextActivities, contentEntries: nextContent, monthlyRevision: nextMonthlyRevision, salaryRevision: nextSalaryRevision, savedAt: Date.now() } satisfies LocalMonthlyDraft));
-      setCanCacheDraft(true);
-    } catch {
-      setClientError("サーバーへの保存は完了しましたが、端末の一時保存を更新できませんでした。次回はサーバーの内容を選択してください。");
+    if (!conflictingDraft) {
+      try {
+        window.localStorage.setItem(draftStorageKey, JSON.stringify({ officialRow: nextOfficial, players: nextPlayers, activities: nextActivities, contentEntries: nextContent, monthlyRevision: nextMonthlyRevision, salaryRevision: nextSalaryRevision, savedAt: Date.now() } satisfies LocalMonthlyDraft));
+        setCanCacheDraft(true);
+      } catch {
+        setClientError("サーバーへの保存は完了しましたが、端末の一時保存を更新できませんでした。次回はサーバーの内容を選択してください。");
+      }
     }
     const savedForm = salaryAction ? salaryFormRef.current : monthlyFormRef.current;
     savedForm?.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach((input) => { input.value = ""; });
@@ -268,6 +277,11 @@ export default function MonthlyDataForm({
     if (confirmEmptyPage) dialogRef.current?.showModal();
     else dialogRef.current?.close();
   }, [confirmEmptyPage]);
+
+  useEffect(() => {
+    if (confirmWithdrawal) withdrawalDialogRef.current?.showModal();
+    else withdrawalDialogRef.current?.close();
+  }, [confirmWithdrawal]);
 
   useEffect(() => {
     if (clientError || actionState.status === "error") {
@@ -442,6 +456,27 @@ export default function MonthlyDataForm({
   }
 
   function handleFormSubmit(event: FormEvent<HTMLFormElement>) {
+    const submitter =
+      (event.nativeEvent as SubmitEvent).submitter instanceof HTMLButtonElement
+        ? ((event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement)
+        : null;
+    if (submitter?.value === "withdraw") {
+      if (isPending || isCompressingRef.current || monthlyStatus !== "submitted") {
+        confirmedWithdrawalRef.current = false;
+        event.preventDefault();
+        return;
+      }
+      if (!confirmedWithdrawalRef.current) {
+        event.preventDefault();
+        submitterRef.current = submitter;
+        setConfirmWithdrawal(true);
+        return;
+      }
+      confirmedWithdrawalRef.current = false;
+      setClientError("");
+      setClientInfo("月データの提出を取り消しています...");
+      return;
+    }
     if (!draftReady || conflictingDraft) {
       event.preventDefault();
       return;
@@ -452,10 +487,6 @@ export default function MonthlyDataForm({
     }
 
     const form = event.currentTarget;
-    const submitter =
-      (event.nativeEvent as SubmitEvent).submitter instanceof HTMLButtonElement
-        ? ((event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement)
-        : null;
     const fileEntries = getFormFileEntries(form);
 
     setClientError("");
@@ -745,10 +776,17 @@ export default function MonthlyDataForm({
           <MonthlyContentFields entries={contentEntries} onChange={(entries) => { confirmedEmptyRef.current = false; setContentEntries(entries); }} accounts={contentAccounts} disabled={isMonthlyDataLocked || isPending} />
         </div>
 
-        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <div id="monthly-submission-actions" className="scroll-mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <p className="text-sm font-bold text-slate-900">月データ</p>
+          {getMonthlyEditNotice(monthlyStatus) ? <p className="mt-2 text-sm leading-6 text-slate-600">{getMonthlyEditNotice(monthlyStatus)}</p> : null}
           <div className="mt-4 flex flex-wrap gap-3">
             <button type="button" onClick={() => setPage(page === 1 ? 2 : 1)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700">{page === 1 ? <>次へ<ArrowRight size={16} /></> : <><ArrowLeft size={16} />戻る</>}</button>
+            {monthlyStatus === "submitted" ? (
+              <button type="submit" name="action_type" value="withdraw" formNoValidate disabled={isPending || !draftReady} className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-5 py-3 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">
+                <RotateCcw size={16} aria-hidden="true" />
+                {isPending ? "処理中..." : "提出を取り消して編集する"}
+              </button>
+            ) : null}
             <button
               type="submit"
               name="action_type"
@@ -772,6 +810,14 @@ export default function MonthlyDataForm({
           </div>
         </div>
       </form>
+      <dialog ref={withdrawalDialogRef} aria-labelledby="withdrawal-title" aria-describedby="withdrawal-description" onCancel={() => setConfirmWithdrawal(false)} onClose={() => setConfirmWithdrawal(false)} className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-lg border border-slate-200 bg-white p-6 text-slate-950 shadow-xl backdrop:bg-black/40">
+        <h2 id="withdrawal-title" className="text-lg font-bold">月データの提出を取り消しますか？</h2>
+        <p id="withdrawal-description" className="mt-3 text-sm leading-6 text-slate-600">保存済みのデータ・画像は保持されます。給与の提出・審査状況は変更されません。修正後は再提出が必要です。</p>
+        <div className="mt-6 flex flex-wrap justify-end gap-3">
+          <button type="button" autoFocus onClick={() => setConfirmWithdrawal(false)} className="rounded-md border border-slate-300 px-4 py-2.5 text-sm font-semibold">取り消さずに戻る</button>
+          <button type="button" onClick={() => { confirmedWithdrawalRef.current = true; setConfirmWithdrawal(false); monthlyFormRef.current?.requestSubmit(submitterRef.current || undefined); }} className="rounded-md bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400">取り消して編集する</button>
+        </div>
+      </dialog>
       <dialog ref={dialogRef} aria-labelledby="empty-content-title" aria-describedby="empty-content-description" onCancel={() => setConfirmEmptyPage(false)} onClose={() => setConfirmEmptyPage(false)} className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-lg border border-slate-200 bg-white p-6 text-slate-950 shadow-xl backdrop:bg-black/40">
         <h2 id="empty-content-title" className="text-lg font-bold">2ページ目が未入力です</h2>
         <p id="empty-content-description" className="mt-3 text-sm leading-6 text-slate-600">動画・投稿実績のページがまだ入力されていません。入力せずに月データを審査へ提出しますか？</p>
