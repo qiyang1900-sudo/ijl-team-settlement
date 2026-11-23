@@ -210,6 +210,41 @@ test("validation rejects duplicate works, wrong platform, invalid dates and unkn
         .length,
     );
 });
+function interleavedWorks() {
+  return ["a", "b", "c", "d", "e"].map((id) => work({
+    id,
+    title: id,
+    url: `https://youtu.be/${id}`,
+    section: ["b", "e"].includes(id) ? "popular" : "designated",
+    claims: ["b", "e"].includes(id) ? ["hot_video"] : ["designated"],
+    views: "40001",
+    durationSeconds: id === "d" ? "" : "300",
+  }));
+}
+
+test("content errors follow each visible section, including after a draft round trip and deletion", () => {
+  const entries = interleavedWorks();
+  const original = plain(entries);
+  for (const rows of [entries, api.parseMonthlyContent(JSON.stringify(api.contentSubmissionPatch("draft", entries, false).content_entries))]) {
+    assert.deepEqual(plain(api.getMonthlyContentIssues(rows, "2026-06", ["official"])), [
+      { entryId: "d", message: "「指定動画」3件目（d）：動画の長さ（秒）を0以上の整数で入力してください。" },
+    ]);
+  }
+  assert.match(api.validateMonthlyContent(entries.filter((entry) => entry.id !== "a"), "2026-06", ["official"])[0], /「指定動画」2件目（d）/);
+  const popularError = entries.map((entry) => entry.id === "e" ? { ...entry, views: "" } : entry);
+  assert.match(api.validateMonthlyContent(popularError, "2026-06", ["official"])[1], /「超人気動画・投稿」2件目（e）：再生回数/);
+  assert.deepEqual(plain(entries), original);
+});
+
+test("empty visible rows do not shift error numbers and duplicate errors identify both sections", () => {
+  const entries = [api.emptyContentEntry("blank", "designated"), ...interleavedWorks()];
+  assert.match(api.validateMonthlyContent(entries, "2026-06", ["official"])[0], /「指定動画」4件目（d）/);
+  const duplicate = interleavedWorks().map((entry) => entry.id === "e" ? { ...entry, url: "https://youtu.be/a" } : entry);
+  assert.match(api.validateMonthlyContent(duplicate, "2026-06", ["official"])[1], /「超人気動画・投稿」2件目（e）：「指定動画」1件目（a）と同じ作品/);
+  const noTitle = work({ title: "" });
+  assert.match(api.validateMonthlyContent([noTitle], "2026-06", ["official"])[0], /「指定動画」1件目：動画・投稿内容/);
+});
+
 test("views/likes distinguish missing values from real zero and one work can claim multiple awards", () => {
   const entry = work({
     section: "popular",
@@ -359,6 +394,19 @@ function actionHarness(existing, { conflict = false, uploadError = null, writeEr
     writeFilters: () => writeFilters,
   };
 }
+
+test("server returns the same grouped error before writing or uploading, while allowing an incomplete draft", async () => {
+  const h = actionHarness(null);
+  const entries = interleavedWorks();
+  const result = await h.save({}, h.form("submit", entries));
+  assert.equal(result.status, "error");
+  assert.match(result.message, /「指定動画」3件目（d）：動画の長さ/);
+  assert.equal(h.writes(), 0);
+  assert.equal(h.uploads(), 0);
+  const draft = await h.save({}, h.form("draft", entries));
+  assert.equal(draft.status, "success");
+  assert.deepEqual(plain(h.payload().content_entries), plain(entries));
+});
 
 test("withdrawal preserves submitted data, images and salary and guards against a concurrent review", async () => {
   const original = {

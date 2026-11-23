@@ -26,6 +26,22 @@ export type MonthlyContentEntry = {
   imageStoragePath: string;
 };
 
+export const contentSectionLabels = {
+  designated: "指定動画",
+  popular: "超人気動画・投稿",
+};
+
+export type MonthlyContentIssue = {
+  entryId: string;
+  message: string;
+};
+
+function contentEntryLabel(entry: MonthlyContentEntry, number: number) {
+  const title = entry.title.trim().replace(/\s+/g, " ");
+  const shortTitle = title.length > 80 ? `${title.slice(0, 80)}…` : title;
+  return `「${contentSectionLabels[entry.section]}」${number}件目${shortTitle ? `（${shortTitle}）` : ""}`;
+}
+
 export const contentPlatformLabels: Record<ContentPlatform, string> = {
   youtube: "YouTube 動画",
   youtube_short: "YouTube Shorts",
@@ -202,15 +218,19 @@ export function contentWorkKey(value: string) {
   }
 }
 
-export function validateMonthlyContent(
+export function getMonthlyContentIssues(
   entries: MonthlyContentEntry[],
   month: string,
   accountIds: string[],
-) {
-  const seen = new Set<string>();
-  const errors: string[] = [];
-  entries.filter(hasContentEntry).forEach((entry, index) => {
-    const label = `動画・投稿実績 ${index + 1}`;
+): MonthlyContentIssue[] {
+  const seen = new Map<string, string>();
+  const issues: MonthlyContentIssue[] = [];
+  const rowNumbers = { designated: 0, popular: 0 };
+  entries.forEach((entry) => {
+    // Count visible rows before skipping empty ones, just as the grouped form does.
+    const label = contentEntryLabel(entry, ++rowNumbers[entry.section]);
+    if (!hasContentEntry(entry)) return;
+    const errors: string[] = [];
     if (!entry.title)
       errors.push(`${label}：動画・投稿内容を入力してください。`);
     if (!accountIds.includes(entry.accountId))
@@ -221,9 +241,9 @@ export function validateMonthlyContent(
     else {
       if (seen.has(key))
         errors.push(
-          `${label}：同じ作品が重複しています。1行にまとめて申請項目を選択してください。`,
+          `${label}：${seen.get(key)}と同じ作品が重複しています。1行にまとめて申請項目を選択してください。`,
         );
-      seen.add(key);
+      else seen.set(key, label);
       const expected = entry.platform.startsWith("youtube")
         ? "youtube"
         : entry.platform;
@@ -296,8 +316,19 @@ export function validateMonthlyContent(
       )
         errors.push(`${label}：${name}を0以上の整数で入力してください。`);
     }
+    issues.push(...errors.map((message) => ({ entryId: entry.id, message })));
   });
-  return errors;
+  return issues;
+}
+
+export function validateMonthlyContent(
+  entries: MonthlyContentEntry[],
+  month: string,
+  accountIds: string[],
+) {
+  return getMonthlyContentIssues(entries, month, accountIds).map(
+    (issue) => issue.message,
+  );
 }
 
 export function contentSubmissionPatch(

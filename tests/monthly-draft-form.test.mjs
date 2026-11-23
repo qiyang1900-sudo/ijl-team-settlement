@@ -10,7 +10,7 @@ function compile(file, imports = {}, globals = {}, extra = "") {
   const exports = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root, file), "utf8") + extra, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-  }).outputText, { exports, Date, File, FormData, require: (name) => imports[name] || {}, ...globals });
+  }).outputText, { exports, Date, File, FormData, URL, require: (name) => imports[name] || {}, ...globals });
   return exports;
 }
 const activities = compile("src/lib/club-activities.ts");
@@ -107,6 +107,39 @@ function harness({ draft, readFails = false, actionResult, pending = false, ...o
     click: (label) => { const button = nodes(tree).find((node) => node.type === "button" && node.props.children === label); assert.ok(button, label); button.props.onClick(); render(); },
   };
 }
+
+test("content submit errors open page two, follow the grouped rows and clear when corrected without losing drafts", () => {
+  const entries = ["a", "b", "c", "d", "e"].map((id) => ({
+    ...content.emptyContentEntry(id, ["b", "e"].includes(id) ? "popular" : "designated"),
+    title: id, accountId: "official", url: `https://youtu.be/${id}`, publishedOn: "2026-08-01", views: "50000", durationSeconds: id === "d" ? "" : "300",
+  }));
+  const h = harness({ initialContentEntries: entries });
+  const form = h.nodes().find((node) => node.type === "form" && node.props.noValidate);
+  let prevented = false;
+  form.props.onSubmitCapture({ currentTarget: { querySelectorAll: () => [] }, nativeEvent: { submitter: new TestButton("submit") }, preventDefault() { prevented = true; } });
+  h.render();
+  assert.equal(prevented, true);
+  assert.equal(h.refreshes(), 0);
+  assert.ok(h.nodes().some((node) => node.type === "button" && node.props["aria-current"] === "step" && node.props.children === "2. 動画・投稿実績"));
+  const fields = h.nodes().find((node) => Array.isArray(node.props?.entries));
+  assert.equal(fields.props.issues.length, 1);
+  assert.equal(fields.props.issues[0].entryId, "d");
+  assert.match(fields.props.issues[0].message, /「指定動画」3件目（d）/);
+  assert.equal(h.nodes().filter((node) => node.props?.role === "alert").length, 1);
+  const Component = compile("src/app/team/reward/MonthlyContentFields.tsx", {
+    react: { useRef: () => ({ current: null }), useEffect() {} },
+    "react/jsx-runtime": { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
+    "@/lib/monthly-content": content,
+  }).default;
+  const ui = nodes(Component(fields.props));
+  assert.equal(ui.find((node) => node.props?.id === "content-entry-d").props["aria-describedby"], "content-errors-d");
+  assert.equal(ui.filter((node) => node.props?.id === "content-errors-d").length, 1);
+  fields.props.onChange(entries.map((entry) => entry.id === "d" ? { ...entry, durationSeconds: "300" } : entry));
+  h.render();
+  assert.equal(h.nodes().filter((node) => node.props?.role === "alert").length, 0);
+  h.flush(1000);
+  assert.deepEqual(JSON.parse(h.stored()).contentEntries, JSON.parse(JSON.stringify(entries.map((entry) => entry.id === "d" ? { ...entry, durationSeconds: "300" } : entry))));
+});
 
 test("only pending monthly submissions offer withdrawal next to submit, with Japanese review notices", () => {
   for (const status of ["draft", "returned", "submitted", "reviewing", "approved"]) {
