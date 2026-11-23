@@ -12,7 +12,7 @@ import {
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, RotateCcw } from "lucide-react";
 import MonthlyContentFields from "./MonthlyContentFields";
-import { type MonthlyContentEntry, parseMonthlyContent, shouldConfirmEmptyContent, validateMonthlyContent } from "@/lib/monthly-content";
+import { type MonthlyContentEntry, getMonthlyContentIssues, parseMonthlyContent, shouldConfirmEmptyContent } from "@/lib/monthly-content";
 import {
   MonthlyPlayerRow,
   type MonthlyDataStatus,
@@ -178,6 +178,7 @@ export default function MonthlyDataForm({
     useState<MonthlyPlayerRow>(initialOfficialRow);
   const [players, setPlayers] = useState<MonthlyPlayerRow[]>(initialPlayers);
   const [contentEntries, setContentEntries] = useState(initialContentEntries);
+  const [showContentErrors, setShowContentErrors] = useState(false);
   const [page, setPage] = useState<1 | 2>(1);
   const [confirmEmptyPage, setConfirmEmptyPage] = useState(false);
   const [confirmWithdrawal, setConfirmWithdrawal] = useState(false);
@@ -191,6 +192,9 @@ export default function MonthlyDataForm({
   const restoredKeyRef = useRef("");
   const feedbackRef = useRef<HTMLDivElement>(null);
   const contentAccounts = [{ id: "official", name: officialRow.playerName || "公式アカウント" }, ...players.map((player) => ({ id: player.playerId || player.id, name: player.playerName }))];
+  const contentIssues = showContentErrors
+    ? getMonthlyContentIssues(contentEntries, selectedMonth, contentAccounts.map((account) => account.id))
+    : [];
   const [clientError, setClientError] = useState("");
   const [clientInfo, setClientInfo] = useState("");
   const [draftReady, setDraftReady] = useState(false);
@@ -223,6 +227,7 @@ export default function MonthlyDataForm({
       return;
     }
     const salaryAction = result.actionType?.startsWith("salary_screenshots");
+    if (!salaryAction) setShowContentErrors(false);
     const rebaseOther = (current: string) => current === result.previousOtherRevision ? result.savedOtherRevision || current : current;
     const nextMonthlyRevision = salaryAction ? rebaseOther(monthlyRevision) : result.savedRevision || monthlyRevision;
     const nextSalaryRevision = salaryAction ? result.savedRevision || salaryRevision : rebaseOther(salaryRevision);
@@ -284,10 +289,10 @@ export default function MonthlyDataForm({
   }, [confirmWithdrawal]);
 
   useEffect(() => {
-    if (clientError || actionState.status === "error") {
+    if (clientError || actionState.status === "error" || showContentErrors) {
       feedbackRef.current?.focus();
     }
-  }, [clientError, actionState]);
+  }, [clientError, actionState, showContentErrors]);
 
   const restoreDraft = useCallback((draft: LocalMonthlyDraft) => {
     const restoredContent = !isMonthlyDataLocked && Array.isArray(draft.contentEntries) ? parseMonthlyContent(draft.contentEntries) : null;
@@ -508,13 +513,14 @@ export default function MonthlyDataForm({
         setConfirmEmptyPage(true);
         return;
       }
-      const contentErrors = validateMonthlyContent(contentEntries, selectedMonth, contentAccounts.map((account) => account.id));
+      const contentErrors = getMonthlyContentIssues(contentEntries, selectedMonth, contentAccounts.map((account) => account.id));
       if (contentErrors.length) {
         event.preventDefault();
         confirmedEmptyRef.current = false;
         setPage(2);
         setClientInfo("");
-        setClientError(contentErrors.join("\n"));
+        setShowContentErrors(true);
+        feedbackRef.current?.focus();
         return;
       }
       const ack = form.elements.namedItem("content_page_acknowledged") as HTMLInputElement;
@@ -622,6 +628,22 @@ export default function MonthlyDataForm({
       {clientError ? (
         <div role="alert" className="whitespace-pre-line rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-800">
           {clientError}
+        </div>
+      ) : null}
+
+      {contentIssues.length > 0 ? (
+        <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+          <p className="font-semibold">動画・投稿実績の入力内容を確認してください。</p>
+          <ul className="mt-2 space-y-2">
+            {contentIssues.map((issue, index) => (
+              <li key={`${issue.entryId}-${index}`}>
+                <button type="button" className="text-left underline underline-offset-2 [overflow-wrap:anywhere]" onClick={() => {
+                  setPage(2);
+                  window.requestAnimationFrame(() => document.getElementById(`content-entry-${issue.entryId}`)?.focus());
+                }}>{issue.message}</button>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
 
@@ -773,7 +795,7 @@ export default function MonthlyDataForm({
         />
         </div>
         <div hidden={page !== 2}>
-          <MonthlyContentFields entries={contentEntries} onChange={(entries) => { confirmedEmptyRef.current = false; setContentEntries(entries); }} accounts={contentAccounts} disabled={isMonthlyDataLocked || isPending} />
+          <MonthlyContentFields entries={contentEntries} onChange={(entries) => { confirmedEmptyRef.current = false; setContentEntries(entries); }} accounts={contentAccounts} disabled={isMonthlyDataLocked || isPending} issues={contentIssues} />
         </div>
 
         <div id="monthly-submission-actions" className="scroll-mt-6 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">

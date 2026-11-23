@@ -1,12 +1,14 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import {
   contentClaimLabels,
   contentPlatformLabels,
+  contentSectionLabels,
   emptyContentEntry,
   type MonthlyContentEntry,
+  type MonthlyContentIssue,
 } from "@/lib/monthly-content";
 
 const fieldClass =
@@ -17,12 +19,21 @@ export default function MonthlyContentFields({
   onChange,
   accounts,
   disabled,
+  issues = [],
 }: {
   entries: MonthlyContentEntry[];
   onChange: (entries: MonthlyContentEntry[]) => void;
   accounts: Array<{ id: string; name: string }>;
   disabled: boolean;
+  issues?: MonthlyContentIssue[];
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const invalidIds = new Set(issues.map((issue) => issue.entryId));
+    rootRef.current?.querySelectorAll<HTMLDetailsElement>("details[data-content-entry-id]").forEach((details) => {
+      if (invalidIds.has(details.dataset.contentEntryId || "")) details.open = true;
+    });
+  }, [issues]);
   const update = (id: string, patch: Partial<MonthlyContentEntry>) =>
     onChange(
       entries.map((entry) =>
@@ -30,11 +41,10 @@ export default function MonthlyContentFields({
       ),
     );
   return (
-    <div className="space-y-6">
+    <div ref={rootRef} className="space-y-6">
       {(["designated", "popular"] as const).map((section) => {
         const rows = entries.filter((entry) => entry.section === section);
-        const title =
-          section === "designated" ? "指定動画" : "超人気動画・投稿";
+        const title = contentSectionLabels[section];
         return (
           <section
             key={section}
@@ -74,9 +84,17 @@ export default function MonthlyContentFields({
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((entry, index) => (
+                    {rows.map((entry, index) => {
+                      const rowIssues = issues.filter((issue) => issue.entryId === entry.id);
+                      return (
                       <Fragment key={entry.id}>
-                        <tr className="border-t border-slate-200">
+                        <tr
+                          id={`content-entry-${entry.id}`}
+                          tabIndex={-1}
+                          aria-label={`${title} ${index + 1}`}
+                          aria-describedby={rowIssues.length ? `content-errors-${entry.id}` : undefined}
+                          className={`scroll-mt-6 border-t border-slate-200 focus:outline focus:outline-2 focus:outline-rose-400 ${rowIssues.length ? "bg-rose-50" : ""}`}
+                        >
                           <td className="px-3 py-3 align-top">{index + 1}</td>
                           {section === "popular" && (
                             <td className="px-2 py-3 align-top">
@@ -161,7 +179,12 @@ export default function MonthlyContentFields({
                             colSpan={section === "popular" ? 5 : 4}
                             className="px-3 pb-3"
                           >
-                            <details className="border-t border-slate-100 pt-2">
+                            {rowIssues.length > 0 && (
+                              <ul id={`content-errors-${entry.id}`} className="mb-3 space-y-1 rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800 [overflow-wrap:anywhere]">
+                                {rowIssues.map((issue, issueIndex) => <li key={issueIndex}>{issue.message}</li>)}
+                              </ul>
+                            )}
+                            <details data-content-entry-id={entry.id} className="border-t border-slate-100 pt-2">
                               <summary className="cursor-pointer text-xs font-semibold text-slate-600">
                                 投稿者・申請項目・証明画像
                               </summary>
@@ -395,7 +418,8 @@ export default function MonthlyContentFields({
                           </td>
                         </tr>
                       </Fragment>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
