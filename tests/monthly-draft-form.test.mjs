@@ -23,12 +23,13 @@ const nodes = (node) => !node || typeof node !== "object" ? [] : Array.isArray(n
 
 class TestButton { constructor(value) { this.value = value; } }
 
-function harness({ draft, readFails = false, actionResult, pending = false, ...overrides } = {}) {
+function harness({ draft, readFails = false, archiveFails = false, actionResult, pending = false, ...overrides } = {}) {
   let index = 0;
   let dirty = false;
   let tree;
   let action;
-  let stored = draft === undefined ? null : JSON.stringify(draft);
+  const activeKey = `monthly-data-draft:${overrides.teamId || "SZ-test"}:${overrides.selectedMonth || "2026-08"}`;
+  const storage = new Map(draft === undefined ? [] : [[activeKey, JSON.stringify(draft)]]);
   let refreshes = 0;
   const hooks = [];
   const effects = [];
@@ -63,9 +64,9 @@ function harness({ draft, readFails = false, actionResult, pending = false, ...o
   };
   const window = {
     localStorage: {
-      getItem() { if (readFails) throw new Error("Storage blocked"); return stored; },
-      setItem(_key, value) { stored = value; },
-      removeItem() { stored = null; },
+      getItem(key) { if (readFails) throw new Error("Storage blocked"); return storage.get(key) ?? null; },
+      setItem(key, value) { if (archiveFails && key.includes(":recovery:")) throw new Error("Quota exceeded"); storage.set(key, value); },
+      removeItem(key) { storage.delete(key); },
     },
     confirm: () => true,
     setTimeout(callback, delay) { const id = ++timerId; timers.set(id, { callback, delay }); return id; },
@@ -100,7 +101,8 @@ function harness({ draft, readFails = false, actionResult, pending = false, ...o
     nodes: () => nodes(tree),
     flush,
     render,
-    stored: () => stored,
+    stored: () => storage.get(activeKey) ?? null,
+    backups: () => [...storage].filter(([key]) => key.startsWith(`${activeKey}:recovery:`)).map(([, value]) => JSON.parse(value)),
     props,
     refreshes: () => refreshes,
     submit: async () => { const result = await action(new FormData()); render(); return result; },
@@ -141,13 +143,13 @@ test("content submit errors open page two, follow the grouped rows and clear whe
   assert.deepEqual(JSON.parse(h.stored()).contentEntries, JSON.parse(JSON.stringify(entries.map((entry) => entry.id === "d" ? { ...entry, durationSeconds: "300" } : entry))));
 });
 
-test("only pending monthly submissions offer withdrawal next to submit, with Japanese review notices", () => {
+test("pending and reviewing submissions show withdrawal; approved records stay locked", () => {
   for (const status of ["draft", "returned", "submitted", "reviewing", "approved"]) {
     const locked = ["submitted", "reviewing", "approved"].includes(status);
     const h = harness({ monthlyStatus: status, isMonthlyDataLocked: locked });
     const panel = h.nodes().find((node) => node.props?.id === "monthly-submission-actions");
     const button = nodes(panel).find((node) => node.props?.value === "withdraw");
-    assert.equal(Boolean(button), status === "submitted");
+    assert.equal(Boolean(button), ["submitted", "reviewing"].includes(status));
     if (button) {
       assert.equal(button.props.disabled, false);
       assert.equal(button.props.formNoValidate, true);
@@ -177,12 +179,38 @@ test("withdrawal confirms, does not validate incomplete submitted content, and r
     h.render();
     assert.equal(prevented, true);
     assert.equal(opened, true);
-    h.click(confirm ? "取り消して編集する" : "取り消さずに戻る");
+    h.click(confirm ? "確認して取り消す" : "キャンセル");
     assert.equal(sent, confirm);
     assert.equal(opened, false);
   }
   const busy = harness({ monthlyStatus: "submitted", isMonthlyDataLocked: true, pending: true });
   assert.equal(busy.nodes().find((node) => node.props?.value === "withdraw").props.disabled, true);
+});
+
+test("reviewing withdrawal opens a staff-contact dialog without any submission", () => {
+  const h = harness({ monthlyStatus: "reviewing", isMonthlyDataLocked: true });
+  const form = h.nodes().find((node) => node.type === "form" && node.props.noValidate);
+  const dialog = h.nodes().find((node) => node.type === "dialog" && node.props["aria-labelledby"] === "withdrawal-title");
+  let opened = false;
+  dialog.props.ref.current = { showModal() { opened = true; }, close() { opened = false; } };
+  let prevented = false;
+  form.props.onSubmitCapture({ nativeEvent: { submitter: new TestButton("withdraw") }, preventDefault() { prevented = true; } });
+  h.render();
+  assert.equal(prevented, true);
+  assert.equal(opened, true);
+  assert.ok(h.nodes().some((node) => typeof node.props?.children === "string" && /すでに審査中.*スタッフ（kiyo）/.test(node.props.children)));
+  assert.equal(h.nodes().some((node) => node.props?.children === "確認して取り消す"), false);
+  h.click("閉じる");
+  assert.equal(opened, false);
+  assert.equal(h.refreshes(), 0);
+});
+
+test("a server refusal after review starts opens a notice rather than a second confirmation", async () => {
+  const h = harness({ monthlyStatus: "submitted", isMonthlyDataLocked: true, actionResult: { status: "error", actionType: "withdraw", message: "すでに審査中です。スタッフ（kiyo）までご連絡ください。" } });
+  await h.submit();
+  assert.equal(h.nodes().some((node) => node.props?.children === "確認して取り消す"), false);
+  assert.ok(h.nodes().some((node) => node.props?.children === "閉じる"));
+  assert.equal(h.refreshes(), 0);
 });
 
 test("withdrawal rebases the local monthly draft without clearing unsent salary and reopens editable", async () => {
@@ -202,12 +230,13 @@ test("withdrawal rebases the local monthly draft without clearing unsent salary 
   assert.equal(reopened.nodes().find((node) => node.props?.value === "submit").props.disabled, false);
 });
 
-test("withdrawal never overwrites an unresolved old browser draft", async () => {
+test("withdrawal preserves an old browser draft separately without locking the active form", async () => {
   const draft = { salaryRevision: "old", players: [{ ...player, salaryAmount: "100" }] };
   const h = harness({ draft, monthlyStatus: "submitted", isMonthlyDataLocked: true, actionResult: { status: "success", actionType: "withdraw", savedRevision: "withdrawn-v3" } });
   await h.submit();
   h.flush(350);
-  assert.equal(h.stored(), JSON.stringify(draft));
+  assert.deepEqual(h.backups(), [draft]);
+  assert.equal(JSON.parse(h.stored()).monthlyRevision, "withdrawn-v3");
 });
 
 test("legacy and outdated browser drafts cannot automatically replace saved club links or metrics", () => {
@@ -216,11 +245,11 @@ test("legacy and outdated browser drafts cannot automatically replace saved club
     const h = harness({ draft });
     assert.equal(h.nodes().find((node) => node.type?.name === "ClubActivitySection").props.activities[0].link, activity.link);
     assert.equal(JSON.parse(h.nodes().find((node) => node.props?.name === "official_row").props.value)[0].youtubeVideoViews, "1000000");
-    assert.equal(h.nodes().find((node) => node.type === "button" && node.props.value === "draft").props.disabled, true);
-    h.flush(350);
-    assert.equal(h.stored(), JSON.stringify(draft));
-    h.click("サーバーの内容を使用");
     assert.equal(h.nodes().find((node) => node.type === "button" && node.props.value === "draft").props.disabled, false);
+    h.flush(350);
+    assert.deepEqual(h.backups(), [JSON.parse(JSON.stringify(draft))]);
+    assert.equal(JSON.parse(h.stored()).officialRow.youtubeVideoViews, official.youtubeVideoViews);
+    assert.equal(h.nodes().some((node) => ["サーバーの内容を使用", "端末の入力を復元", "復元内容を破棄"].includes(node.props?.children)), false);
   }
 });
 
@@ -277,12 +306,13 @@ test("current local edits restore their links but keep server-owned images", () 
   assert.equal(restored.imageUrl, activity.imageUrl);
 });
 
-test("outdated local content is restored only by an explicit choice", () => {
-  const h = harness({ draft: { activities: [{ ...activity, link: "https://example.test/old", imageUrl: "" }] } });
-  h.click("端末の入力を復元");
+test("outdated local content remains in recovery storage, not in the active form", () => {
+  const draft = { activities: [{ ...activity, link: "https://example.test/old", imageUrl: "" }] };
+  const h = harness({ draft });
   const restored = h.nodes().find((node) => node.type?.name === "ClubActivitySection").props.activities[0];
-  assert.equal(restored.link, "https://example.test/old");
+  assert.equal(restored.link, activity.link);
   assert.equal(restored.imageUrl, activity.imageUrl);
+  assert.deepEqual(h.backups(), [draft]);
 });
 
 test("successful drafts update browser cache immediately, before refresh or the debounce", async () => {
@@ -323,12 +353,14 @@ test("blocked local storage does not permanently disable server draft saving", (
   assert.ok(h.nodes().some((node) => typeof node.props?.children === "string" && node.props.children.includes("端末の一時保存を読み込めません")));
 });
 
-test("discarding restored input clears pending replacement files", () => {
-  const h = harness({ draft: { monthlyRevision: "month-v2", salaryRevision: "salary-v1", activities: [activity] } });
-  const input = { value: "replacement.png" };
-  for (const node of h.nodes().filter((node) => node.type === "form")) node.props.ref.current = { querySelectorAll: () => [input] };
-  h.click("復元内容を破棄");
-  assert.equal(input.value, "");
+test("failed recovery backup preserves the original cache and still permits a server save", async () => {
+  const draft = { monthlyRevision: "old", activities: [activity] };
+  const h = harness({ draft, archiveFails: true, actionResult: { status: "success", actionType: "draft", savedRevision: "month-v3" } });
+  assert.equal(h.nodes().find((node) => node.props?.value === "draft").props.disabled, false);
+  h.flush(350);
+  await h.submit();
+  assert.equal(h.stored(), JSON.stringify(draft));
+  assert.equal(h.refreshes(), 1);
 });
 
 test("compression never replaces a newer file selection or silently ignores a new attachment", async () => {
@@ -346,10 +378,9 @@ test("compression never replaces a newer file selection or silently ignores a ne
   }
 });
 
-test("explicit restoration keeps the latest server metric and salary attachments", () => {
+test("current local restoration keeps the latest server metric and salary attachments", () => {
   const saved = { ...player, xScreenshotUrl: "https://example.test/new-x", salaryScreenshotUrl: "https://example.test/new-salary" };
-  const h = harness({ initialPlayers: [saved], draft: { players: [{ ...saved, xScreenshotUrl: "https://example.test/old-x", salaryScreenshotUrl: "https://example.test/old-salary" }] } });
-  h.click("端末の入力を復元");
+  const h = harness({ initialPlayers: [saved], draft: { monthlyRevision: "month-v2", salaryRevision: "salary-v1", players: [{ ...saved, xScreenshotUrl: "https://example.test/old-x", salaryScreenshotUrl: "https://example.test/old-salary" }] } });
   const restored = JSON.parse(h.nodes().find((node) => node.props?.name === "player_rows").props.value)[0];
   assert.equal(restored.xScreenshotUrl, saved.xScreenshotUrl);
   assert.equal(restored.salaryScreenshotUrl, saved.salaryScreenshotUrl);
@@ -403,10 +434,15 @@ test("conflicting player IDs cannot match by name; unique legacy names still res
   }
 });
 
-test("discard is blocked during a save so its response cannot resurrect discarded edits", () => {
-  const draft = { monthlyRevision: "month-v2", salaryRevision: "salary-v1", activities: [{ ...activity, link: "https://example.test/unsent" }] };
-  const h = harness({ draft, pending: true });
-  assert.equal(h.nodes().find((node) => node.type === "button" && node.props.children === "復元内容を破棄").props.disabled, true);
-  h.click("復元内容を破棄");
-  assert.equal(h.nodes().find((node) => node.type?.name === "ClubActivitySection").props.activities[0].link, "https://example.test/unsent");
+test("monthly and salary draft revisions restore independently without cross-locking", () => {
+  for (const currentMonthly of [true, false]) {
+    const draft = { monthlyRevision: currentMonthly ? "month-v2" : "old", salaryRevision: currentMonthly ? "old" : "salary-v1", players: [{ ...player, xTweetCount: "77", salaryAmount: "1234" }] };
+    const h = harness({ draft });
+    const restored = JSON.parse(h.nodes().find((node) => node.props?.name === "player_rows").props.value)[0];
+    assert.equal(restored.xTweetCount, currentMonthly ? "77" : player.xTweetCount);
+    assert.equal(restored.salaryAmount, currentMonthly ? player.salaryAmount : "1234");
+    assert.equal(h.nodes().find((node) => node.props?.value === "draft").props.disabled, false);
+    assert.equal(h.nodes().find((node) => node.type?.name === "SalarySection").props.canSubmit, true);
+    assert.deepEqual(h.backups(), [draft]);
+  }
 });

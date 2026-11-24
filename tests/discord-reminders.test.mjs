@@ -137,6 +137,22 @@ test("approval between candidate selection and dispatch cancels delivery", async
   assert.equal(h.writes.at(-1).skip_reason, "already_submitted");
 });
 
+test("monthly withdrawal resumes reminders independently of salary; resubmission stops queued reminders", async () => {
+  for (const reminderKey of ["before-1", "manual-test"]) {
+    const withdrawn = { status: "draft", submitted_at: null, salary_status: "approved" };
+    const h = harness({ states: [withdrawn] });
+    assert.equal(await h.send({ reminderType: "monthly_data", targetMonth: "2026-10", reminderKey, content: (status) => `status:${status}` }), "sent");
+    assert.equal(JSON.parse(h.requests[0].body).content, "status:draft");
+    assert.equal(await h.send({ reminderType: "monthly_salary_screenshot", targetMonth: "2026-10", reminderKey }), "skipped");
+    assert.equal(h.requests.length, 1);
+    for (const status of ["submitted", "reviewing", "approved"]) {
+      const race = harness({ states: [withdrawn, { ...withdrawn, status }] });
+      assert.equal(await race.send({ reminderType: "monthly_data", targetMonth: "2026-10", reminderKey }), "skipped");
+      assert.equal(race.requests.length, 0);
+    }
+  }
+});
+
 test("read errors, unknown states and missing project assignments cannot send", async () => {
   for (const [options, expected] of [
     [{ readError: true }, "failed"],

@@ -303,6 +303,7 @@ test("ordinary club activities need no extra fields; opted-in claims preserve ze
 });
 
 function actionHarness(existing, { conflict = false, uploadError = null, writeError = null, savedPatch = {} } = {}) {
+  const revalidated = [];
   let payload;
   let writes = 0;
   let uploads = 0;
@@ -365,6 +366,7 @@ function actionHarness(existing, { conflict = false, uploadError = null, writeEr
       "@/lib/monthly-data": monthly,
       "@/lib/club-activities": activities,
       "@/lib/monthly-draft-revision": revisions,
+      "next/cache": { revalidatePath: (path) => revalidated.push(path) },
     },
     "\nexport { saveMonthlyData };\n",
   );
@@ -392,6 +394,7 @@ function actionHarness(existing, { conflict = false, uploadError = null, writeEr
     writes: () => writes,
     uploads: () => uploads,
     writeFilters: () => writeFilters,
+    revalidated,
   };
 }
 
@@ -423,6 +426,8 @@ test("withdrawal preserves submitted data, images and salary and guards against 
   assert.equal(h.uploads(), 0);
   assert.deepEqual(Object.keys(h.payload()).sort(), ["approved_at", "returned_at", "reviewing_at", "return_reason", "status", "submitted_at", "updated_at"].sort());
   assert.equal(h.payload().status, "draft");
+  assert.equal(h.payload().submitted_at, null);
+  assert.deepEqual(h.revalidated, ["/admin/reviews", "/admin/reward", "/team/reward"]);
   assert.equal(result.savedOfficialRow.xTweetCount, "62");
   assert.equal(result.savedOfficialRow.youtubeScreenshotUrl, "https://example.test/yt");
   assert.equal(result.savedActivities[0].imageUrl, original.club_activity_image_url);
@@ -433,6 +438,7 @@ test("withdrawal preserves submitted data, images and salary and guards against 
   const racing = actionHarness(original, { conflict: true });
   const refused = await racing.save({}, racing.form("withdraw"));
   assert.equal(refused.status, "error");
+  assert.deepEqual(racing.revalidated, []);
   assert.match(refused.message, /取り消せませんでした.*kiyo/);
 });
 
