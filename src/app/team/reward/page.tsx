@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { revalidatePath } from "next/cache";
 import {
   ClubActivityItem,
   getPrimaryClubActivityItem,
@@ -233,6 +234,9 @@ async function saveMonthlyData(
     const { data: saved, error } = await guardedWrite.select("*").maybeSingle();
     if (error) throw new Error(error.message);
     if (!saved) throw new Error("審査開始などにより提出状況が更新されたため、取り消せませんでした。最新の状況をご確認ください。撤回が必要な場合はkiyoまでご連絡ください。");
+    revalidatePath("/admin/reviews");
+    revalidatePath("/admin/reward");
+    revalidatePath("/team/reward");
     const savedRows = splitMonthlyRows(parseMonthlyPlayerRows(saved.player_rows));
     return {
       status: "success",
@@ -423,6 +427,9 @@ async function saveMonthlyData(
     throw new Error("保存後のデータ確認に失敗しました。入力内容はこの画面に保持されています。別のタブで保存内容を確認し、管理者にご連絡ください。");
   }
   const savedRows = splitMonthlyRows(parseMonthlyPlayerRows(savedSubmission.player_rows));
+  revalidatePath("/admin/reviews");
+  revalidatePath("/admin/reward");
+  revalidatePath("/team/reward");
 
   return {
     status: "success",

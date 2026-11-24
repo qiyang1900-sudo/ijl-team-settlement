@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { formatDateTime } from "@/lib/date-format";
 import { parseClubActivityItems } from "@/lib/club-activities";
 import MonthlyContentReview from "../components/MonthlyContentReview";
-import { sendMonthlyReturnReminder } from "@/lib/return-reminders";
+import { applyMonthlyReviewAction } from "@/lib/monthly-review-action";
 import DeleteMonthlySubmissionButton from "./DeleteMonthlySubmissionButton";
 import ImagePreview from "./ImagePreview";
 import ReminderButton from "../reviews/ReminderButton";
@@ -88,77 +88,8 @@ type ReviewKind = "monthly" | "salary";
 async function updateMonthlyDataStatus(formData: FormData) {
   "use server";
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Supabase 环境变量没有设置成功。");
-  }
-
-  const supabase = createSupabaseServerClient(supabaseUrl, supabaseAnonKey);
-  const submissionId = String(formData.get("submission_id") || "");
-  const actionType = String(formData.get("action_type") || "");
-  const reviewKind = String(formData.get("review_kind") || "monthly");
-  const returnReason = String(formData.get("return_reason") || "").trim();
-  const now = new Date().toISOString();
-
-  if (!submissionId) {
-    throw new Error("未找到月数据提交记录。");
-  }
-
-  const patch: Record<string, unknown> = {
-    updated_at: now,
-  };
-
-  if (reviewKind === "salary") {
-    if (actionType === "reviewing") {
-      patch.salary_status = "reviewing";
-      patch.salary_reviewing_at = now;
-    }
-
-    if (actionType === "approved") {
-      patch.salary_status = "approved";
-      patch.salary_approved_at = now;
-      patch.salary_return_reason = null;
-    }
-
-    if (actionType === "returned") {
-      patch.salary_status = "returned";
-      patch.salary_returned_at = now;
-      patch.salary_return_reason = returnReason || "请补充工资截图后重新提交。";
-    }
-  } else if (actionType === "reviewing") {
-    patch.status = "reviewing";
-    patch.reviewing_at = now;
-  } else if (actionType === "approved") {
-    patch.status = "approved";
-    patch.approved_at = now;
-    patch.return_reason = null;
-  } else if (actionType === "returned") {
-    patch.status = "returned";
-    patch.returned_at = now;
-    patch.return_reason = returnReason || "请补充月数据内容后重新提交。";
-  }
-
-  const { error } = await supabase
-    .from("monthly_data_submissions")
-    .update(patch)
-    .eq("id", submissionId);
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  if (actionType === "returned") {
-    await sendMonthlyReturnReminder({
-      supabase,
-      submissionId,
-      reviewKind: reviewKind === "salary" ? "salary" : "monthly",
-      returnReason,
-    });
-  }
-
-  redirect("/admin/reward");
+  const updated = await applyMonthlyReviewAction(formData);
+  redirect(updated ? "/admin/reward" : "/admin/reward?review_notice=changed");
 }
 
 async function deleteMonthlyDataSubmission(formData: FormData) {
@@ -190,7 +121,8 @@ async function deleteMonthlyDataSubmission(formData: FormData) {
   redirect("/admin/reward");
 }
 
-export default async function RewardPage() {
+export default async function RewardPage({ searchParams }: { searchParams: Promise<{ review_notice?: string }> }) {
+  const { review_notice: reviewNotice } = await searchParams;
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -263,6 +195,7 @@ export default async function RewardPage() {
             </Link>
 
             <h1 className="mt-4 text-3xl font-bold">月数据审核</h1>
+            {reviewNotice === "changed" ? <p role="alert" className="mt-3 rounded-lg border border-amber-600 bg-amber-950 p-4 text-sm text-amber-100">这份提交已撤回或内容、状态已更新，本次审核操作未执行。请查看刷新后的资料再操作。</p> : null}
             <p className="mt-2 text-slate-400">
               审核战队每月提交的选手薪资、X、YouTube 和俱乐部活动资料。数据波动提醒只提示人工确认，不会改变状态、分数或录入数据。
             </p>
@@ -962,6 +895,7 @@ function AdminActions({
         <form action={updateMonthlyDataStatus}>
           <input type="hidden" name="submission_id" value={row.id} />
           <input type="hidden" name="review_kind" value={reviewKind} />
+          <input type="hidden" name="expected_updated_at" value={row.updated_at || ""} />
           <button
             name="action_type"
             value="reviewing"
@@ -978,6 +912,7 @@ function AdminActions({
         <form action={updateMonthlyDataStatus}>
           <input type="hidden" name="submission_id" value={row.id} />
           <input type="hidden" name="review_kind" value={reviewKind} />
+          <input type="hidden" name="expected_updated_at" value={row.updated_at || ""} />
           <button
             name="action_type"
             value="approved"
@@ -994,6 +929,7 @@ function AdminActions({
         <form action={updateMonthlyDataStatus} className="flex gap-2">
           <input type="hidden" name="submission_id" value={row.id} />
           <input type="hidden" name="review_kind" value={reviewKind} />
+          <input type="hidden" name="expected_updated_at" value={row.updated_at || ""} />
           <input
             name="return_reason"
             placeholder={`填写${reviewLabel}驳回理由`}

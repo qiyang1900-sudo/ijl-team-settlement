@@ -182,6 +182,7 @@ export default function MonthlyDataForm({
   const [page, setPage] = useState<1 | 2>(1);
   const [confirmEmptyPage, setConfirmEmptyPage] = useState(false);
   const [confirmWithdrawal, setConfirmWithdrawal] = useState(false);
+  const [withdrawalNotice, setWithdrawalNotice] = useState("");
   const monthlyFormRef = useRef<HTMLFormElement>(null);
   const salaryFormRef = useRef<HTMLFormElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -199,8 +200,6 @@ export default function MonthlyDataForm({
   const [clientInfo, setClientInfo] = useState("");
   const [draftReady, setDraftReady] = useState(false);
   const [canCacheDraft, setCanCacheDraft] = useState(true);
-  const [restoredDraftAt, setRestoredDraftAt] = useState<number | null>(null);
-  const [conflictingDraft, setConflictingDraft] = useState<LocalMonthlyDraft | null>(null);
   const [monthlyRevision, setMonthlyRevision] = useState(initialMonthlyRevision);
   const [salaryRevision, setSalaryRevision] = useState(initialSalaryRevision);
   const isCompressingRef = useRef(false);
@@ -224,6 +223,10 @@ export default function MonthlyDataForm({
     setClientInfo("");
     confirmedEmptyRef.current = false;
     if (result.status !== "success") {
+      if (result.actionType === "withdraw") {
+        setWithdrawalNotice(result.message || "提出を取り消せませんでした。スタッフ（kiyo）までご連絡ください。");
+        setConfirmWithdrawal(true);
+      }
       return;
     }
     const salaryAction = result.actionType?.startsWith("salary_screenshots");
@@ -247,7 +250,7 @@ export default function MonthlyDataForm({
     setActivities(nextActivities);
     setContentEntries(nextContent);
     // Persist the acknowledged snapshot before refresh, not after the autosave debounce.
-    if (!conflictingDraft) {
+    if (canCacheDraft) {
       try {
         window.localStorage.setItem(draftStorageKey, JSON.stringify({ officialRow: nextOfficial, players: nextPlayers, activities: nextActivities, contentEntries: nextContent, monthlyRevision: nextMonthlyRevision, salaryRevision: nextSalaryRevision, savedAt: Date.now() } satisfies LocalMonthlyDraft));
         setCanCacheDraft(true);
@@ -259,7 +262,6 @@ export default function MonthlyDataForm({
     savedForm?.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach((input) => { input.value = ""; });
     confirmedEmptyRef.current = false;
     setClientInfo("");
-    setRestoredDraftAt(null);
     router.refresh();
   }
 
@@ -272,7 +274,9 @@ export default function MonthlyDataForm({
       } catch (error) {
         setClientInfo("");
         confirmedEmptyRef.current = false;
-        return { status: "error" as const, message: `送信に失敗しました。入力内容はこの画面に保持されています。${error instanceof Error ? error.message : "接続を確認して再度お試しください。"}` };
+        const result = { status: "error" as const, actionType: String(formData.get("action_type") || ""), message: `送信に失敗しました。入力内容はこの画面に保持されています。${error instanceof Error ? error.message : "接続を確認して再度お試しください。"}` };
+        applySavedResult(result);
+        return result;
       }
     },
     initialActionState
@@ -295,8 +299,10 @@ export default function MonthlyDataForm({
   }, [clientError, actionState, showContentErrors]);
 
   const restoreDraft = useCallback((draft: LocalMonthlyDraft) => {
-    const restoredContent = !isMonthlyDataLocked && Array.isArray(draft.contentEntries) ? parseMonthlyContent(draft.contentEntries) : null;
-    if (draft.officialRow && !isMonthlyDataLocked) {
+    const restoreMonthly = !isMonthlyDataLocked && draft.monthlyRevision === initialMonthlyRevision;
+    const restoreSalary = !isSalaryLocked && draft.salaryRevision === initialSalaryRevision;
+    const restoredContent = restoreMonthly && Array.isArray(draft.contentEntries) ? parseMonthlyContent(draft.contentEntries) : null;
+    if (draft.officialRow && restoreMonthly) {
       setOfficialRow(mergeLocalDraftRowWithSavedFiles(draft.officialRow, initialOfficialRow));
     }
     if (Array.isArray(draft.players)) {
@@ -304,9 +310,9 @@ export default function MonthlyDataForm({
         const draftRow = findSavedPlayerForDraft(saved, draft.players!);
         if (!draftRow) return saved;
         const merged = mergeLocalDraftRowWithSavedFiles(draftRow, saved);
-        const salary = isSalaryLocked ? saved : merged;
+        const salary = restoreSalary ? merged : saved;
         return {
-          ...(isMonthlyDataLocked ? saved : merged),
+          ...(restoreMonthly ? merged : saved),
           salaryAmount: salary.salaryAmount,
           salaryScreenshotName: salary.salaryScreenshotName,
           salaryScreenshotUrl: salary.salaryScreenshotUrl,
@@ -315,7 +321,7 @@ export default function MonthlyDataForm({
         };
       }));
     }
-    if (!isMonthlyDataLocked && Array.isArray(draft.activities)) {
+    if (restoreMonthly && Array.isArray(draft.activities)) {
       const restored = retainClubActivityImages(draft.activities, clubActivityItems);
       setActivities(restored.length ? restored : [emptyClubActivityItem()]);
     }
@@ -326,8 +332,7 @@ export default function MonthlyDataForm({
         return { ...entry, imageName: saved?.imageName || "", imageUrl: saved?.imageUrl || "", imageStoragePath: saved?.imageStoragePath || "", imageMimeType: saved?.imageMimeType || "" };
       }));
     }
-    setRestoredDraftAt(draft.savedAt || Date.now());
-  }, [initialOfficialRow, initialPlayers, initialContentEntries, clubActivityItems, isMonthlyDataLocked, isSalaryLocked]);
+  }, [initialOfficialRow, initialPlayers, initialContentEntries, clubActivityItems, isMonthlyDataLocked, isSalaryLocked, initialMonthlyRevision, initialSalaryRevision]);
 
   useEffect(() => {
     if (typeof window === "undefined" || restoredKeyRef.current === draftStorageKey) {
@@ -341,11 +346,14 @@ export default function MonthlyDataForm({
         if (rawDraft) {
           const draft = JSON.parse(rawDraft) as LocalMonthlyDraft;
 
-          if ((!isMonthlyDataLocked && draft.monthlyRevision !== initialMonthlyRevision) ||
-              (!isSalaryLocked && draft.salaryRevision !== initialSalaryRevision)) {
-            setConflictingDraft(draft);
-            setDraftReady(true);
-            return;
+          if (draft.monthlyRevision !== initialMonthlyRevision || draft.salaryRevision !== initialSalaryRevision) {
+            // Preserve the old snapshot before replacing the active cache with server data.
+            const prefix = `${draftStorageKey}:recovery:${Date.now()}`;
+            let recoveryKey = prefix;
+            let suffix = 0;
+            while (window.localStorage.getItem(recoveryKey) !== null) recoveryKey = `${prefix}:${++suffix}`;
+            window.localStorage.setItem(recoveryKey, rawDraft);
+            if (window.localStorage.getItem(recoveryKey) !== rawDraft) throw new Error("Draft backup failed");
           }
 
           restoreDraft(draft);
@@ -362,7 +370,7 @@ export default function MonthlyDataForm({
   }, [draftStorageKey, initialMonthlyRevision, initialSalaryRevision, isMonthlyDataLocked, isSalaryLocked, restoreDraft]);
 
   useEffect(() => {
-    if (!draftReady || !canCacheDraft || conflictingDraft || typeof window === "undefined") {
+    if (!draftReady || !canCacheDraft || typeof window === "undefined") {
       return;
     }
 
@@ -387,7 +395,7 @@ export default function MonthlyDataForm({
     }, 350);
 
     return () => window.clearTimeout(timeoutId);
-  }, [activities, contentEntries, draftReady, canCacheDraft, draftStorageKey, officialRow, players, conflictingDraft, monthlyRevision, salaryRevision]);
+  }, [activities, contentEntries, draftReady, canCacheDraft, draftStorageKey, officialRow, players, monthlyRevision, salaryRevision]);
 
   function updatePlayer(index: number, key: PlayerField, value: string) {
     setPlayers((current) =>
@@ -428,52 +436,28 @@ export default function MonthlyDataForm({
     });
   }
 
-  function discardLocalDraft() {
-    if (isPending || isCompressingRef.current) return;
-    if (typeof window !== "undefined") {
-      try { window.localStorage.removeItem(draftStorageKey); } catch { setCanCacheDraft(false); }
-    }
-
-    setRestoredDraftAt(null);
-    setConflictingDraft(null);
-    setMonthlyRevision(initialMonthlyRevision);
-    setSalaryRevision(initialSalaryRevision);
-    setOfficialRow(initialOfficialRow);
-    setPlayers(initialPlayers);
-    setContentEntries(initialContentEntries);
-    for (const form of [monthlyFormRef.current, salaryFormRef.current]) {
-      form?.querySelectorAll<HTMLInputElement>('input[type="file"]').forEach((input) => { input.value = ""; });
-    }
-    setActivities(
-      clubActivityItems.length > 0 ? clubActivityItems : [emptyClubActivityItem()]
-    );
-  }
-
-  function restoreConflictingDraft() {
-    if (!conflictingDraft || !window.confirm("端末の入力を復元します。保存前にサーバー上の内容との差分をご確認ください。未送信の画像ファイルは再選択が必要です。")) return;
-    try { restoreDraft(conflictingDraft); } catch {
-      setClientError("端末の下書きを復元できませんでした。サーバーの内容は変更していません。管理者にご連絡ください。");
-      return;
-    }
-    setMonthlyRevision(initialMonthlyRevision);
-    setSalaryRevision(initialSalaryRevision);
-    setConflictingDraft(null);
-  }
-
   function handleFormSubmit(event: FormEvent<HTMLFormElement>) {
     const submitter =
       (event.nativeEvent as SubmitEvent).submitter instanceof HTMLButtonElement
         ? ((event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement)
         : null;
     if (submitter?.value === "withdraw") {
-      if (isPending || isCompressingRef.current || monthlyStatus !== "submitted") {
+      if (isPending || isCompressingRef.current || !draftReady) {
         confirmedWithdrawalRef.current = false;
         event.preventDefault();
+        return;
+      }
+      if (monthlyStatus !== "submitted") {
+        event.preventDefault();
+        confirmedWithdrawalRef.current = false;
+        setWithdrawalNotice(getMonthlyEditNotice(monthlyStatus) || "提出状況をご確認ください。変更が必要な場合はスタッフ（kiyo）までご連絡ください。");
+        setConfirmWithdrawal(true);
         return;
       }
       if (!confirmedWithdrawalRef.current) {
         event.preventDefault();
         submitterRef.current = submitter;
+        setWithdrawalNotice("");
         setConfirmWithdrawal(true);
         return;
       }
@@ -482,7 +466,7 @@ export default function MonthlyDataForm({
       setClientInfo("月データの提出を取り消しています...");
       return;
     }
-    if (!draftReady || conflictingDraft) {
+    if (!draftReady) {
       event.preventDefault();
       return;
     }
@@ -618,9 +602,9 @@ export default function MonthlyDataForm({
       });
   }
 
-  const isSubmitDisabled = isMonthlyDataLocked || players.length === 0 || isPending || !draftReady || Boolean(conflictingDraft);
+  const isSubmitDisabled = isMonthlyDataLocked || players.length === 0 || isPending || !draftReady;
   const canSubmitSalary =
-    canSaveSalaryScreenshots && !isSalaryLocked && players.length > 0 && !isPending && draftReady && !conflictingDraft;
+    canSaveSalaryScreenshots && !isSalaryLocked && players.length > 0 && !isPending && draftReady;
 
   return (
     <div className="space-y-6">
@@ -650,34 +634,6 @@ export default function MonthlyDataForm({
       {clientInfo ? (
         <div className="rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm font-semibold text-sky-800">
           {clientInfo}
-        </div>
-      ) : null}
-
-      {restoredDraftAt ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <p className="font-semibold">
-              この端末の入力内容を復元しました。まだサーバーに保存していない画像のみ、再選択してください。
-            </p>
-            <button
-              type="button"
-              onClick={discardLocalDraft}
-              disabled={isPending}
-              className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100"
-            >
-              復元内容を破棄
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {conflictingDraft ? (
-        <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <p>サーバーの保存内容と異なる端末の下書きがあります。現在はサーバーの内容を表示しています。端末の入力は自動で上書きしていません。</p>
-          <div className="mt-3 flex flex-wrap gap-3">
-            <button type="button" onClick={discardLocalDraft} className="rounded-md border border-amber-300 bg-white px-3 py-2 font-semibold">サーバーの内容を使用</button>
-            <button type="button" onClick={restoreConflictingDraft} className="rounded-md border border-amber-300 bg-white px-3 py-2 font-semibold">端末の入力を復元</button>
-          </div>
         </div>
       ) : null}
 
@@ -803,10 +759,10 @@ export default function MonthlyDataForm({
           {getMonthlyEditNotice(monthlyStatus) ? <p className="mt-2 text-sm leading-6 text-slate-600">{getMonthlyEditNotice(monthlyStatus)}</p> : null}
           <div className="mt-4 flex flex-wrap gap-3">
             <button type="button" onClick={() => setPage(page === 1 ? 2 : 1)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700">{page === 1 ? <>次へ<ArrowRight size={16} /></> : <><ArrowLeft size={16} />戻る</>}</button>
-            {monthlyStatus === "submitted" ? (
+            {monthlyStatus === "submitted" || monthlyStatus === "reviewing" ? (
               <button type="submit" name="action_type" value="withdraw" formNoValidate disabled={isPending || !draftReady} className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-5 py-3 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">
                 <RotateCcw size={16} aria-hidden="true" />
-                {isPending ? "処理中..." : "提出を取り消して編集する"}
+                {isPending ? "処理中..." : "提出を取り消す"}
               </button>
             ) : null}
             <button
@@ -833,11 +789,11 @@ export default function MonthlyDataForm({
         </div>
       </form>
       <dialog ref={withdrawalDialogRef} aria-labelledby="withdrawal-title" aria-describedby="withdrawal-description" onCancel={() => setConfirmWithdrawal(false)} onClose={() => setConfirmWithdrawal(false)} className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-lg border border-slate-200 bg-white p-6 text-slate-950 shadow-xl backdrop:bg-black/40">
-        <h2 id="withdrawal-title" className="text-lg font-bold">月データの提出を取り消しますか？</h2>
-        <p id="withdrawal-description" className="mt-3 text-sm leading-6 text-slate-600">保存済みのデータ・画像は保持されます。給与の提出・審査状況は変更されません。修正後は再提出が必要です。</p>
+        <h2 id="withdrawal-title" className="text-lg font-bold">{withdrawalNotice ? "提出を取り消せません" : "提出済みの月データを取り消しますか？"}</h2>
+        <p id="withdrawal-description" className="mt-3 text-sm leading-6 text-slate-600">{withdrawalNotice || "保存済みのデータ・画像は保持されます。給与の提出・審査状況は変更されません。取り消し後は未提出となり、修正後に再提出が必要です。"}</p>
         <div className="mt-6 flex flex-wrap justify-end gap-3">
-          <button type="button" autoFocus onClick={() => setConfirmWithdrawal(false)} className="rounded-md border border-slate-300 px-4 py-2.5 text-sm font-semibold">取り消さずに戻る</button>
-          <button type="button" onClick={() => { confirmedWithdrawalRef.current = true; setConfirmWithdrawal(false); monthlyFormRef.current?.requestSubmit(submitterRef.current || undefined); }} className="rounded-md bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400">取り消して編集する</button>
+          <button type="button" autoFocus onClick={() => setConfirmWithdrawal(false)} className="rounded-md border border-slate-300 px-4 py-2.5 text-sm font-semibold">{withdrawalNotice ? "閉じる" : "キャンセル"}</button>
+          {!withdrawalNotice ? <button type="button" onClick={() => { confirmedWithdrawalRef.current = true; setConfirmWithdrawal(false); monthlyFormRef.current?.requestSubmit(submitterRef.current || undefined); }} className="rounded-md bg-amber-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-amber-400">確認して取り消す</button> : null}
         </div>
       </dialog>
       <dialog ref={dialogRef} aria-labelledby="empty-content-title" aria-describedby="empty-content-description" onCancel={() => setConfirmEmptyPage(false)} onClose={() => setConfirmEmptyPage(false)} className="m-auto w-[calc(100%-2rem)] max-w-lg rounded-lg border border-slate-200 bg-white p-6 text-slate-950 shadow-xl backdrop:bg-black/40">
